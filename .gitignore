@@ -37,3 +37,4 @@ agent/**/.vs/
 
 # Logs
 *.log
+agent/publish/

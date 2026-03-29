@@ -4,6 +4,7 @@ using Rivertown.Agent.Core.Configuration;
 using Rivertown.Agent.Core.Communication;
 using Rivertown.Agent.Core.Handlers;
 using Rivertown.Agent.Core.Inventory;
+using Rivertown.Agent.Core.Update;
 
 namespace Rivertown.Agent.Core;
 
@@ -11,19 +12,23 @@ public class AgentService : BackgroundService
 {
     private readonly ILogger<AgentService> _logger;
     private readonly IServiceProvider _services;
+    private readonly IHostApplicationLifetime _lifetime;
     private AgentConfig _config = new();
     private MqttHandler? _mqtt;
     private TerminalHandler? _terminal;
+    private UpdateChecker? _updateChecker;
 
-    public AgentService(ILogger<AgentService> logger, IServiceProvider services)
+    public AgentService(ILogger<AgentService> logger, IServiceProvider services, IHostApplicationLifetime lifetime)
     {
         _logger = logger;
         _services = services;
+        _lifetime = lifetime;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Rivertown RMM Agent v0.1.0 starting...");
+        var agentVersion = AgentStatusWriter.GetVersion();
+    _logger.LogInformation("Rivertown RMM Agent v{Version} starting...", agentVersion);
 
         // 1. Load config
         _config = AgentConfig.Load();
@@ -55,7 +60,13 @@ public class AgentService : BackgroundService
             return;
         }
 
-        // 3.5 Send initial full inventory
+        // 3.5 Initialize update checker
+        _updateChecker = new UpdateChecker(_services.GetRequiredService<ILogger<UpdateChecker>>(), _config.ApiBaseUrl);
+
+        // Write initial status
+        AgentStatusWriter.WriteStatus(_mqtt.IsConnected, _config.AgentId, _config.TenantId, null);
+
+        // 3.6 Send initial full inventory
         _logger.LogInformation("Collecting initial system inventory...");
         await PublishInventory();
 
@@ -70,6 +81,7 @@ public class AgentService : BackgroundService
             {
                 var heartbeat = CollectHeartbeat();
                 await _mqtt.PublishHeartbeatAsync(heartbeat);
+                AgentStatusWriter.WriteStatus(_mqtt.IsConnected, _config.AgentId, _config.TenantId, DateTime.UtcNow);
                 _logger.LogDebug("Heartbeat sent: CPU={Cpu}%, RAM={Ram}MB free", heartbeat.CpuPercent, heartbeat.MemoryFreeMb);
             }
             catch (Exception ex)
@@ -93,6 +105,13 @@ public class AgentService : BackgroundService
             if (heartbeatCount % 1440 == 0)
             {
                 await PublishInventory();
+            }
+
+            // Check for updates every 6 hours (360 heartbeats)
+            if (heartbeatCount % 360 == 0 && _updateChecker != null)
+            {
+                try { await _updateChecker.CheckAndApplyUpdateAsync(_lifetime); }
+                catch (Exception ex) { _logger.LogError(ex, "Update check failed"); }
             }
 
             await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
@@ -143,6 +162,14 @@ public class AgentService : BackgroundService
             case "terminal_stop":
                 _terminal?.Dispose();
                 _terminal = null;
+                break;
+            case "agent_update":
+                var targetVersion = doc.RootElement.GetProperty("payload").TryGetProperty("version", out var vp) ? vp.GetString() : null;
+                if (_updateChecker != null)
+                {
+                    _ = Task.Run(() => _updateChecker.CheckAndApplyUpdateAsync(_lifetime, targetVersion));
+                    await _mqtt!.PublishResponseAsync(new { commandId, status = "in_progress", payload = new { message = $"Checking for update{(targetVersion != null ? $" to {targetVersion}" : "")}..." }, completedAt = DateTime.UtcNow });
+                }
                 break;
             default:
                 _logger.LogWarning("Unknown command type: {Type}", commandType);
@@ -236,7 +263,7 @@ public class AgentService : BackgroundService
         return new HeartbeatData
         {
             AgentId = _config.AgentId,
-            AgentVersion = "0.1.0",
+            AgentVersion = AgentStatusWriter.GetVersion(),
             Hostname = Environment.MachineName,
             OsVersion = Environment.OSVersion.ToString(),
             IpAddress = ipAddress,

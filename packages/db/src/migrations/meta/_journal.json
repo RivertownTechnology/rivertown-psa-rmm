@@ -127,6 +127,13 @@
       "when": 1774760140659,
       "tag": "0017_lumpy_archangel",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1774761073571,
+      "tag": "0018_known_wiccan",
+      "breakpoints": true
     }
   ]
 }

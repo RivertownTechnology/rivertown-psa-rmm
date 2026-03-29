@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
+import multipart from '@fastify/multipart';
 import { createDb, Database } from '@rivertown/db';
 import { Config } from './config.js';
 import { jwtPlugin } from './auth/jwt.js';
@@ -71,6 +72,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
 
   // WebSocket support
   await fastify.register(websocket);
+  await fastify.register(multipart, { limits: { fileSize: 200 * 1024 * 1024 } }); // 200MB for agent builds
 
   // JWT Auth
   await fastify.register(jwtPlugin, { config });

@@ -127,7 +127,7 @@ export function RmmPage({ onNavigateToCustomer }: { onNavigateToCustomer: (id: s
   const msiFilename = enrollmentResult ? 'RivertownRMM_' + enrollmentResult.key + '.msi' : '';
   const psScript = enrollmentResult ? [
     '# Rivertown RMM Agent Install Script',
-    '# Run as Administrator',
+    '# Run as Administrator in PowerShell',
     '$ErrorActionPreference = "Stop"',
     '',
     '# Configuration',
@@ -135,10 +135,32 @@ export function RmmPage({ onNavigateToCustomer }: { onNavigateToCustomer: (id: s
     '$ApiUrl = "' + apiBaseUrl + '"',
     '$MqttUrl = "' + mqttUrl + '"',
     '$InstallPath = "C:\\Program Files\\Rivertown\\Agent"',
+    '$ConfigDir = "$env:ProgramData\\Rivertown\\Agent"',
+    '$ServiceName = "RivertownRMMAgent"',
+    '',
+    'Write-Host "Installing Rivertown RMM Agent..." -ForegroundColor Cyan',
+    '',
+    '# Stop existing service if running',
+    '$svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue',
+    'if ($svc) {',
+    '    Write-Host "Stopping existing service..."',
+    '    Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue',
+    '    Start-Sleep 2',
+    '    sc.exe delete $ServiceName | Out-Null',
+    '    Start-Sleep 1',
+    '}',
     '',
     '# Create directories',
     'New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null',
-    'New-Item -ItemType Directory -Path "$env:ProgramData\\Rivertown\\Agent" -Force | Out-Null',
+    'New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null',
+    '',
+    '# Download agent',
+    'Write-Host "Downloading agent..."',
+    '$zipPath = "$env:TEMP\\rivertown-agent.zip"',
+    '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12',
+    'Invoke-WebRequest -Uri "$ApiUrl/api/v1/rmm/agent/download/latest/win-x64" -OutFile $zipPath',
+    'Expand-Archive -Path $zipPath -DestinationPath $InstallPath -Force',
+    'Remove-Item $zipPath -Force',
     '',
     '# Write config',
     '@{',
@@ -150,21 +172,22 @@ export function RmmPage({ onNavigateToCustomer }: { onNavigateToCustomer: (id: s
     '    ApiBaseUrl = $ApiUrl',
     '    EnrollmentToken = $Token',
     '    IsEnrolled = $false',
-    '} | ConvertTo-Json | Set-Content "$env:ProgramData\\Rivertown\\Agent\\agent-config.json"',
+    '} | ConvertTo-Json | Set-Content "$ConfigDir\\agent-config.json"',
     '',
-    '# Download agent (when hosted)',
-    '# Invoke-WebRequest -Uri "$ApiUrl/downloads/RivertownAgent.exe" -OutFile "$InstallPath\\Rivertown.Agent.Core.exe"',
+    '# Install and start service',
+    '$exePath = "$InstallPath\\Rivertown.Agent.Core.exe"',
+    'sc.exe create $ServiceName binPath= "`"$exePath`"" start= auto DisplayName= "Rivertown RMM Agent" | Out-Null',
+    'sc.exe description $ServiceName "Rivertown PSA/RMM endpoint management agent" | Out-Null',
+    'sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/10000/restart/30000 | Out-Null',
+    'Start-Service -Name $ServiceName',
     '',
-    '# Install as service',
-    'if (Test-Path "$InstallPath\\Rivertown.Agent.Core.exe") {',
-    '    sc.exe create RivertownRMMAgent binPath= "`"$InstallPath\\Rivertown.Agent.Core.exe`"" start= auto | Out-Null',
-    '    sc.exe description RivertownRMMAgent "Rivertown RMM Agent" | Out-Null',
-    '    Start-Service -Name RivertownRMMAgent',
-    '    Write-Host "Agent installed and started!" -ForegroundColor Green',
-    '} else {',
-    '    Write-Host "Agent executable not found. Copy it to $InstallPath first." -ForegroundColor Yellow',
-    '    Write-Host "Config has been written. Agent will enroll on first start." -ForegroundColor Yellow',
-    '}',
+    '# Start tray app',
+    '$trayExe = "$InstallPath\\Rivertown.Agent.Tray.exe"',
+    'if (Test-Path $trayExe) { Start-Process $trayExe }',
+    '',
+    'Write-Host ""',
+    'Write-Host "Rivertown RMM Agent installed and running!" -ForegroundColor Green',
+    'Write-Host "The agent will appear in the RMM dashboard within 60 seconds."',
   ].join('\n') : '';
 
   return (
@@ -349,56 +372,46 @@ export function RmmPage({ onNavigateToCustomer }: { onNavigateToCustomer: (id: s
                   Enrollment key generated. Choose your install method below.
                 </div>
 
-                {/* MSI Download */}
-                <Card>
-                  <CardContent className="p-4 space-y-2">
+                {/* PowerShell Install — Primary method */}
+                <Card className="border-primary">
+                  <CardContent className="p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="font-medium text-sm">Option 1: MSI Installer</div>
-                        <div className="text-xs text-muted-foreground">Custom MSI with enrollment key built into the filename</div>
+                        <div className="font-medium text-sm">PowerShell Install (Recommended)</div>
+                        <div className="text-xs text-muted-foreground">Copy and run as Administrator on the target device. Downloads, installs, and enrolls automatically.</div>
                       </div>
-                      <Button size="sm" variant="outline" disabled>
-                        <Download className="h-4 w-4 mr-1" />{msiFilename}
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">MSI download available when agent build server is configured.</p>
-                  </CardContent>
-                </Card>
-
-                {/* PowerShell Script */}
-                <Card>
-                  <CardContent className="p-4 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-sm">Option 2: PowerShell Script</div>
-                        <div className="text-xs text-muted-foreground">Run as Administrator on the target device</div>
-                      </div>
-                      <Button size="sm" variant="outline" onClick={() => copyToClipboard(psScript, 'ps')}>
+                      <Button size="sm" onClick={() => copyToClipboard(psScript, 'ps')}>
                         {copied === 'ps' ? <Check className="h-4 w-4 mr-1" /> : <Copy className="h-4 w-4 mr-1" />}
                         {copied === 'ps' ? 'Copied!' : 'Copy Script'}
                       </Button>
                     </div>
-                    <div className="bg-gray-950 text-green-400 font-mono text-xs p-3 rounded-md max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
+                    <div className="bg-gray-950 text-green-400 font-mono text-xs p-3 rounded-md max-h-40 overflow-y-auto whitespace-pre-wrap break-all">
                       {psScript}
                     </div>
                   </CardContent>
                 </Card>
 
-                {/* Enrollment Token */}
+                {/* Manual Setup */}
                 <Card>
                   <CardContent className="p-4 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-sm">Option 3: Manual Token</div>
-                        <div className="text-xs text-muted-foreground">Use with the standalone installer script</div>
-                      </div>
+                    <div className="font-medium text-sm">Manual Setup</div>
+                    <div className="text-xs text-muted-foreground mb-2">Use the standalone installer EXE with the enrollment token.</div>
+                    <div className="bg-gray-950 text-green-400 font-mono text-xs p-3 rounded-md whitespace-pre-wrap break-all">
+                      {'RivertownAgentSetup.exe --token ' + enrollmentResult.token.substring(0, 20) + '... --api ' + apiBaseUrl}
+                    </div>
+                    <div className="flex gap-2 mt-2">
                       <Button size="sm" variant="outline" onClick={() => copyToClipboard(enrollmentResult.token, 'token')}>
                         {copied === 'token' ? <Check className="h-4 w-4 mr-1" /> : <Copy className="h-4 w-4 mr-1" />}
                         {copied === 'token' ? 'Copied!' : 'Copy Token'}
                       </Button>
+                      <Button size="sm" variant="outline" onClick={() => copyToClipboard(
+                        'RivertownAgentSetup.exe --token "' + enrollmentResult.token + '" --api "' + apiBaseUrl + '" --mqtt "' + mqttUrl + '" --silent', 'cmd'
+                      )}>
+                        {copied === 'cmd' ? <Check className="h-4 w-4 mr-1" /> : <Copy className="h-4 w-4 mr-1" />}
+                        {copied === 'cmd' ? 'Copied!' : 'Copy Full Command'}
+                      </Button>
                     </div>
-                    <textarea value={enrollmentResult.token} readOnly rows={3} className="w-full font-mono text-xs rounded-md border border-input bg-background px-3 py-2 break-all resize-none" />
-                    <p className="text-xs text-muted-foreground">Token expires in 24 hours. Key: <code className="bg-muted px-1 rounded">{enrollmentResult.key}</code></p>
+                    <p className="text-xs text-muted-foreground">Token expires in 24 hours.</p>
                   </CardContent>
                 </Card>
               </div>

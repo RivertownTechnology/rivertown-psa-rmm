@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <AgentVersion>0.2.0</AgentVersion>
+    <Version>$(AgentVersion)</Version>
+    <AssemblyVersion>$(AgentVersion).0</AssemblyVersion>
+    <FileVersion>$(AgentVersion).0</FileVersion>
+    <Company>Rivertown Technology</Company>
+    <Product>Rivertown RMM Agent</Product>
+    <Copyright>Copyright Rivertown Technology 2026</Copyright>
+  </PropertyGroup>
+</Project>
