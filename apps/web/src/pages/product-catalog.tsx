@@ -14,7 +14,7 @@ interface CatalogItem {
   vendor: string | null; category: string; itemType: string;
   defaultUnitCostCents: number | null; defaultUnitPriceCents: number;
   pax8ProductName: string | null; pax8ProductId: string | null; pax8VendorName: string | null;
-  isActive: boolean;
+  taxable: boolean; isActive: boolean;
 }
 
 const categoryLabels: Record<string, string> = {
@@ -24,7 +24,7 @@ const categoryLabels: Record<string, string> = {
 
 const emptyForm = {
   name: '', description: '', sku: '', vendor: '', category: 'license', itemType: 'recurring',
-  defaultUnitCostCents: '', defaultUnitPriceCents: '',
+  defaultUnitCostCents: '', defaultUnitPriceCents: '', taxable: true,
   pax8ProductName: '', pax8ProductId: '', pax8VendorName: '',
 };
 
@@ -70,6 +70,7 @@ export function ProductCatalogPage() {
       itemType: item.itemType,
       defaultUnitCostCents: item.defaultUnitCostCents ? (item.defaultUnitCostCents / 100).toString() : '',
       defaultUnitPriceCents: (item.defaultUnitPriceCents / 100).toString(),
+      taxable: item.taxable ?? true,
       pax8ProductName: item.pax8ProductName ?? '',
       pax8ProductId: item.pax8ProductId ?? '',
       pax8VendorName: item.pax8VendorName ?? '',
@@ -89,6 +90,7 @@ export function ProductCatalogPage() {
         itemType: form.itemType,
         defaultUnitCostCents: form.defaultUnitCostCents ? Math.round(parseFloat(form.defaultUnitCostCents) * 100) : undefined,
         defaultUnitPriceCents: Math.round(parseFloat(form.defaultUnitPriceCents) * 100),
+        taxable: form.taxable,
         pax8ProductName: form.pax8ProductName || undefined,
         pax8ProductId: form.pax8ProductId || undefined,
         pax8VendorName: form.pax8VendorName || undefined,
@@ -154,6 +156,7 @@ export function ProductCatalogPage() {
                   <th className="text-right p-3 font-medium">Price</th>
                   <th className="text-right p-3 font-medium">Margin</th>
                   <th className="text-left p-3 font-medium">Pax8</th>
+                  <th className="text-center p-3 font-medium">Tax</th>
                   <th className="w-20"></th>
                 </tr>
               </thead>
@@ -181,6 +184,9 @@ export function ProductCatalogPage() {
                       {item.pax8ProductName ? (
                         <Badge variant="secondary" className="text-xs">{item.pax8ProductName}</Badge>
                       ) : <span className="text-muted-foreground">-</span>}
+                    </td>
+                    <td className="p-3 text-center">
+                      {item.taxable ? <Badge variant="outline" className="text-xs text-green-600 border-green-300">Tax</Badge> : <span className="text-xs text-muted-foreground">No</span>}
                     </td>
                     <td className="p-3">
                       <div className="flex gap-1">
@@ -262,6 +268,13 @@ export function ProductCatalogPage() {
                 </span>
               </div>
             )}
+
+            {/* Tax */}
+            <div className="flex items-center gap-3 py-2">
+              <input type="checkbox" id="taxable" checked={form.taxable} onChange={e => setForm({ ...form, taxable: e.target.checked })} className="h-4 w-4" />
+              <Label htmlFor="taxable">Taxable</Label>
+              <span className="text-xs text-muted-foreground">Uncheck for non-taxable items (e.g., labor/services in most states)</span>
+            </div>
 
             {/* Pax8 sync fields */}
             <div className="border-t pt-4">

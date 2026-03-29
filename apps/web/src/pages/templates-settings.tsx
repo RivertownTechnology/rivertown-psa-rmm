@@ -31,10 +31,10 @@ interface BusinessProfile {
 
 interface EmailTemplate {
   id: string;
-  type: string;
+  templateType: string;
   name: string;
   subject: string;
-  htmlBody: string;
+  bodyHtml: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -66,19 +66,28 @@ const variableGroups: Record<string, string[]> = {
     'businessName', 'businessLogo', 'businessAddress', 'businessCity',
     'businessState', 'businessZip', 'businessPhone', 'businessEmail',
   ],
+  Customer: [
+    'customerName', 'customerCompany', 'customerEmail', 'customerPhone',
+    'customerAddress', 'customerCity', 'customerState', 'customerZip', 'customerFullAddress',
+  ],
+  'Bill To': [
+    'billToName', 'billToCompany', 'billToAddress',
+    'billToCity', 'billToState', 'billToZip', 'billToFullAddress',
+  ],
+  Contact: ['contactName', 'contactEmail', 'contactPhone', 'contactJobTitle'],
   Ticket: [
     'ticketNumber', 'ticketSubject', 'ticketPriority', 'ticketStatus',
-    'ticketDescription', 'customerName',
+    'ticketDescription',
   ],
-  Comment: ['commentBody', 'contactName'],
+  Comment: ['commentBody'],
   Quote: [
     'quoteNumber', 'quoteTitle', 'quoteSummary', 'totalFormatted', 'validUntil',
   ],
   Invoice: [
     'invoiceNumber', 'issueDate', 'dueDate', 'totalFormatted',
-    'invoiceNotes', 'lineItemsHtml', 'amountFormatted',
+    'amountFormatted', 'invoiceNotes', 'invoicePaymentTerms', 'lineItemsHtml', 'paymentUrl',
   ],
-  Portal: ['portalUrl', 'contactEmail', 'contactName'],
+  Portal: ['portalUrl'],
 };
 
 // ---------------------------------------------------------------------------
@@ -161,7 +170,7 @@ export function TemplatesSettingsPage() {
   // Edit template dialog
   const [editOpen, setEditOpen] = useState(false);
   const [editTemplate, setEditTemplate] = useState<EmailTemplate | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', subject: '', htmlBody: '' });
+  const [editForm, setEditForm] = useState({ name: '', subject: '', bodyHtml: '' });
   const [editSaving, setEditSaving] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -261,7 +270,7 @@ export function TemplatesSettingsPage() {
   async function toggleActive(tpl: EmailTemplate) {
     try {
       await api(`/settings/templates/${tpl.id}`, {
-        method: 'PUT',
+        method: 'PATCH',
         body: JSON.stringify({ isActive: !tpl.isActive }),
       });
       setTemplates(prev =>
@@ -272,7 +281,7 @@ export function TemplatesSettingsPage() {
 
   function openEdit(tpl: EmailTemplate) {
     setEditTemplate(tpl);
-    setEditForm({ name: tpl.name, subject: tpl.subject, htmlBody: tpl.htmlBody });
+    setEditForm({ name: tpl.name, subject: tpl.subject, bodyHtml: tpl.bodyHtml });
     setPreviewHtml('');
     setEditOpen(true);
   }
@@ -283,8 +292,8 @@ export function TemplatesSettingsPage() {
     if (textarea) {
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
-      const before = editForm.htmlBody.slice(0, start);
-      const after = editForm.htmlBody.slice(end);
+      const before = editForm.bodyHtml.slice(0, start);
+      const after = editForm.bodyHtml.slice(end);
       const newBody = before + tag + after;
       setEditForm(f => ({ ...f, htmlBody: newBody }));
       // Restore cursor position after React re-render
@@ -293,18 +302,18 @@ export function TemplatesSettingsPage() {
         textarea.selectionStart = textarea.selectionEnd = start + tag.length;
       }, 0);
     } else {
-      setEditForm(f => ({ ...f, htmlBody: f.htmlBody + tag }));
+      setEditForm(f => ({ ...f, htmlBody: f.bodyHtml + tag }));
     }
   }
 
   async function loadPreview() {
     if (!editTemplate) return;
     try {
-      const res = await api<{ html: string }>(`/settings/templates/${editTemplate.id}/preview`, {
+      const res = await api<{ bodyHtml: string; subject: string }>(`/settings/templates/${editTemplate.id}/preview`, {
         method: 'POST',
-        body: JSON.stringify({ htmlBody: editForm.htmlBody }),
+        body: JSON.stringify({ bodyHtml: editForm.bodyHtml }),
       });
-      setPreviewHtml(res.html);
+      setPreviewHtml(res.bodyHtml);
     } catch {
       setPreviewHtml('<p style="color:red;">Preview failed to load.</p>');
     }
@@ -315,11 +324,11 @@ export function TemplatesSettingsPage() {
     setEditSaving(true);
     try {
       await api(`/settings/templates/${editTemplate.id}`, {
-        method: 'PUT',
+        method: 'PATCH',
         body: JSON.stringify({
           name: editForm.name,
           subject: editForm.subject,
-          htmlBody: editForm.htmlBody,
+          bodyHtml: editForm.bodyHtml,
         }),
       });
       setEditOpen(false);
@@ -436,7 +445,7 @@ export function TemplatesSettingsPage() {
                     <tr key={tpl.id} className="border-b hover:bg-muted/30">
                       <td className="p-3">
                         <Badge variant="outline" className="text-xs">
-                          {tpl.type}
+                          {tpl.templateType}
                         </Badge>
                       </td>
                       <td className="p-3 font-medium">{tpl.name}</td>
@@ -536,7 +545,7 @@ export function TemplatesSettingsPage() {
                 </div>
                 <textarea
                   ref={bodyRef}
-                  value={editForm.htmlBody}
+                  value={editForm.bodyHtml}
                   onChange={e => setEditForm(f => ({ ...f, htmlBody: e.target.value }))}
                   rows={20}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono resize-y"

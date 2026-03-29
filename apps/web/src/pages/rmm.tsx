@@ -120,7 +120,10 @@ export function RmmPage({ onNavigateToCustomer }: { onNavigateToCustomer: (id: s
     setTimeout(() => setCopied(''), 2000);
   }
 
-  const apiBaseUrl = window.location.origin.replace(':5173', ':3000');
+  const apiBaseUrl = window.location.origin;
+  const mqttUrl = window.location.hostname === 'localhost'
+    ? 'mqtt://localhost:1883'
+    : 'wss://rmm.' + window.location.hostname.replace(/^psa\./, '');
   const msiFilename = enrollmentResult ? 'RivertownRMM_' + enrollmentResult.key + '.msi' : '';
   const psScript = enrollmentResult ? [
     '# Rivertown RMM Agent Install Script',
@@ -130,6 +133,7 @@ export function RmmPage({ onNavigateToCustomer }: { onNavigateToCustomer: (id: s
     '# Configuration',
     '$Token = "' + enrollmentResult.token + '"',
     '$ApiUrl = "' + apiBaseUrl + '"',
+    '$MqttUrl = "' + mqttUrl + '"',
     '$InstallPath = "C:\\Program Files\\Rivertown\\Agent"',
     '',
     '# Create directories',
@@ -141,8 +145,8 @@ export function RmmPage({ onNavigateToCustomer }: { onNavigateToCustomer: (id: s
     '    AgentId = ""',
     '    TenantId = ""',
     '    CustomerId = ""',
-    '    MqttBrokerUrl = ([System.Uri]$ApiUrl).Host',
-    '    MqttBrokerPort = 1883',
+    '    MqttBrokerUrl = $MqttUrl',
+    '    MqttBrokerPort = 0',
     '    ApiBaseUrl = $ApiUrl',
     '    EnrollmentToken = $Token',
     '    IsEnrolled = $false',

@@ -92,6 +92,20 @@ export async function customerRoutes(fastify: FastifyInstance) {
         ipAddress: request.ip,
       });
 
+      // Auto-resolve county from address (fire and forget)
+      const addr = (body as any).address; const cty = (body as any).city; const st = (body as any).state; const zp = (body as any).zip;
+      if (cty && st) {
+        import('../../services/county-lookup.js').then(({ lookupCounty }) => {
+          lookupCounty(addr || '', cty, st, zp || '').then(county => {
+            if (county) {
+              fastify.db.update(customers).set({ county, updatedAt: new Date() }).where(eq(customers.id, customer.id)).then(() => {
+                console.log(`[COUNTY] Resolved ${cty}, ${st} → ${county} for customer ${customer.id}`);
+              });
+            }
+          }).catch(() => {});
+        });
+      }
+
       reply.code(201);
       return customer;
     },
@@ -131,6 +145,26 @@ export async function customerRoutes(fastify: FastifyInstance) {
           changes,
           ipAddress: request.ip,
         });
+      }
+
+      // Re-resolve county if address fields changed
+      const b = body as any;
+      if (b.address !== undefined || b.city !== undefined || b.state !== undefined || b.zip !== undefined) {
+        const addr = b.address ?? updated.address ?? '';
+        const cty = b.city ?? updated.city ?? '';
+        const st = b.state ?? updated.state ?? '';
+        const zp = b.zip ?? updated.zip ?? '';
+        if (cty && st) {
+          import('../../services/county-lookup.js').then(({ lookupCounty }) => {
+            lookupCounty(addr, cty, st, zp).then(county => {
+              if (county) {
+                fastify.db.update(customers).set({ county, updatedAt: new Date() }).where(eq(customers.id, id)).then(() => {
+                  console.log(`[COUNTY] Resolved ${cty}, ${st} → ${county} for customer ${id}`);
+                });
+              }
+            }).catch(() => {});
+          });
+        }
       }
 
       return updated;

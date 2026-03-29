@@ -200,13 +200,9 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     const [updated] = await fastify.db.update(quotes).set({ status: 'sent', updatedAt: new Date() })
       .where(eq(quotes.id, id)).returning();
 
-    // Send email to customer
-    const { sendQuoteEmail } = await import('../../services/email.js');
-    const [customer] = await fastify.db.select().from(customers)
-      .where(eq(customers.id, existing.customerId)).limit(1);
-    if (customer?.billingEmail) {
-      await sendQuoteEmail(fastify.db, request.tenantId, customer.billingEmail, existing.quoteNumber, existing.title, existing.totalCents);
-    }
+    // Send email to customer with template + PDF attachment
+    const { sendQuoteEmailWithTemplate } = await import('../../services/document-email.js');
+    sendQuoteEmailWithTemplate(fastify.db, request.tenantId, id).catch(e => console.error('Quote email failed:', e));
 
     await logAudit(fastify.db, {
       tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,

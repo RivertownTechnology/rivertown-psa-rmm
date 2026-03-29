@@ -17,6 +17,10 @@ const envSchema = z.object({
   MS365_CLIENT_ID: z.string().optional(),
   MS365_CLIENT_SECRET: z.string().optional(),
   MS365_REDIRECT_URI: z.string().optional(),
+
+  // Stripe
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type Config = z.infer<typeof envSchema>;

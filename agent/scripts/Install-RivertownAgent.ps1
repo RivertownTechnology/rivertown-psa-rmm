@@ -5,10 +5,9 @@
     Enrollment token generated from Settings > RMM in the Rivertown PSA dashboard.
 .PARAMETER ApiUrl
     The API server URL (e.g., https://psa.yourcompany.com or http://localhost:3000).
-.PARAMETER MqttHost
-    MQTT broker hostname (default: same as API host).
-.PARAMETER MqttPort
-    MQTT broker port (default: 1883).
+.PARAMETER MqttUrl
+    MQTT broker URL. Use wss:// for WebSocket over TLS (default: wss://rmm.rivertowntechnology.com).
+    For local dev, use mqtt://localhost:1883 or ws://localhost:9001.
 .PARAMETER InstallPath
     Installation directory (default: C:\Program Files\Rivertown\Agent).
 #>
@@ -16,29 +15,20 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$Token,
 
-    [Parameter(Mandatory=$true)]
-    [string]$ApiUrl,
-
-    [string]$MqttHost = "",
-    [int]$MqttPort = 1883,
+    [string]$ApiUrl = "https://psa.rivertowntechnology.com",
+    [string]$MqttUrl = "wss://rmm.rivertowntechnology.com",
     [string]$InstallPath = "C:\Program Files\Rivertown\Agent"
 )
 
 $ErrorActionPreference = "Stop"
 $ServiceName = "RivertownRMMAgent"
 
-# Derive MQTT host from API URL if not provided
-if ([string]::IsNullOrEmpty($MqttHost)) {
-    $uri = [System.Uri]$ApiUrl
-    $MqttHost = $uri.Host
-}
-
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "  Rivertown RMM Agent Installer v0.1.0" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "API Server:  $ApiUrl"
-Write-Host "MQTT Broker: ${MqttHost}:${MqttPort}"
+Write-Host "MQTT Broker: $MqttUrl"
 Write-Host "Install Path: $InstallPath"
 Write-Host ""
 
@@ -83,8 +73,8 @@ $config = @{
     AgentId = ""
     TenantId = ""
     CustomerId = ""
-    MqttBrokerUrl = $MqttHost
-    MqttBrokerPort = $MqttPort
+    MqttBrokerUrl = $MqttUrl
+    MqttBrokerPort = 0
     ApiBaseUrl = $ApiUrl
     EnrollmentToken = $Token
     IsEnrolled = $false

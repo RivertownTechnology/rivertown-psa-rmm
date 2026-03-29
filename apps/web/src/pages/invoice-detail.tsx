@@ -17,7 +17,7 @@ import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 interface Invoice {
   id: string; invoiceNumber: number; customerId: string; status: string;
   issueDate: string; dueDate: string; subtotalCents: number; taxCents: number;
-  totalCents: number; amountPaidCents: number; notes: string | null;
+  totalCents: number; amountPaidCents: number; creditsAppliedCents: number; notes: string | null;
   createdAt: string; updatedAt: string;
   lineItems: { id: string; description: string; quantity: string | null; unitPriceCents: number; totalCents: number; sortOrder: number | null; createdAt: string }[];
   payments: { id: string; amountCents: number; paymentMethod: string; reference: string | null; paidAt: string }[];
@@ -146,7 +146,7 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
   const isEditable = isDraft;
   const isCancellable = ['sent', 'overdue', 'partial'].includes(invoice.status);
   const canRecordPayment = !['paid', 'void', 'cancelled'].includes(invoice.status);
-  const balanceCents = invoice.totalCents - invoice.amountPaidCents;
+  const balanceCents = invoice.totalCents - invoice.amountPaidCents - (invoice.creditsAppliedCents ?? 0);
 
   return (
     <div className="space-y-4">
@@ -175,6 +175,29 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
           {isCancellable && (
             <Button size="sm" variant="destructive" onClick={() => setShowCancel(true)}><XCircle className="h-4 w-4 mr-1" />Cancel Invoice</Button>
           )}
+          {!['cancelled', 'void'].includes(invoice.status) && invoice.totalCents > 0 && (
+            <Button size="sm" variant="outline" onClick={async () => {
+              if (!confirm(`Credit $${(invoice.totalCents / 100).toFixed(2)} to the customer's account and cancel this invoice?`)) return;
+              try {
+                const res = await api<{ credited: number; newBalance: number }>(`/invoices/${invoiceId}/credit`, { method: 'POST', body: JSON.stringify({ reason: 'Invoice reversal' }) });
+                setMessage(`Credited $${(res.credited / 100).toFixed(2)} to account. New credit balance: $${(res.newBalance / 100).toFixed(2)}`);
+                loadInvoice();
+              } catch (e: unknown) { setMessage(e instanceof Error ? e.message : 'Failed'); }
+            }}>Credit to Account</Button>
+          )}
+          {balanceCents > 0 && !['paid', 'cancelled', 'void'].includes(invoice.status) && (
+            <Button size="sm" variant="outline" onClick={async () => {
+              try {
+                const res = await api<{ applied: number; remainingCredit: number; message?: string }>(`/invoices/${invoiceId}/apply-credit`, { method: 'POST', body: JSON.stringify({}) });
+                if (res.applied > 0) {
+                  setMessage(`Applied $${(res.applied / 100).toFixed(2)} credit. Remaining credit: $${(res.remainingCredit / 100).toFixed(2)}`);
+                  loadInvoice();
+                } else {
+                  setMessage(res.message || 'No credit available to apply');
+                }
+              } catch (e: unknown) { setMessage(e instanceof Error ? e.message : 'Failed'); }
+            }}>Apply Credit</Button>
+          )}
           {canRecordPayment && (
             <Button size="sm" variant="outline" onClick={() => {
               const rem = balanceCents / 100;
@@ -196,7 +219,7 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
         <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Subtotal</div><div className="text-2xl font-bold mt-1">{formatCents(invoice.subtotalCents)}</div></CardContent></Card>
         <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Tax</div><div className="text-2xl font-bold mt-1">{formatCents(invoice.taxCents)}</div></CardContent></Card>
         <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Total</div><div className="text-2xl font-bold text-green-600 mt-1">{formatCents(invoice.totalCents)}</div></CardContent></Card>
-        <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Paid</div><div className="text-2xl font-bold mt-1">{formatCents(invoice.amountPaidCents)}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Paid</div><div className="text-2xl font-bold mt-1">{formatCents(invoice.amountPaidCents + (invoice.creditsAppliedCents ?? 0))}</div>{(invoice.creditsAppliedCents ?? 0) > 0 && <div className="text-xs text-muted-foreground">(incl. {formatCents(invoice.creditsAppliedCents)} credit)</div>}</CardContent></Card>
         <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Balance</div><div className={`text-2xl font-bold mt-1 ${balanceCents > 0 ? 'text-orange-500' : 'text-green-600'}`}>{formatCents(balanceCents)}</div></CardContent></Card>
       </div>
 

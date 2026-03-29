@@ -1,7 +1,20 @@
 export function renderTemplate(template: string, variables: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (match, key) => {
-    return variables[key] ?? match;
+  // 1. Process conditional blocks: {{#var}}...{{/var}} — show block if var is truthy
+  let result = template.replace(/\{\{#(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}/g, (_match, key, content) => {
+    return variables[key] ? content : '';
   });
+
+  // 2. Process inverted blocks: {{^var}}...{{/var}} — show block if var is falsy/empty
+  result = result.replace(/\{\{\^(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}/g, (_match, key, content) => {
+    return !variables[key] ? content : '';
+  });
+
+  // 3. Replace simple variables: {{var}}
+  result = result.replace(/\{\{(\w+)\}\}/g, (match, key) => {
+    return variables[key] ?? '';
+  });
+
+  return result;
 }
 
 export function getDefaultTemplates(): Array<{
@@ -78,12 +91,24 @@ export function getDefaultTemplates(): Array<{
       bodyHtml: `${header}
         <h2 style="color:#111;margin:0 0 8px">Quote #{{quoteNumber}}</h2>
         <p style="margin:0 0 16px"><strong>{{quoteTitle}}</strong></p>
+        <table style="width:100%;margin:16px 0" cellpadding="0" cellspacing="0"><tr>
+          <td style="vertical-align:top;width:50%;padding-right:16px">
+            <div style="font-size:11px;text-transform:uppercase;color:#9ca3af;letter-spacing:1px;margin-bottom:4px">From</div>
+            <div style="font-weight:600">{{businessName}}</div>
+            <div style="color:#6b7280;font-size:13px">{{businessAddress}}<br>{{businessCity}}, {{businessState}} {{businessZip}}<br>{{businessPhone}}<br>{{businessEmail}}</div>
+          </td>
+          <td style="vertical-align:top;width:50%;text-align:right">
+            <div style="font-size:11px;text-transform:uppercase;color:#9ca3af;letter-spacing:1px;margin-bottom:4px">Prepared For</div>
+            <div style="font-weight:600">{{billToName}}</div>
+            <div style="color:#6b7280;font-size:13px">{{billToCompany}}<br>{{billToAddress}}<br>{{billToCity}}, {{billToState}} {{billToZip}}</div>
+          </td>
+        </tr></table>
         <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:24px;text-align:center;margin:16px 0">
           <div style="font-size:36px;font-weight:bold;color:#16a34a">\${{totalFormatted}}</div>
           <div style="color:#6b7280;margin-top:4px">Valid until {{validUntil}}</div>
         </div>
-        {{quoteSummary}}
-        <p style="margin:16px 0;color:#6b7280">{{quoteFooter}}</p>
+        {{#quoteSummary}}<p style="margin:16px 0">{{quoteSummary}}</p>{{/quoteSummary}}
+        <p style="margin:16px 0;color:#6b7280;font-size:13px">Please reply to this email with any questions or to approve this quote.</p>
       ${footer}`,
       bodyText: 'Quote #{{quoteNumber}}: {{quoteTitle}}\nTotal: ${{totalFormatted}}\nValid until: {{validUntil}}\n\n{{quoteSummary}}',
     },
@@ -93,15 +118,27 @@ export function getDefaultTemplates(): Array<{
       subject: 'Invoice #{{invoiceNumber}} — ${{totalFormatted}} due {{dueDate}}',
       bodyHtml: `${header}
         <h2 style="color:#111;margin:0 0 8px">Invoice #{{invoiceNumber}}</h2>
-        <table style="width:100%;border-collapse:collapse;margin:16px 0">
-          <tr><td style="padding:8px;border-bottom:1px solid #e5e7eb;color:#6b7280">Issue Date</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{{issueDate}}</td></tr>
-          <tr><td style="padding:8px;border-bottom:1px solid #e5e7eb;color:#6b7280">Due Date</td><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>{{dueDate}}</strong></td></tr>
-          <tr><td style="padding:8px;color:#6b7280">Amount Due</td><td style="padding:8px;font-size:24px;font-weight:bold;color:#111">\${{totalFormatted}}</td></tr>
+        <table style="width:100%;margin:16px 0" cellpadding="0" cellspacing="0"><tr>
+          <td style="vertical-align:top;width:50%;padding-right:16px">
+            <div style="font-size:11px;text-transform:uppercase;color:#9ca3af;letter-spacing:1px;margin-bottom:4px">From</div>
+            <div style="font-weight:600">{{businessName}}</div>
+            <div style="color:#6b7280;font-size:13px">{{businessAddress}}<br>{{businessCity}}, {{businessState}} {{businessZip}}<br>{{businessPhone}}<br>{{businessEmail}}</div>
+          </td>
+          <td style="vertical-align:top;width:50%;text-align:right">
+            <div style="font-size:11px;text-transform:uppercase;color:#9ca3af;letter-spacing:1px;margin-bottom:4px">Bill To</div>
+            <div style="font-weight:600">{{billToName}}</div>
+            <div style="color:#6b7280;font-size:13px">{{billToCompany}}<br>{{billToAddress}}<br>{{billToCity}}, {{billToState}} {{billToZip}}</div>
+          </td>
+        </tr></table>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:8px">
+          <tr><td style="padding:12px 16px;color:#6b7280">Issue Date</td><td style="padding:12px 16px;text-align:right">{{issueDate}}</td></tr>
+          <tr><td style="padding:12px 16px;color:#6b7280;border-top:1px solid #e5e7eb">Due Date</td><td style="padding:12px 16px;text-align:right;border-top:1px solid #e5e7eb"><strong>{{dueDate}}</strong></td></tr>
+          <tr><td style="padding:12px 16px;color:#6b7280;border-top:1px solid #e5e7eb">Amount Due</td><td style="padding:12px 16px;text-align:right;border-top:1px solid #e5e7eb;font-size:24px;font-weight:bold;color:#111">\${{totalFormatted}}</td></tr>
         </table>
         {{lineItemsHtml}}
-        <p style="margin:16px 0;color:#6b7280">{{invoiceNotes}}</p>
-        <p style="color:#6b7280;font-size:13px">{{invoicePaymentTerms}}</p>
-        <p style="color:#6b7280;font-size:13px">{{invoiceFooter}}</p>
+        {{#invoiceNotes}}<p style="margin:16px 0;color:#6b7280">{{invoiceNotes}}</p>{{/invoiceNotes}}
+        {{#invoicePaymentTerms}}<p style="color:#6b7280;font-size:13px">{{invoicePaymentTerms}}</p>{{/invoicePaymentTerms}}
+        {{#paymentUrl}}<div style="text-align:center;margin:24px 0"><a href="{{paymentUrl}}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Pay Now</a></div>{{/paymentUrl}}
       ${footer}`,
       bodyText: 'Invoice #{{invoiceNumber}}\nAmount: ${{totalFormatted}}\nDue: {{dueDate}}\n\n{{invoiceNotes}}',
     },
@@ -110,8 +147,17 @@ export function getDefaultTemplates(): Array<{
       name: 'Invoice Paid',
       subject: 'Payment received — Invoice #{{invoiceNumber}}',
       bodyHtml: `${header}
-        <h2 style="color:#16a34a;margin:0 0 8px">Payment Received</h2>
-        <p>Thank you! We've received your payment of <strong>\${{amountFormatted}}</strong> for Invoice #{{invoiceNumber}}.</p>
+        <div style="text-align:center;margin:16px 0">
+          <div style="display:inline-block;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:50%;width:64px;height:64px;line-height:64px;font-size:32px;color:#16a34a">&#10003;</div>
+        </div>
+        <h2 style="color:#16a34a;margin:0 0 8px;text-align:center">Payment Received</h2>
+        <p style="text-align:center;margin:0 0 16px">Thank you for your payment!</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:8px">
+          <tr><td style="padding:12px 16px;color:#6b7280">Invoice</td><td style="padding:12px 16px;text-align:right;font-weight:600">#{{invoiceNumber}}</td></tr>
+          <tr><td style="padding:12px 16px;color:#6b7280;border-top:1px solid #e5e7eb">Amount Paid</td><td style="padding:12px 16px;text-align:right;font-size:24px;font-weight:bold;color:#16a34a;border-top:1px solid #e5e7eb">\${{amountFormatted}}</td></tr>
+          <tr><td style="padding:12px 16px;color:#6b7280;border-top:1px solid #e5e7eb">Customer</td><td style="padding:12px 16px;text-align:right;border-top:1px solid #e5e7eb">{{customerName}}</td></tr>
+        </table>
+        <p style="text-align:center;color:#6b7280;font-size:13px;margin:16px 0">No further action is required. This email serves as your receipt.</p>
       ${footer}`,
       bodyText: 'Payment of ${{amountFormatted}} received for Invoice #{{invoiceNumber}}. Thank you!',
     },

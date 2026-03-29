@@ -13,6 +13,7 @@ export function startMqttClient(database: Database, brokerUrl: string = 'mqtt://
     clientId: `rivertown-api-${Date.now()}`,
     clean: true,
     reconnectPeriod: 5000,
+    rejectUnauthorized: false, // Azure Container Apps internal TLS
   });
 
   mqttClient.on('connect', () => {

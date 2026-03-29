@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { eq, and, sql } from 'drizzle-orm';
-import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries } from '@rivertown/db';
+import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
 
@@ -220,6 +220,37 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== BLOCKED EMAILS =====
+
+  fastify.get(
+    '/api/v1/settings/email/blocked',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'email')))
+        .limit(1);
+      const creds = (config?.credentials ?? {}) as Record<string, unknown>;
+      return { blocked: (creds.blockedEmails as string[]) ?? [] };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/email/blocked',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { blocked } = request.body as { blocked: string[] };
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'email')))
+        .limit(1);
+      if (config) {
+        const creds = { ...(config.credentials as object), blockedEmails: blocked };
+        await fastify.db.update(integrationConfigs).set({ credentials: creds, updatedAt: new Date() })
+          .where(eq(integrationConfigs.id, config.id));
+      }
+      return { blocked };
+    },
+  );
+
   // ===== BILLING RATES =====
 
   // Get org defaults + all tech rates
@@ -427,11 +458,17 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       .where(and(eq(emailTemplates.id, id), eq(emailTemplates.tenantId, request.tenantId))).limit(1);
     if (!template) throw new ValidationError('Template not found');
 
+    // Use body from request if provided (live editing), otherwise use stored template
+    const body = (request.body ?? {}) as { bodyHtml?: string };
+    const htmlToRender = body.bodyHtml || template.bodyHtml;
+    const subjectToRender = template.subject;
+
     const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, request.tenantId)).limit(1);
     const s = (tenant?.settings ?? {}) as Record<string, string>;
     const { renderTemplate } = await import('../../services/template-renderer.js');
 
     const sampleVars: Record<string, string> = {
+      // Business
       businessName: s.businessName || 'Your Company',
       businessLogo: s.businessLogo || '',
       businessAddress: s.businessAddress || '123 Main St',
@@ -440,35 +477,59 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       businessZip: s.businessZip || '12345',
       businessPhone: s.businessPhone || '(555) 123-4567',
       businessEmail: s.businessEmail || 'info@company.com',
+      // Customer
+      customerName: 'Acme Corporation',
+      customerCompany: 'Acme Corporation',
+      customerEmail: 'billing@acme.com',
+      customerPhone: '(555) 987-6543',
+      customerAddress: '456 Oak Ave',
+      customerCity: 'Springfield',
+      customerState: 'IL',
+      customerZip: '62704',
+      customerFullAddress: '456 Oak Ave, Springfield, IL 62704',
+      // Bill To (same as customer for preview)
+      billToName: 'John Smith',
+      billToCompany: 'Acme Corporation',
+      billToAddress: '456 Oak Ave',
+      billToCity: 'Springfield',
+      billToState: 'IL',
+      billToZip: '62704',
+      billToFullAddress: '456 Oak Ave, Springfield, IL 62704',
+      // Contact
+      contactName: 'John Smith',
+      contactEmail: 'john@acme.com',
+      contactPhone: '(555) 111-2222',
+      contactJobTitle: 'IT Manager',
+      // Ticket
       ticketNumber: '1042',
       ticketSubject: 'Server not responding',
       ticketPriority: 'High',
       ticketStatus: 'Open',
       ticketDescription: 'The main production server is not responding to ping requests.',
-      customerName: 'Acme Corporation',
-      contactName: 'John Smith',
-      contactEmail: 'john@acme.com',
       commentBody: 'We have identified the issue and are working on a fix. Expected resolution within 2 hours.',
+      // Quote
       quoteNumber: '1001',
       quoteTitle: 'Managed Services Proposal',
       quoteSummary: 'Comprehensive managed services including monitoring, patching, and helpdesk support.',
-      totalFormatted: '2,500.00',
       validUntil: '2026-04-30',
+      // Invoice
       invoiceNumber: '1001',
       issueDate: '2026-03-28',
       dueDate: '2026-04-05',
-      invoiceNotes: 'Services for April 2026',
+      totalFormatted: '2,500.00',
       amountFormatted: '2,500.00',
-      lineItemsHtml: '<table style="width:100%;border-collapse:collapse"><tr><td style="padding:4px 0;border-bottom:1px solid #eee">Managed Services</td><td style="text-align:right;padding:4px 0;border-bottom:1px solid #eee">$2,000.00</td></tr><tr><td style="padding:4px 0">M365 Licenses x25</td><td style="text-align:right;padding:4px 0">$500.00</td></tr></table>',
-      invoiceFooter: s.invoiceFooter || 'Thank you for your business!',
+      invoiceNotes: 'Services for April 2026',
       invoicePaymentTerms: s.invoicePaymentTerms || 'Net 30',
+      invoiceFooter: s.invoiceFooter || 'Thank you for your business!',
+      lineItemsHtml: '<table style="width:100%;border-collapse:collapse"><tr><td style="padding:8px 0;border-bottom:1px solid #eee">Managed Services — Monthly</td><td style="text-align:right;padding:8px 0;border-bottom:1px solid #eee">$2,000.00</td></tr><tr><td style="padding:8px 0;border-bottom:1px solid #eee">M365 Business Basic x25</td><td style="text-align:right;padding:8px 0;border-bottom:1px solid #eee">$500.00</td></tr></table>',
       quoteFooter: s.quoteFooter || 'This quote is valid for 30 days.',
+      // Portal
       portalUrl: 'https://portal.yourcompany.com',
     };
 
     return {
-      subject: renderTemplate(template.subject, sampleVars),
-      bodyHtml: renderTemplate(template.bodyHtml, sampleVars),
+      subject: renderTemplate(subjectToRender, sampleVars),
+      bodyHtml: renderTemplate(htmlToRender, sampleVars),
     };
   });
 
@@ -654,5 +715,119 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         unbilledHours: Math.round((unbilledMinutes / 60) * 10) / 10,
       },
     };
+  });
+
+  // ===== TAX RATES =====
+
+  fastify.get('/api/v1/settings/tax-rates', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { asc } = await import('drizzle-orm');
+    return fastify.db.select().from(taxRates)
+      .where(eq(taxRates.tenantId, request.tenantId))
+      .orderBy(asc(taxRates.state), asc(taxRates.county));
+  });
+
+  fastify.post('/api/v1/settings/tax-rates', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const body = request.body as {
+      state: string; county?: string; combinedRate: string;
+      stateRate?: string; countyRate?: string;
+      appliesToProducts?: boolean; appliesToServices?: boolean;
+    };
+    const [rate] = await fastify.db.insert(taxRates).values({
+      tenantId: request.tenantId,
+      state: body.state.toUpperCase(),
+      county: body.county?.trim() || null,
+      combinedRate: body.combinedRate,
+      stateRate: body.stateRate || null,
+      countyRate: body.countyRate || null,
+      appliesToProducts: body.appliesToProducts ?? true,
+      appliesToServices: body.appliesToServices ?? false,
+    }).returning();
+    reply.code(201);
+    return rate;
+  });
+
+  fastify.patch('/api/v1/settings/tax-rates/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as Partial<{
+      state: string; county: string; combinedRate: string;
+      stateRate: string; countyRate: string;
+      appliesToProducts: boolean; appliesToServices: boolean; isActive: boolean;
+    }>;
+    const update: Record<string, unknown> = { updatedAt: new Date() };
+    if (body.state !== undefined) update.state = body.state.toUpperCase();
+    if (body.county !== undefined) update.county = body.county.trim() || null;
+    if (body.combinedRate !== undefined) update.combinedRate = body.combinedRate;
+    if (body.stateRate !== undefined) update.stateRate = body.stateRate;
+    if (body.countyRate !== undefined) update.countyRate = body.countyRate;
+    if (body.appliesToProducts !== undefined) update.appliesToProducts = body.appliesToProducts;
+    if (body.appliesToServices !== undefined) update.appliesToServices = body.appliesToServices;
+    if (body.isActive !== undefined) update.isActive = body.isActive;
+    const [updated] = await fastify.db.update(taxRates).set(update)
+      .where(and(eq(taxRates.id, id), eq(taxRates.tenantId, request.tenantId))).returning();
+    return updated;
+  });
+
+  fastify.delete('/api/v1/settings/tax-rates/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.delete(taxRates)
+      .where(and(eq(taxRates.id, id), eq(taxRates.tenantId, request.tenantId)));
+    reply.code(204).send();
+  });
+
+  // Seed SC and NC county tax rates
+  fastify.post('/api/v1/settings/tax-rates/seed', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { getSCNCTaxRates } = await import('../../services/tax-seed.js');
+    const rates = getSCNCTaxRates();
+    let created = 0;
+    for (const r of rates) {
+      try {
+        await fastify.db.insert(taxRates).values({ tenantId: request.tenantId, ...r });
+        created++;
+      } catch { /* skip duplicates */ }
+    }
+    return { created, total: rates.length };
+  });
+
+  // Lookup tax rate for a customer (by their billing address)
+  fastify.get('/api/v1/settings/tax-rates/lookup/:customerId', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { customerId } = request.params as { customerId: string };
+    const [customer] = await fastify.db.select().from(customers)
+      .where(and(eq(customers.id, customerId), eq(customers.tenantId, request.tenantId))).limit(1);
+    if (!customer?.state) return { rate: null, message: 'Customer has no state set' };
+
+    // Try county match first, then state-level default
+    const { ilike } = await import('drizzle-orm');
+    let [rate] = await fastify.db.select().from(taxRates)
+      .where(and(
+        eq(taxRates.tenantId, request.tenantId),
+        eq(taxRates.state, customer.state.toUpperCase()),
+        customer.city ? ilike(taxRates.county, customer.city) : sql`false`,
+        eq(taxRates.isActive, true),
+      )).limit(1);
+
+    // Fallback: state-level (county is null)
+    if (!rate) {
+      [rate] = await fastify.db.select().from(taxRates)
+        .where(and(
+          eq(taxRates.tenantId, request.tenantId),
+          eq(taxRates.state, customer.state.toUpperCase()),
+          sql`${taxRates.county} IS NULL`,
+          eq(taxRates.isActive, true),
+        )).limit(1);
+    }
+
+    return { rate: rate || null };
   });
 }

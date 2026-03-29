@@ -23,6 +23,7 @@ export const serviceCatalogItems = pgTable(
     pax8ProductId: text('pax8_product_id'),
     pax8VendorName: text('pax8_vendor_name'),
 
+    taxable: boolean('taxable').default(true).notNull(),
     isActive: boolean('is_active').default(true).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

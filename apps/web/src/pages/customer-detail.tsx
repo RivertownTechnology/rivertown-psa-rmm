@@ -18,7 +18,7 @@ function pushPath(path: string) {
 interface Customer {
   id: string; name: string; status: string; billingEmail: string | null; ccBillingEmail: string | null;
   phone: string | null; address: string | null; city: string | null; state: string | null;
-  zip: string | null; website: string | null; notes: string | null; createdAt: string;
+  zip: string | null; county: string | null; website: string | null; notes: string | null; createdAt: string;
 }
 interface Contract { id: string; name: string; contractType: string; status: string; startDate: string; endDate: string | null; billingCycle: string; }
 interface Invoice { id: string; invoiceNumber: number; status: string; issueDate: string; dueDate: string; totalCents: number; amountPaidCents: number; notes: string | null; }
@@ -86,7 +86,7 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
     e.preventDefault(); setSaving(true);
     try {
       await api('/contacts', { method: 'POST', body: JSON.stringify({ ...contactForm, customerId }) });
-      setShowAddContact(false); setContactForm({ firstName: '', lastName: '', email: '', phone: '', isPrimary: false }); load();
+      setShowAddContact(false); setContactForm({ firstName: '', lastName: '', email: '', phone: '', jobTitle: '', isPrimary: false }); load();
     } finally { setSaving(false); }
   }
 
@@ -239,7 +239,7 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
                 {customer.website && <div className="flex items-center gap-2"><Globe className="h-4 w-4 text-muted-foreground" />{customer.website}</div>}
                 {(customer.address || customer.city) && (
                   <div className="flex items-start gap-2"><MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
-                    <div>{customer.address && <div>{customer.address}</div>}{[customer.city, customer.state].filter(Boolean).join(', ')}{customer.zip ? ` ${customer.zip}` : ''}</div>
+                    <div>{customer.address && <div>{customer.address}</div>}{[customer.city, customer.state].filter(Boolean).join(', ')}{customer.zip ? ` ${customer.zip}` : ''}{customer.county ? <div className="text-xs text-muted-foreground">{customer.county} County</div> : ''}</div>
                   </div>
                 )}
                 <div className="text-muted-foreground">Created {new Date(customer.createdAt).toLocaleDateString()}</div>

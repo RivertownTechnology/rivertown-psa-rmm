@@ -65,7 +65,7 @@ function AppRouter() {
 
   let title = 'Dashboard';
   let currentNav = pathname;
-  let content: JSX.Element;
+  let content: React.ReactNode;
 
   if (customerMatch) {
     title = 'Customer'; currentNav = '/customers';

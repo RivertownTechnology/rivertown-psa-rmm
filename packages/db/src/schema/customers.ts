@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, timestamp, index } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants.js';
 
 export const customers = pgTable(
@@ -17,8 +17,10 @@ export const customers = pgTable(
     city: text('city'),
     state: text('state'),
     zip: text('zip'),
+    county: text('county'),
     website: text('website'),
     notes: text('notes'),
+    creditBalanceCents: integer('credit_balance_cents').default(0).notNull(),
     qboCustomerId: text('qbo_customer_id'),
     stripeCustomerId: text('stripe_customer_id'),
     pax8CompanyId: text('pax8_company_id'),
@@ -29,5 +31,25 @@ export const customers = pgTable(
   },
   (table) => [
     index('customers_tenant_status_idx').on(table.tenantId, table.status),
+  ],
+);
+
+// Account credit transactions — tracks every credit add/apply/expire
+export const accountCredits = pgTable(
+  'account_credits',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    customerId: uuid('customer_id').notNull().references(() => customers.id),
+    type: text('type').notNull(), // 'credit' (add), 'debit' (apply to invoice), 'expire', 'refund'
+    amountCents: integer('amount_cents').notNull(), // positive for credits, negative for debits
+    balanceAfterCents: integer('balance_after_cents').notNull(),
+    invoiceId: uuid('invoice_id'), // which invoice was credited/debited
+    reason: text('reason'),
+    createdBy: uuid('created_by'), // user who created the transaction
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('account_credits_customer_idx').on(table.tenantId, table.customerId),
   ],
 );

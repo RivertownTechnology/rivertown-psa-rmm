@@ -9,10 +9,11 @@ import {
   customers,
   tenants,
   tenantSequences,
+  accountCredits,
 } from '@rivertown/db';
 import { createInvoiceSchema, paginationSchema } from '@rivertown/shared';
 import { requirePermission } from '../../auth/rbac.js';
-import { NotFoundError } from '../../common/errors.js';
+import { NotFoundError, ValidationError } from '../../common/errors.js';
 import { paginationToOffset, paginate } from '../../common/pagination.js';
 import { logAudit } from '../../common/audit.js';
 
@@ -120,12 +121,15 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     return updated;
   });
 
-  // Delete invoice + line items
+  // Delete invoice + line items (block if paid or cancelled)
   fastify.delete('/api/v1/invoices/:id', { preHandler: [fastify.authenticate, requirePermission('invoices:write')] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const [existing] = await fastify.db.select().from(invoices)
       .where(and(eq(invoices.id, id), eq(invoices.tenantId, request.tenantId))).limit(1);
     if (!existing) throw new NotFoundError('Invoice', id);
+    if (existing.status === 'paid') throw new ValidationError('Cannot delete a paid invoice. Credit the invoice instead.');
+    if (existing.status === 'cancelled') throw new ValidationError('Cannot delete a cancelled invoice.');
+    if (existing.amountPaidCents > 0) throw new ValidationError('Cannot delete an invoice with payments recorded. Credit the invoice instead.');
     await fastify.db.delete(payments).where(eq(payments.invoiceId, id));
     await fastify.db.delete(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, id));
     await fastify.db.delete(invoices).where(and(eq(invoices.id, id), eq(invoices.tenantId, request.tenantId)));
@@ -178,12 +182,8 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       .where(and(eq(invoices.id, id), eq(invoices.tenantId, request.tenantId))).limit(1);
     if (!invoice) throw new NotFoundError('Invoice', id);
 
-    const [customer] = await fastify.db.select().from(customers)
-      .where(eq(customers.id, invoice.customerId)).limit(1);
-    if (!customer?.billingEmail) return { sent: false, reason: 'No billing email' };
-
-    const { sendInvoiceEmail } = await import('../../services/email.js');
-    const sent = await sendInvoiceEmail(fastify.db, request.tenantId, customer.billingEmail, invoice.invoiceNumber, invoice.totalCents, invoice.dueDate);
+    const { sendInvoiceEmailWithTemplate } = await import('../../services/document-email.js');
+    const sent = await sendInvoiceEmailWithTemplate(fastify.db, request.tenantId, id);
     return { sent };
   });
 
@@ -218,6 +218,11 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     await logAudit(fastify.db, {
       tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,
       action: 'invoice.payment_recorded', entityType: 'invoice', entityId: id, ipAddress: request.ip,
+    });
+
+    // Send payment receipt email (fire and forget)
+    import('../../services/document-email.js').then(({ sendPaymentReceiptEmail }) => {
+      sendPaymentReceiptEmail(fastify.db, request.tenantId, id, body.amountCents).catch(e => console.error('Payment receipt email failed:', e));
     });
 
     reply.code(201);
@@ -304,6 +309,26 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // Auto-apply account credits if customer has a balance
+      const [cust] = await fastify.db.select().from(customers).where(eq(customers.id, contract.customerId)).limit(1);
+      if (cust && cust.creditBalanceCents > 0) {
+        const invBalance = invoice.totalCents;
+        const toApply = Math.min(cust.creditBalanceCents, invBalance);
+        if (toApply > 0) {
+          const newCreditBal = cust.creditBalanceCents - toApply;
+          await fastify.db.insert(accountCredits).values({
+            tenantId: request.tenantId, customerId: cust.id, type: 'debit',
+            amountCents: -toApply, balanceAfterCents: newCreditBal,
+            invoiceId: invoice.id, reason: `Auto-applied to Invoice #${invoice.invoiceNumber}`,
+            createdBy: request.user.sub,
+          });
+          await fastify.db.update(customers).set({ creditBalanceCents: newCreditBal, updatedAt: new Date() }).where(eq(customers.id, cust.id));
+          const newStatus = toApply >= invoice.totalCents ? 'paid' : 'draft';
+          await fastify.db.update(invoices).set({ creditsAppliedCents: toApply, status: newStatus, updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
+          Object.assign(invoice, { creditsAppliedCents: toApply, status: newStatus });
+        }
+      }
+
       await logAudit(fastify.db, {
         tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,
         action: 'invoice.generated', entityType: 'invoice', entityId: invoice.id, ipAddress: request.ip,
@@ -314,6 +339,150 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
     reply.code(201);
     return { created: createdInvoices.length, invoices: createdInvoices };
+  });
+
+  // ===== ACCOUNT CREDITS =====
+
+  // Issue a credit to a customer account (e.g., from cancelled invoice)
+  fastify.post('/api/v1/customers/:customerId/credits', {
+    preHandler: [fastify.authenticate, requirePermission('invoices:write')]
+  }, async (request, reply) => {
+    const { customerId } = request.params as { customerId: string };
+    const body = request.body as { amountCents: number; reason: string; invoiceId?: string };
+
+    const [customer] = await fastify.db.select().from(customers)
+      .where(and(eq(customers.id, customerId), eq(customers.tenantId, request.tenantId))).limit(1);
+    if (!customer) throw new NotFoundError('Customer', customerId);
+
+    const newBalance = customer.creditBalanceCents + body.amountCents;
+
+    // Record the credit transaction
+    const [credit] = await fastify.db.insert(accountCredits).values({
+      tenantId: request.tenantId,
+      customerId,
+      type: 'credit',
+      amountCents: body.amountCents,
+      balanceAfterCents: newBalance,
+      invoiceId: body.invoiceId || null,
+      reason: body.reason,
+      createdBy: request.user.sub,
+    }).returning();
+
+    // Update customer balance
+    await fastify.db.update(customers).set({
+      creditBalanceCents: newBalance, updatedAt: new Date(),
+    }).where(eq(customers.id, customerId));
+
+    reply.code(201);
+    return credit;
+  });
+
+  // Get credit history for a customer
+  fastify.get('/api/v1/customers/:customerId/credits', {
+    preHandler: [fastify.authenticate, requirePermission('invoices:read')]
+  }, async (request) => {
+    const { customerId } = request.params as { customerId: string };
+    return fastify.db.select().from(accountCredits)
+      .where(and(eq(accountCredits.customerId, customerId), eq(accountCredits.tenantId, request.tenantId)))
+      .orderBy(desc(accountCredits.createdAt));
+  });
+
+  // Apply account credit to an invoice
+  fastify.post('/api/v1/invoices/:id/apply-credit', {
+    preHandler: [fastify.authenticate, requirePermission('invoices:write')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { amountCents?: number };
+
+    const [invoice] = await fastify.db.select().from(invoices)
+      .where(and(eq(invoices.id, id), eq(invoices.tenantId, request.tenantId))).limit(1);
+    if (!invoice) throw new NotFoundError('Invoice', id);
+
+    const [customer] = await fastify.db.select().from(customers)
+      .where(eq(customers.id, invoice.customerId)).limit(1);
+    if (!customer) throw new NotFoundError('Customer', invoice.customerId);
+
+    const balance = invoice.totalCents - invoice.amountPaidCents - invoice.creditsAppliedCents;
+    if (balance <= 0) return { applied: 0, message: 'Invoice already fully paid' };
+
+    const available = customer.creditBalanceCents;
+    if (available <= 0) return { applied: 0, message: 'No credit balance available' };
+
+    const toApply = body.amountCents ? Math.min(body.amountCents, available, balance) : Math.min(available, balance);
+
+    const newCreditBalance = customer.creditBalanceCents - toApply;
+    const newCreditsApplied = invoice.creditsAppliedCents + toApply;
+    const totalPaidAndCredits = invoice.amountPaidCents + newCreditsApplied;
+    const newStatus = totalPaidAndCredits >= invoice.totalCents ? 'paid' : invoice.status;
+
+    // Record debit transaction
+    await fastify.db.insert(accountCredits).values({
+      tenantId: request.tenantId,
+      customerId: customer.id,
+      type: 'debit',
+      amountCents: -toApply,
+      balanceAfterCents: newCreditBalance,
+      invoiceId: id,
+      reason: `Applied to Invoice #${invoice.invoiceNumber}`,
+      createdBy: request.user.sub,
+    });
+
+    // Update customer balance
+    await fastify.db.update(customers).set({
+      creditBalanceCents: newCreditBalance, updatedAt: new Date(),
+    }).where(eq(customers.id, customer.id));
+
+    // Update invoice
+    await fastify.db.update(invoices).set({
+      creditsAppliedCents: newCreditsApplied,
+      status: newStatus,
+      updatedAt: new Date(),
+    }).where(eq(invoices.id, id));
+
+    return { applied: toApply, newInvoiceStatus: newStatus, remainingCredit: newCreditBalance };
+  });
+
+  // Credit an invoice (reverse/cancel → add credit to customer account)
+  fastify.post('/api/v1/invoices/:id/credit', {
+    preHandler: [fastify.authenticate, requirePermission('invoices:write')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { reason?: string };
+
+    const [invoice] = await fastify.db.select().from(invoices)
+      .where(and(eq(invoices.id, id), eq(invoices.tenantId, request.tenantId))).limit(1);
+    if (!invoice) throw new NotFoundError('Invoice', id);
+
+    const [customer] = await fastify.db.select().from(customers)
+      .where(eq(customers.id, invoice.customerId)).limit(1);
+    if (!customer) throw new NotFoundError('Customer', invoice.customerId);
+
+    // Credit the full invoice amount
+    const creditAmount = invoice.totalCents;
+    const newBalance = customer.creditBalanceCents + creditAmount;
+
+    await fastify.db.insert(accountCredits).values({
+      tenantId: request.tenantId,
+      customerId: customer.id,
+      type: 'credit',
+      amountCents: creditAmount,
+      balanceAfterCents: newBalance,
+      invoiceId: id,
+      reason: body.reason || `Credit from Invoice #${invoice.invoiceNumber}`,
+      createdBy: request.user.sub,
+    });
+
+    await fastify.db.update(customers).set({
+      creditBalanceCents: newBalance, updatedAt: new Date(),
+    }).where(eq(customers.id, customer.id));
+
+    // Mark invoice as credited
+    await fastify.db.update(invoices).set({
+      status: 'cancelled', notes: `${invoice.notes ? invoice.notes + '\n' : ''}Credited to account: $${(creditAmount / 100).toFixed(2)} — ${body.reason || 'Invoice reversal'}`,
+      updatedAt: new Date(),
+    }).where(eq(invoices.id, id));
+
+    return { credited: creditAmount, newBalance, invoiceStatus: 'cancelled' };
   });
 
   // Printable HTML invoice (for PDF export)
@@ -376,8 +545,8 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       subtotal: (invoice.subtotalCents / 100).toFixed(2),
       tax: (invoice.taxCents / 100).toFixed(2),
       total: (invoice.totalCents / 100).toFixed(2),
-      paid: (invoice.amountPaidCents / 100).toFixed(2),
-      balance: ((invoice.totalCents - invoice.amountPaidCents) / 100).toFixed(2),
+      paid: ((invoice.amountPaidCents + (invoice.creditsAppliedCents ?? 0)) / 100).toFixed(2),
+      balance: ((invoice.totalCents - invoice.amountPaidCents - (invoice.creditsAppliedCents ?? 0)) / 100).toFixed(2),
       style: s.invoiceStyle || 'modern',
       footer: s.invoiceFooter || '',
       paymentTerms: s.invoicePaymentTerms || '',
@@ -388,15 +557,64 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 }
 
 async function recalcInvoiceTotals(db: any, invoiceId: string, tenantId: string) {
+  const { taxRates } = await import('@rivertown/db');
+  const { ilike } = await import('drizzle-orm');
+
   const items = await db.select().from(invoiceLineItems)
     .where(eq(invoiceLineItems.invoiceId, invoiceId));
 
   let subtotalCents = 0;
+  let taxableSubtotalCents = 0;
   for (const item of items) {
     subtotalCents += item.totalCents;
+    if (item.taxable !== false) taxableSubtotalCents += item.totalCents;
   }
 
-  const taxCents = 0; // Tax calculation TBD
+  // Look up tax rate from customer's billing address
+  let taxRate = 0;
+  const [invoice] = await db.select({ customerId: invoices.customerId }).from(invoices)
+    .where(eq(invoices.id, invoiceId)).limit(1);
+  if (invoice) {
+    const [customer] = await db.select({ state: customers.state, city: customers.city, county: customers.county }).from(customers)
+      .where(eq(customers.id, invoice.customerId)).limit(1);
+    if (customer?.state) {
+      const stateCode = normalizeStateCode(customer.state);
+
+      // Try county match first (most accurate)
+      let [rate] = customer.county ? await db.select().from(taxRates)
+        .where(and(
+          eq(taxRates.tenantId, tenantId),
+          eq(taxRates.state, stateCode),
+          ilike(taxRates.county, customer.county),
+          eq(taxRates.isActive, true),
+        )).limit(1) : [undefined];
+
+      // Try city as county fallback
+      if (!rate && customer.city) {
+        [rate] = await db.select().from(taxRates)
+          .where(and(
+            eq(taxRates.tenantId, tenantId),
+            eq(taxRates.state, stateCode),
+            ilike(taxRates.county, customer.city),
+            eq(taxRates.isActive, true),
+          )).limit(1);
+      }
+
+      // Fallback to state default
+      if (!rate) {
+        [rate] = await db.select().from(taxRates)
+          .where(and(
+            eq(taxRates.tenantId, tenantId),
+            eq(taxRates.state, stateCode),
+            sql`${taxRates.county} IS NULL`,
+            eq(taxRates.isActive, true),
+          )).limit(1);
+      }
+      if (rate) taxRate = parseFloat(rate.combinedRate);
+    }
+  }
+
+  const taxCents = Math.round(taxableSubtotalCents * taxRate / 100);
   const totalCents = subtotalCents + taxCents;
 
   await db.update(invoices).set({
@@ -405,4 +623,24 @@ async function recalcInvoiceTotals(db: any, invoiceId: string, tenantId: string)
     totalCents,
     updatedAt: new Date(),
   }).where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId)));
+}
+
+const STATE_NAMES: Record<string, string> = {
+  'alabama':'AL','alaska':'AK','arizona':'AZ','arkansas':'AR','california':'CA',
+  'colorado':'CO','connecticut':'CT','delaware':'DE','florida':'FL','georgia':'GA',
+  'hawaii':'HI','idaho':'ID','illinois':'IL','indiana':'IN','iowa':'IA',
+  'kansas':'KS','kentucky':'KY','louisiana':'LA','maine':'ME','maryland':'MD',
+  'massachusetts':'MA','michigan':'MI','minnesota':'MN','mississippi':'MS','missouri':'MO',
+  'montana':'MT','nebraska':'NE','nevada':'NV','new hampshire':'NH','new jersey':'NJ',
+  'new mexico':'NM','new york':'NY','north carolina':'NC','north dakota':'ND','ohio':'OH',
+  'oklahoma':'OK','oregon':'OR','pennsylvania':'PA','rhode island':'RI','south carolina':'SC',
+  'south dakota':'SD','tennessee':'TN','texas':'TX','utah':'UT','vermont':'VT',
+  'virginia':'VA','washington':'WA','west virginia':'WV','wisconsin':'WI','wyoming':'WY',
+  'district of columbia':'DC',
+};
+
+function normalizeStateCode(state: string): string {
+  const s = state.trim();
+  if (s.length === 2) return s.toUpperCase();
+  return STATE_NAMES[s.toLowerCase()] ?? s.toUpperCase();
 }

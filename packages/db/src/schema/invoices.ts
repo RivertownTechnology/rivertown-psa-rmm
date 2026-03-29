@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, numeric, date, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, boolean, numeric, date, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants.js';
 import { customers } from './customers.js';
 import { contractLineItems } from './contracts.js';
@@ -21,6 +21,7 @@ export const invoices = pgTable(
     taxCents: integer('tax_cents').default(0).notNull(),
     totalCents: integer('total_cents').default(0).notNull(),
     amountPaidCents: integer('amount_paid_cents').default(0).notNull(),
+    creditsAppliedCents: integer('credits_applied_cents').default(0).notNull(),
     qboInvoiceId: text('qbo_invoice_id'),
     stripeInvoiceId: text('stripe_invoice_id'),
     notes: text('notes'),
@@ -47,6 +48,7 @@ export const invoiceLineItems = pgTable(
     quantity: numeric('quantity').default('1'),
     unitPriceCents: integer('unit_price_cents').notNull(),
     totalCents: integer('total_cents').notNull(),
+    taxable: boolean('taxable').default(true).notNull(),
     contractLineItemId: uuid('contract_line_item_id').references(() => contractLineItems.id),
     sortOrder: integer('sort_order').default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

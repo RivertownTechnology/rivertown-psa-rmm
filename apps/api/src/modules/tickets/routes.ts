@@ -5,6 +5,8 @@ import {
   ticketComments,
   ticketTimeEntries,
   tenantSequences,
+  users,
+  contacts,
 } from '@rivertown/db';
 import {
   createTicketSchema,
@@ -137,6 +139,12 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       });
 
       moduleEvents.emit('ticket.created', ticket);
+
+      // Send ticket created email notification (fire and forget)
+      import('../../services/email-notifications.js').then(({ sendTicketCreatedEmail }) => {
+        sendTicketCreatedEmail(fastify.db, request.tenantId, ticket.id).catch(e => console.error('Ticket created email failed:', e));
+      });
+
       reply.code(201);
       return ticket;
     },
@@ -188,11 +196,15 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // Check SLA breach on resolution
+      // Check SLA breach on resolution + send closed email
       if (body.status === 'resolved' && existing.status !== 'resolved') {
         const now = new Date();
         const breached = existing.slaResolutionDueAt ? now > new Date(existing.slaResolutionDueAt) : false;
         await fastify.db.update(tickets).set({ slaBreached: breached }).where(eq(tickets.id, id));
+
+        import('../../services/email-notifications.js').then(({ sendTicketClosedEmail }) => {
+          sendTicketClosedEmail(fastify.db, request.tenantId, id).catch(e => console.error('Ticket closed email failed:', e));
+        });
       }
 
       moduleEvents.emit('ticket.updated', updated, body);
@@ -207,13 +219,25 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     async (request) => {
       const { id } = request.params as { id: string };
 
-      return fastify.db
+      const rows = await fastify.db
         .select()
         .from(ticketComments)
         .where(
           and(eq(ticketComments.ticketId, id), eq(ticketComments.tenantId, request.tenantId)),
         )
         .orderBy(ticketComments.createdAt);
+
+      // Resolve author names
+      const authorIds = [...new Set(rows.filter(r => r.authorId && r.authorId !== '00000000-0000-0000-0000-000000000000').map(r => r.authorId))];
+      const nameMap: Record<string, string> = {};
+      for (const aid of authorIds) {
+        const [user] = await fastify.db.select({ displayName: users.displayName }).from(users).where(eq(users.id, aid)).limit(1);
+        if (user) { nameMap[aid] = user.displayName; continue; }
+        const [contact] = await fastify.db.select({ firstName: contacts.firstName, lastName: contacts.lastName }).from(contacts).where(eq(contacts.id, aid)).limit(1);
+        if (contact) { nameMap[aid] = `${contact.firstName} ${contact.lastName}`; }
+      }
+
+      return rows.map(r => ({ ...r, authorName: nameMap[r.authorId] || (r.authorType === 'system' ? 'System' : undefined) }));
     },
   );
 
@@ -242,6 +266,13 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         .update(tickets)
         .set({ updatedAt: new Date() })
         .where(eq(tickets.id, id));
+
+      // Send reply email to customer (only for non-internal comments from techs)
+      if (!body.isInternal) {
+        import('../../services/email-notifications.js').then(({ sendTicketReplyEmail }) => {
+          sendTicketReplyEmail(fastify.db, request.tenantId, id, body.body).catch(e => console.error('Ticket reply email failed:', e));
+        });
+      }
 
       reply.code(201);
       return comment;

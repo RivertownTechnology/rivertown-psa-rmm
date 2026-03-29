@@ -99,6 +99,34 @@
       "when": 1774738587662,
       "tag": "0013_simple_hex",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1774756951990,
+      "tag": "0014_empty_talisman",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1774757744689,
+      "tag": "0015_lazy_joystick",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1774758317036,
+      "tag": "0016_special_nightcrawler",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1774760140659,
+      "tag": "0017_lumpy_archangel",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import { tenantContextPlugin } from './common/tenant-context.js';
 import { authRoutes } from './auth/routes.js';
 import { mfaRoutes } from './auth/mfa.js';
 import { microsoft365Routes } from './modules/integrations/microsoft365.js';
+import { stripeRoutes } from './modules/integrations/stripe.js';
 import { loadModules } from './modules/registry.js';
 import { AppError } from './common/errors.js';
 import { ZodError } from 'zod';
@@ -50,6 +51,17 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   const db = createDb(config.DATABASE_URL);
   fastify.decorate('db', db);
   fastify.decorate('config', config);
+
+  // Raw body for Stripe webhooks
+  fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    try {
+      const json = JSON.parse(body as string);
+      (req as any).rawBody = body;
+      done(null, json);
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  });
 
   // CORS
   await fastify.register(cors, {
@@ -118,6 +130,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   await fastify.register(authRoutes);
   await fastify.register(mfaRoutes);
   await fastify.register(microsoft365Routes);
+  await fastify.register(stripeRoutes);
 
   // Load feature modules
   await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, rmmModule, portalModule]);
@@ -125,6 +138,32 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   // Start MQTT client for agent communication (after all modules loaded)
   const mqttUrl = config.MQTT_URL || 'mqtt://localhost:1883';
   startMqttClient(db, mqttUrl);
+
+  // Start email inbox polling (check all tenant inboxes every 30 seconds)
+  const { processInboundEmails } = await import('./services/email-to-ticket.js');
+  const { tenants } = await import('@rivertown/db');
+  let emailPolling = false;
+  setInterval(async () => {
+    if (emailPolling) return; // Skip if previous poll still running
+    emailPolling = true;
+    try {
+      const allTenants = await db.select({ id: tenants.id }).from(tenants);
+      for (const t of allTenants) {
+        try {
+          const result = await processInboundEmails(db, t.id);
+          if (result.processed > 0) {
+            console.log(`[EMAIL-POLL] Tenant ${t.id}: processed ${result.processed} emails, ${result.tickets} tickets, ${result.comments} comments`);
+          }
+        } catch (err) {
+          console.error(`[EMAIL-POLL] Tenant ${t.id} failed:`, err);
+        }
+      }
+    } catch (err) {
+      console.error('[EMAIL-POLL] Polling failed:', err);
+    } finally {
+      emailPolling = false;
+    }
+  }, 5000);
 
   return fastify;
 }

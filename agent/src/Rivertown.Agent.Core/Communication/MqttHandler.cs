@@ -46,13 +46,24 @@ public class MqttHandler : IDisposable
         _tenantId = tenantId;
         _agentId = agentId;
 
-        var options = new MqttClientOptionsBuilder()
-            .WithTcpServer(host, port)
+        var builder = new MqttClientOptionsBuilder()
             .WithClientId($"rivertown-agent-{agentId}")
-            .WithCleanSession(true)
-            .Build();
+            .WithCleanSession(true);
 
-        _logger.LogInformation("Connecting to MQTT broker at {Host}:{Port}...", host, port);
+        // Use WebSocket if host looks like a URL (wss:// or ws://)
+        if (host.StartsWith("wss://", StringComparison.OrdinalIgnoreCase) ||
+            host.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.WithWebSocketServer(o => o.WithUri(host));
+            _logger.LogInformation("Connecting to MQTT broker via WebSocket at {Host}...", host);
+        }
+        else
+        {
+            builder.WithTcpServer(host, port);
+            _logger.LogInformation("Connecting to MQTT broker at {Host}:{Port}...", host, port);
+        }
+
+        var options = builder.Build();
 
         _client.DisconnectedAsync += async e =>
         {

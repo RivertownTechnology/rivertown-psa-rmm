@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { User, Building, Bell, Hash, Mail, Send, CheckCircle, DollarSign, Shield } from 'lucide-react';
+import { User, Building, Bell, Hash, Mail, Send, CheckCircle, DollarSign, Shield, ShieldAlert, X, Package, Plus, Pencil, Trash2, Search } from 'lucide-react';
 import { BusinessProfileCard } from '@/components/business-profile-card';
 import { SecurityPage } from './security';
 import { ProductCatalogPage } from './product-catalog';
@@ -27,10 +27,12 @@ const defaultEmail: EmailConfig = {
   fromAddress: '', fromName: '', useTls: true, provider: 'smtp',
 };
 
-export function SettingsPage({ initialTab }: { initialTab?: string }) {
+export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
   const { user } = useAuth();
   const { mode, color, setMode, setColor } = useTheme();
-  const [tab, setTab] = useState(initialTab ?? 'general');
+  const hashTab = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
+  const [tab, setTab] = useState(initialTab || hashTab || 'general');
+  function changeTab(t: string) { setTab(t); window.history.replaceState(null, '', `/settings#${t}`); }
   const [sequences, setSequences] = useState<Record<string, number>>({});
   const [seqForm, setSeqForm] = useState({ ticket: '', invoice: '', quote: '' });
   const [seqSaving, setSeqSaving] = useState(false);
@@ -51,7 +53,7 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
   const [emailLoaded, setEmailLoaded] = useState(false);
 
   // Microsoft 365
-  const [o365Status, setO365Status] = useState<{ connected: boolean; email: string | null; configured: boolean; needsSetup: boolean }>({ connected: false, email: null, configured: false, needsSetup: true });
+  const [o365Status, setO365Status] = useState<{ connected: boolean; email: string | null; configured: boolean; needsSetup: boolean; mailboxes: Array<{ email: string; displayName: string }> }>({ connected: false, email: null, configured: false, needsSetup: true, mailboxes: [] });
   const [o365Connecting, setO365Connecting] = useState(false);
   const [showO365Setup, setShowO365Setup] = useState(false);
   const [showM365Guide, setShowM365Guide] = useState(false);
@@ -59,8 +61,26 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
 
   // Email-to-ticket
   const [checkingInbox, setCheckingInbox] = useState(false);
-  const [inboxResult, setInboxResult] = useState<{ processed: number; tickets: number; comments: number } | null>(null);
+  const [inboxResult, setInboxResult] = useState<{ processed: number; tickets: number; comments: number; blocked: number } | null>(null);
   const [emailLog, setEmailLog] = useState<Array<{ id: string; fromAddress: string; subject: string; direction: string; ticketId: string | null; createdAt: string }>>([]);
+
+  // Blocked emails
+  const [blockedEmails, setBlockedEmails] = useState<string[]>([]);
+  const [blockedLoaded, setBlockedLoaded] = useState(false);
+  const [newBlockedEmail, setNewBlockedEmail] = useState('');
+
+  // Stripe
+  const [stripeForm, setStripeForm] = useState({ secretKey: '', webhookSecret: '', publishableKey: '', isEnabled: false });
+  const [stripeLoaded, setStripeLoaded] = useState(false);
+  const [stripeSaving, setStripeSaving] = useState(false);
+  const [stripeSuccess, setStripeSuccess] = useState('');
+
+  useEffect(() => {
+    if (stripeLoaded) return;
+    api<{ isEnabled: boolean; secretKey: string; webhookSecret: string; publishableKey: string }>('/settings/stripe')
+      .then(data => { setStripeForm(data); setStripeLoaded(true); })
+      .catch(() => setStripeLoaded(true));
+  }, [stripeLoaded]);
 
   // SLA Policies
   interface SlaPolicy {
@@ -208,19 +228,25 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
       .then(data => { setEmailForm(data); setEmailLoaded(true); })
       .catch(() => setEmailLoaded(true));
     api<{ connected: boolean; email: string | null; configured: boolean }>('/integrations/microsoft365/status')
-      .then(setO365Status).catch(() => {});
+      .then(data => setO365Status(s => ({ ...s, ...data }))).catch(() => {});
+    if (!blockedLoaded) {
+      api<{ blocked: string[] }>('/settings/email/blocked')
+        .then(data => { setBlockedEmails(data.blocked); setBlockedLoaded(true); }).catch(() => setBlockedLoaded(true));
+    }
 
     // Handle OAuth callback — if we have a ?code= in the URL, exchange it
+    // Check both query string (Web redirect) and hash fragment (SPA redirect)
     const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const code = params.get('code') || hashParams.get('code');
     if (code) {
       setO365Connecting(true);
-      // Clean the URL
+      // Clean the URL (remove code from query string and hash)
       window.history.replaceState(null, '', '/settings');
       api<{ success: boolean; email: string }>('/integrations/microsoft365/callback', {
         method: 'POST', body: JSON.stringify({ code }),
       }).then(result => {
-        setO365Status({ connected: true, email: result.email, configured: true });
+        setO365Status(s => ({ ...s, connected: true, email: result.email, configured: true }));
         setEmailSuccess(`Connected to Microsoft 365 as ${result.email}`);
         setEmailLoaded(false);
       }).catch(e => {
@@ -272,11 +298,19 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
     }
   }
 
-  async function disconnectO365() {
+  async function disconnectO365(targetEmail?: string) {
     try {
-      await api('/integrations/microsoft365/disconnect', { method: 'POST' });
-      setO365Status({ connected: false, email: null });
-      setEmailSuccess('Microsoft 365 disconnected');
+      await api('/integrations/microsoft365/disconnect', { method: 'POST', body: JSON.stringify({ email: targetEmail }) });
+      if (targetEmail) {
+        setO365Status(s => {
+          const remaining = s.mailboxes.filter(m => m.email !== targetEmail);
+          return { ...s, connected: remaining.length > 0, email: remaining[0]?.email ?? null, mailboxes: remaining };
+        });
+        setEmailSuccess(`Disconnected ${targetEmail}`);
+      } else {
+        setO365Status(s => ({ ...s, connected: false, email: null, mailboxes: [] }));
+        setEmailSuccess('All Microsoft 365 mailboxes disconnected');
+      }
       setEmailLoaded(false);
     } catch (e: unknown) { setEmailError(e instanceof Error ? e.message : 'Failed'); }
   }
@@ -284,11 +318,28 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
   async function checkInbox() {
     setCheckingInbox(true); setInboxResult(null); setEmailError('');
     try {
-      const result = await api<{ processed: number; tickets: number; comments: number }>('/settings/email/check-inbox', { method: 'POST' });
+      const result = await api<{ processed: number; tickets: number; comments: number; blocked: number }>('/settings/email/check-inbox', { method: 'POST', body: JSON.stringify({}) });
       setInboxResult(result);
-      setEmailSuccess(`Processed ${result.processed} emails: ${result.tickets} new tickets, ${result.comments} comments`);
+      const parts = [`${result.tickets} new tickets`, `${result.comments} comments`];
+      if (result.blocked) parts.push(`${result.blocked} blocked`);
+      setEmailSuccess(`Processed ${result.processed} emails: ${parts.join(', ')}`);
     } catch (e: unknown) { setEmailError(e instanceof Error ? e.message : 'Failed to check inbox'); }
     finally { setCheckingInbox(false); }
+  }
+
+  async function addBlockedEmail() {
+    const entry = newBlockedEmail.trim().toLowerCase();
+    if (!entry || blockedEmails.includes(entry)) return;
+    const updated = [...blockedEmails, entry];
+    await api('/settings/email/blocked', { method: 'PUT', body: JSON.stringify({ blocked: updated }) });
+    setBlockedEmails(updated);
+    setNewBlockedEmail('');
+  }
+
+  async function removeBlockedEmail(email: string) {
+    const updated = blockedEmails.filter(e => e !== email);
+    await api('/settings/email/blocked', { method: 'PUT', body: JSON.stringify({ blocked: updated }) });
+    setBlockedEmails(updated);
   }
 
   async function loadEmailLog() {
@@ -355,11 +406,13 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
 
   return (
     <div className="max-w-4xl">
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs value={tab} onValueChange={changeTab}>
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="email">Email</TabsTrigger>
           <TabsTrigger value="templates">Templates</TabsTrigger>
+          <TabsTrigger value="billing">Billing</TabsTrigger>
+          <TabsTrigger value="integrations">Integrations</TabsTrigger>
           <TabsTrigger value="rmm">RMM</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
           <TabsTrigger value="catalog">Product Catalog</TabsTrigger>
@@ -650,24 +703,6 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
               </CardContent>
             </Card>
 
-            {/* Integrations teaser */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Integrations</CardTitle>
-                <CardDescription>Connect to external services</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-3 gap-3">
-                  {['Pax8', 'QuickBooks Online', 'Stripe'].map(name => (
-                    <div key={name} className="border rounded-lg p-4 text-center">
-                      <div className="text-sm font-medium">{name}</div>
-                      <div className="text-xs text-muted-foreground mt-1">Not connected</div>
-                      <Button variant="outline" size="sm" className="mt-2" disabled>Configure</Button>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
           </div>
         </TabsContent>
 
@@ -682,38 +717,47 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <svg viewBox="0 0 23 23" className="h-5 w-5" fill="none"><path d="M1 1h10v10H1z" fill="#F25022"/><path d="M12 1h10v10H12z" fill="#7FBA00"/><path d="M1 12h10v10H1z" fill="#00A4EF"/><path d="M12 12h10v10H12z" fill="#FFB900"/></svg>
-                  Microsoft 365
+                  Microsoft 365 Mailboxes
                 </CardTitle>
                 <CardDescription>
-                  {o365Status.connected
-                    ? `Connected — sending and receiving email as ${o365Status.email}`
-                    : 'Sign in with your helpdesk or support mailbox to send and receive emails'}
+                  {o365Status.mailboxes.length > 0
+                    ? `${o365Status.mailboxes.length} mailbox${o365Status.mailboxes.length > 1 ? 'es' : ''} connected — first mailbox is primary for sending`
+                    : 'Connect your support, sales, or billing mailboxes'}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {o365Status.connected ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Badge variant="default" className="bg-green-600">Connected</Badge>
-                        <div>
-                          <div className="text-sm font-medium">{o365Status.email}</div>
-                          <div className="text-xs text-muted-foreground">Emails will be sent and received via this mailbox</div>
-                        </div>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={disconnectO365}>Disconnect</Button>
-                    </div>
-                  </div>
-                ) : o365Connecting ? (
+                {o365Connecting ? (
                   <div className="flex items-center justify-center gap-3 py-4">
                     <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                     <span className="text-sm text-muted-foreground">Redirecting to Microsoft...</span>
                   </div>
                 ) : (
-                  <Button onClick={connectO365} className="w-full" size="lg">
-                    <svg viewBox="0 0 23 23" className="h-5 w-5 mr-2" fill="none"><path d="M1 1h10v10H1z" fill="#F25022"/><path d="M12 1h10v10H12z" fill="#7FBA00"/><path d="M1 12h10v10H1z" fill="#00A4EF"/><path d="M12 12h10v10H12z" fill="#FFB900"/></svg>
-                    Authorize Microsoft 365
-                  </Button>
+                  <>
+                    {o365Status.mailboxes.length > 0 && (
+                      <div className="space-y-2">
+                        {o365Status.mailboxes.map((mb, i) => (
+                          <div key={mb.email} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <Badge variant="default" className="bg-green-600">Connected</Badge>
+                              <div>
+                                <div className="text-sm font-medium">{mb.email}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {mb.displayName}{i === 0 ? ' — Primary (sends outbound email)' : ''}
+                                </div>
+                              </div>
+                            </div>
+                            <Button variant="ghost" size="sm" onClick={() => disconnectO365(mb.email)} className="text-destructive hover:text-destructive">
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <Button onClick={connectO365} variant={o365Status.mailboxes.length > 0 ? 'outline' : 'default'} className={o365Status.mailboxes.length > 0 ? '' : 'w-full'} size={o365Status.mailboxes.length > 0 ? 'sm' : 'lg'}>
+                      <svg viewBox="0 0 23 23" className="h-4 w-4 mr-1.5" fill="none"><path d="M1 1h10v10H1z" fill="#F25022"/><path d="M12 1h10v10H12z" fill="#7FBA00"/><path d="M1 12h10v10H1z" fill="#00A4EF"/><path d="M12 12h10v10H12z" fill="#FFB900"/></svg>
+                      {o365Status.mailboxes.length > 0 ? 'Add Mailbox' : o365Status.configured ? 'Connect Mailbox' : 'Authorize Microsoft 365'}
+                    </Button>
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -830,11 +874,46 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
               </CardContent>
             </Card>
 
-            {/* SMTP Fallback */}
+            {/* Blocked Emails */}
             <Card>
               <CardHeader>
+                <CardTitle className="flex items-center gap-2"><ShieldAlert className="h-5 w-5" />Blocked Senders</CardTitle>
+                <CardDescription>Emails from these addresses or domains will be ignored. Use @domain.com to block an entire domain.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="email@example.com or @domain.com"
+                    value={newBlockedEmail}
+                    onChange={e => setNewBlockedEmail(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && addBlockedEmail()}
+                    className="flex-1"
+                  />
+                  <Button onClick={addBlockedEmail} variant="outline" size="sm">Block</Button>
+                </div>
+                {blockedEmails.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {blockedEmails.map(email => (
+                      <Badge key={email} variant="secondary" className="gap-1 pl-2.5 pr-1 py-1">
+                        {email}
+                        <button onClick={() => removeBlockedEmail(email)} className="ml-1 hover:text-destructive rounded-full p-0.5">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {blockedEmails.length === 0 && (
+                  <div className="text-sm text-muted-foreground">No blocked senders</div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* SMTP — only show if no O365 mailboxes */}
+            {!o365Status.connected && <Card>
+              <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Mail className="h-5 w-5" />SMTP Configuration</CardTitle>
-                <CardDescription>{o365Status.connected ? 'Fallback SMTP (not used while Microsoft 365 is connected)' : 'Manual SMTP configuration for email sending'}</CardDescription>
+                <CardDescription>Manual SMTP configuration for email sending</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -892,7 +971,7 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
                   </Button>
                 </div>
               </CardContent>
-            </Card>
+            </Card>}
 
             {/* One-time Azure App Setup Dialog */}
             <Dialog open={showO365Setup} onOpenChange={setShowO365Setup}>
@@ -944,6 +1023,92 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
           </div>
         </TabsContent>
 
+        {/* BILLING TAB */}
+        <TabsContent value="billing">
+          <BillingSettingsTab />
+        </TabsContent>
+
+        {/* INTEGRATIONS TAB */}
+        <TabsContent value="integrations">
+          <div className="space-y-6 mt-4 max-w-2xl">
+            {stripeSuccess && <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800 flex items-center gap-2"><CheckCircle className="h-4 w-4" />{stripeSuccess}</div>}
+
+            {/* Stripe */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5" />
+                  Stripe
+                </CardTitle>
+                <CardDescription>Accept online payments for invoices. Payment links are automatically included in invoice emails.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div><div className="text-sm font-medium">Enable Stripe</div><div className="text-xs text-muted-foreground">Add "Pay Now" buttons to invoice emails</div></div>
+                  <input type="checkbox" className="h-4 w-4" checked={stripeForm.isEnabled} onChange={e => setStripeForm(f => ({ ...f, isEnabled: e.target.checked }))} />
+                </div>
+                <Separator />
+                <div className="space-y-2">
+                  <Label>Secret Key</Label>
+                  <Input type="password" value={stripeForm.secretKey} onChange={e => setStripeForm(f => ({ ...f, secretKey: e.target.value }))} placeholder="sk_live_... or sk_test_..." />
+                  <p className="text-xs text-muted-foreground">Found in Stripe Dashboard → Developers → API keys</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Webhook Secret</Label>
+                  <Input type="password" value={stripeForm.webhookSecret} onChange={e => setStripeForm(f => ({ ...f, webhookSecret: e.target.value }))} placeholder="whsec_..." />
+                  <p className="text-xs text-muted-foreground">Webhook URL: <code className="bg-muted px-1 rounded">{window.location.origin}/api/v1/webhooks/stripe</code></p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Publishable Key (optional)</Label>
+                  <Input value={stripeForm.publishableKey} onChange={e => setStripeForm(f => ({ ...f, publishableKey: e.target.value }))} placeholder="pk_live_... or pk_test_..." />
+                </div>
+                <Button onClick={async () => {
+                  setStripeSaving(true); setStripeSuccess('');
+                  try { await api('/settings/stripe', { method: 'PUT', body: JSON.stringify(stripeForm) }); setStripeSuccess('Stripe settings saved'); } catch { /* */ }
+                  finally { setStripeSaving(false); }
+                }} disabled={stripeSaving}>{stripeSaving ? 'Saving...' : 'Save Stripe Settings'}</Button>
+              </CardContent>
+            </Card>
+
+            {/* Pax8 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Package className="h-5 w-5" />
+                  Pax8
+                </CardTitle>
+                <CardDescription>Sync cloud subscriptions, licenses, and billing from Pax8 marketplace.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Client ID</Label>
+                  <Input placeholder="Pax8 API Client ID" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Client Secret</Label>
+                  <Input type="password" placeholder="Pax8 API Client Secret" />
+                </div>
+                <p className="text-xs text-muted-foreground">Get your API credentials from <strong>Pax8 Partner Portal → Developer → API Credentials</strong></p>
+                <Button variant="outline" disabled>Connect Pax8 (Coming Soon)</Button>
+              </CardContent>
+            </Card>
+
+            {/* QuickBooks Online */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5" />
+                  QuickBooks Online
+                </CardTitle>
+                <CardDescription>Sync invoices, payments, and customers with QuickBooks Online.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" disabled>Connect QuickBooks (Coming Soon)</Button>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
         {/* RMM TAB */}
         <TabsContent value="rmm">
           <div className="mt-4">
@@ -965,6 +1130,205 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
           </div>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ===== BILLING SETTINGS TAB (Tax Rates) =====
+interface TaxRate {
+  id: string; state: string; county: string | null; combinedRate: string;
+  stateRate: string | null; countyRate: string | null;
+  appliesToProducts: boolean; appliesToServices: boolean; isActive: boolean;
+}
+
+function BillingSettingsTab() {
+  const [rates, setRates] = useState<TaxRate[]>([]);
+  const [search, setSearch] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState({ state: '', county: '', combinedRate: '', stateRate: '', countyRate: '', appliesToProducts: true, appliesToServices: false });
+  const [saving, setSaving] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => { loadRates(); }, []);
+
+  async function loadRates() {
+    const data = await api<TaxRate[]>('/settings/tax-rates');
+    setRates(data);
+  }
+
+  const filtered = rates.filter(r => {
+    if (!search) return true;
+    const s = search.toLowerCase();
+    return r.state.toLowerCase().includes(s) || (r.county?.toLowerCase().includes(s));
+  });
+
+  function openAdd() {
+    setEditId(null);
+    setForm({ state: '', county: '', combinedRate: '', stateRate: '', countyRate: '', appliesToProducts: true, appliesToServices: false });
+    setShowAdd(true);
+  }
+
+  function openEdit(r: TaxRate) {
+    setEditId(r.id);
+    setForm({
+      state: r.state, county: r.county ?? '', combinedRate: r.combinedRate,
+      stateRate: r.stateRate ?? '', countyRate: r.countyRate ?? '',
+      appliesToProducts: r.appliesToProducts, appliesToServices: r.appliesToServices,
+    });
+    setShowAdd(true);
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true); setMessage('');
+    try {
+      if (editId) {
+        await api(`/settings/tax-rates/${editId}`, { method: 'PATCH', body: JSON.stringify(form) });
+      } else {
+        await api('/settings/tax-rates', { method: 'POST', body: JSON.stringify(form) });
+      }
+      setShowAdd(false); loadRates();
+    } catch (err: unknown) { setMessage(err instanceof Error ? err.message : 'Failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this tax rate?')) return;
+    await api(`/settings/tax-rates/${id}`, { method: 'DELETE' });
+    loadRates();
+  }
+
+  async function seedRates() {
+    setSeeding(true);
+    try {
+      const res = await api<{ created: number; total: number }>('/settings/tax-rates/seed', { method: 'POST', body: JSON.stringify({}) });
+      setMessage(`Seeded ${res.created} of ${res.total} rates`);
+      loadRates();
+    } catch { setMessage('Seed failed'); }
+    finally { setSeeding(false); }
+  }
+
+  // Group by state for display
+  const stateGroups = new Map<string, typeof filtered>();
+  for (const r of filtered) {
+    const arr = stateGroups.get(r.state) || [];
+    arr.push(r);
+    stateGroups.set(r.state, arr);
+  }
+
+  return (
+    <div className="space-y-6 mt-4">
+      {message && <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800">{message}</div>}
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2"><DollarSign className="h-5 w-5" />Tax Rates</CardTitle>
+              <CardDescription>Manage sales tax rates by state and county. Rates auto-apply to invoices based on customer billing address.</CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={seedRates} disabled={seeding}>{seeding ? 'Seeding...' : 'Seed SC/NC Rates'}</Button>
+              <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4 mr-1" />Add Rate</Button>
+            </div>
+          </div>
+          <div className="relative mt-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input placeholder="Search by state or county..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {filtered.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">No tax rates found. Click "Seed SC/NC Rates" to pre-populate, or add manually.</div>
+          ) : (
+            <div className="max-h-[500px] overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-background">
+                  <tr className="border-b bg-muted/50">
+                    <th className="text-left p-3 font-medium">State</th>
+                    <th className="text-left p-3 font-medium">County</th>
+                    <th className="text-right p-3 font-medium">Combined</th>
+                    <th className="text-right p-3 font-medium">State</th>
+                    <th className="text-right p-3 font-medium">Local</th>
+                    <th className="text-center p-3 font-medium">Products</th>
+                    <th className="text-center p-3 font-medium">Services</th>
+                    <th className="text-right p-3 font-medium w-20"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(r => (
+                    <tr key={r.id} className="border-b hover:bg-muted/30">
+                      <td className="p-3 font-medium">{r.state}</td>
+                      <td className="p-3">{r.county || <span className="text-muted-foreground italic">State default</span>}</td>
+                      <td className="p-3 text-right font-mono">{parseFloat(r.combinedRate).toFixed(2)}%</td>
+                      <td className="p-3 text-right font-mono text-muted-foreground">{r.stateRate ? parseFloat(r.stateRate).toFixed(2) + '%' : '-'}</td>
+                      <td className="p-3 text-right font-mono text-muted-foreground">{r.countyRate ? parseFloat(r.countyRate).toFixed(2) + '%' : '-'}</td>
+                      <td className="p-3 text-center">{r.appliesToProducts ? <Badge variant="outline" className="text-xs text-green-600 border-green-300">Yes</Badge> : <span className="text-xs text-muted-foreground">No</span>}</td>
+                      <td className="p-3 text-center">{r.appliesToServices ? <Badge variant="outline" className="text-xs text-green-600 border-green-300">Yes</Badge> : <span className="text-xs text-muted-foreground">No</span>}</td>
+                      <td className="p-3 text-right">
+                        <div className="flex gap-1 justify-end">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(r)}><Pencil className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(r.id)}><Trash2 className="h-3 w-3" /></Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="p-3 border-t text-xs text-muted-foreground">{filtered.length} rates{search ? ` matching "${search}"` : ''} ({rates.length} total)</div>
+        </CardContent>
+      </Card>
+
+      {/* Add/Edit Dialog */}
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editId ? 'Edit Tax Rate' : 'Add Tax Rate'}</DialogTitle></DialogHeader>
+          <form onSubmit={handleSave} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>State Code</Label>
+                <Input required value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value.toUpperCase() }))} placeholder="SC" maxLength={2} />
+              </div>
+              <div className="space-y-2">
+                <Label>County (optional)</Label>
+                <Input value={form.county} onChange={e => setForm(f => ({ ...f, county: e.target.value }))} placeholder="Horry" />
+                <p className="text-xs text-muted-foreground">Leave blank for state-level default</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-2">
+                <Label>Combined Rate %</Label>
+                <Input required type="number" step="0.01" value={form.combinedRate} onChange={e => setForm(f => ({ ...f, combinedRate: e.target.value }))} placeholder="8.00" />
+              </div>
+              <div className="space-y-2">
+                <Label>State Rate %</Label>
+                <Input type="number" step="0.01" value={form.stateRate} onChange={e => setForm(f => ({ ...f, stateRate: e.target.value }))} placeholder="6.00" />
+              </div>
+              <div className="space-y-2">
+                <Label>Local Rate %</Label>
+                <Input type="number" step="0.01" value={form.countyRate} onChange={e => setForm(f => ({ ...f, countyRate: e.target.value }))} placeholder="2.00" />
+              </div>
+            </div>
+            <div className="flex gap-6">
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="taxProducts" checked={form.appliesToProducts} onChange={e => setForm(f => ({ ...f, appliesToProducts: e.target.checked }))} className="h-4 w-4" />
+                <Label htmlFor="taxProducts">Applies to Products</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="taxServices" checked={form.appliesToServices} onChange={e => setForm(f => ({ ...f, appliesToServices: e.target.checked }))} className="h-4 w-4" />
+                <Label htmlFor="taxServices">Applies to Services</Label>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
+              <Button type="submit" disabled={saving}>{saving ? 'Saving...' : editId ? 'Save Changes' : 'Add Rate'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

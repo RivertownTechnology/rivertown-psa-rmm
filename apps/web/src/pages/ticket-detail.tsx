@@ -30,7 +30,7 @@ interface Ticket {
 }
 
 interface Comment {
-  id: string; authorType: string; authorId: string; body: string;
+  id: string; authorType: string; authorId: string; authorName?: string; body: string;
   isInternal: boolean; createdAt: string;
 }
 
@@ -470,19 +470,19 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                           {c.authorType === 'user' && (
                             <Badge variant="outline" className="text-xs gap-1 font-normal">
                               <User className="h-3 w-3" />
-                              {authorTypeLabel[c.authorType]}
+                              {c.authorName || 'Technician'}
                             </Badge>
                           )}
                           {c.authorType === 'contact' && (
                             <Badge variant="secondary" className="text-xs gap-1 font-normal">
                               <Users className="h-3 w-3" />
-                              {authorTypeLabel[c.authorType]}
+                              {c.authorName || 'Customer'}
                             </Badge>
                           )}
                           {c.authorType === 'system' && (
                             <Badge variant="outline" className="text-xs gap-1 font-normal text-muted-foreground">
                               <AlertCircle className="h-3 w-3" />
-                              {authorTypeLabel[c.authorType]}
+                              {c.authorName || 'System'}
                             </Badge>
                           )}
                           {c.isInternal && (
