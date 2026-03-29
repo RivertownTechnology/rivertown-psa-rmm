@@ -1,0 +1,22 @@
+{
+  "name": "rivertown-psa-rmm",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "type-check": "turbo type-check",
+    "test": "turbo test",
+    "db:generate": "pnpm --filter @rivertown/db generate",
+    "db:migrate": "pnpm --filter @rivertown/db migrate",
+    "db:seed": "pnpm --filter @rivertown/db seed",
+    "db:studio": "pnpm --filter @rivertown/db studio"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0",
+    "prettier": "^3.5.0",
+    "eslint": "^9.24.0"
+  }
+}

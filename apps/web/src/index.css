@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ===== LIGHT MODE BASE ===== */
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --radius: 0.5rem;
+  }
+
+  /* ===== DARK MODE BASE ===== */
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+    --card: 224 71% 6%;
+    --card-foreground: 213 31% 91%;
+    --secondary: 222 47% 11%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 223 47% 11%;
+    --muted-foreground: 215.4 16.3% 56.9%;
+    --accent: 216 34% 17%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+  }
+
+  /* ===== BLUE THEME (default) ===== */
+  :root, [data-theme="blue"] {
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --ring: 221.2 83.2% 53.3%;
+  }
+  .dark[data-theme="blue"], .dark:not([data-theme]) {
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --ring: 217.2 91.2% 59.8%;
+  }
+
+  /* ===== RED THEME ===== */
+  [data-theme="red"] {
+    --primary: 0 72.2% 50.6%;
+    --primary-foreground: 0 0% 98%;
+    --ring: 0 72.2% 50.6%;
+  }
+  .dark[data-theme="red"] {
+    --primary: 0 72.2% 60%;
+    --primary-foreground: 0 0% 98%;
+    --ring: 0 72.2% 60%;
+  }
+
+  /* ===== GREEN THEME ===== */
+  [data-theme="green"] {
+    --primary: 142.1 76.2% 36.3%;
+    --primary-foreground: 355.7 100% 97.3%;
+    --ring: 142.1 76.2% 36.3%;
+  }
+  .dark[data-theme="green"] {
+    --primary: 142.1 70.6% 45.3%;
+    --primary-foreground: 144.9 80.4% 10%;
+    --ring: 142.1 70.6% 45.3%;
+  }
+
+  /* ===== ORANGE THEME ===== */
+  [data-theme="orange"] {
+    --primary: 24.6 95% 53.1%;
+    --primary-foreground: 60 9.1% 97.8%;
+    --ring: 24.6 95% 53.1%;
+  }
+  .dark[data-theme="orange"] {
+    --primary: 20.5 90.2% 52%;
+    --primary-foreground: 60 9.1% 97.8%;
+    --ring: 20.5 90.2% 52%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    margin: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    transition: background-color 0.15s, color 0.15s;
+  }
+}

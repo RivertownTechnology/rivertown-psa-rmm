@@ -1,0 +1,1 @@
+ALTER TABLE "assets" ADD COLUMN "mesh_agent_id" text;

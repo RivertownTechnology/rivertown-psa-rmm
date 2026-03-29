@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Turbo
+.turbo/
+
+# Testing
+coverage/
+
+# Docker volumes
+infrastructure/docker/data/
+
+# .NET agent build
+agent/**/bin/
+agent/**/obj/
+agent/**/*.user
+agent/**/.vs/
+
+# Logs
+*.log

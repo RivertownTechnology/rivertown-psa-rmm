@@ -1,0 +1,970 @@
+import { useEffect, useState } from 'react';
+import { useAuth } from '@/lib/auth';
+import { useTheme } from '@/lib/theme';
+import { api } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import { User, Building, Bell, Hash, Mail, Send, CheckCircle, DollarSign, Shield } from 'lucide-react';
+import { BusinessProfileCard } from '@/components/business-profile-card';
+import { SecurityPage } from './security';
+import { ProductCatalogPage } from './product-catalog';
+import { TemplatesSettingsPage } from './templates-settings';
+import { RmmSettingsPage } from './rmm-settings';
+
+interface EmailConfig {
+  isEnabled: boolean; smtpHost: string; smtpPort: number; smtpUser: string;
+  smtpPassword: string; fromAddress: string; fromName: string; useTls: boolean; provider: string;
+}
+
+const defaultEmail: EmailConfig = {
+  isEnabled: false, smtpHost: '', smtpPort: 587, smtpUser: '', smtpPassword: '',
+  fromAddress: '', fromName: '', useTls: true, provider: 'smtp',
+};
+
+export function SettingsPage({ initialTab }: { initialTab?: string }) {
+  const { user } = useAuth();
+  const { mode, color, setMode, setColor } = useTheme();
+  const [tab, setTab] = useState(initialTab ?? 'general');
+  const [sequences, setSequences] = useState<Record<string, number>>({});
+  const [seqForm, setSeqForm] = useState({ ticket: '', invoice: '', quote: '' });
+  const [seqSaving, setSeqSaving] = useState(false);
+  const [seqSuccess, setSeqSuccess] = useState('');
+
+  // Billing rates
+  interface TechRate { id: string; displayName: string; email: string; role: string; internalCostCents: number | null; billableRateCents: number | null; }
+  const [orgRates, setOrgRates] = useState({ internalCostCents: 7500, billableRateCents: 15000 });
+  const [techs, setTechs] = useState<TechRate[]>([]);
+  const [ratesSaving, setRatesSaving] = useState(false);
+  const [ratesSuccess, setRatesSuccess] = useState('');
+
+  // Email
+  const [emailForm, setEmailForm] = useState<EmailConfig>({ ...defaultEmail });
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailSuccess, setEmailSuccess] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [emailLoaded, setEmailLoaded] = useState(false);
+
+  // Microsoft 365
+  const [o365Status, setO365Status] = useState<{ connected: boolean; email: string | null; configured: boolean; needsSetup: boolean }>({ connected: false, email: null, configured: false, needsSetup: true });
+  const [o365Connecting, setO365Connecting] = useState(false);
+  const [showO365Setup, setShowO365Setup] = useState(false);
+  const [showM365Guide, setShowM365Guide] = useState(false);
+  const [o365SetupForm, setO365SetupForm] = useState({ clientId: '', clientSecret: '' });
+
+  // Email-to-ticket
+  const [checkingInbox, setCheckingInbox] = useState(false);
+  const [inboxResult, setInboxResult] = useState<{ processed: number; tickets: number; comments: number } | null>(null);
+  const [emailLog, setEmailLog] = useState<Array<{ id: string; fromAddress: string; subject: string; direction: string; ticketId: string | null; createdAt: string }>>([]);
+
+  // SLA Policies
+  interface SlaPolicy {
+    id: string; name: string; description: string | null; isDefault: boolean;
+    criticalResponseMinutes: number; criticalResolutionMinutes: number;
+    highResponseMinutes: number; highResolutionMinutes: number;
+    mediumResponseMinutes: number; mediumResolutionMinutes: number;
+    lowResponseMinutes: number; lowResolutionMinutes: number;
+  }
+  const [slaPolicies, setSlaPolicies] = useState<SlaPolicy[]>([]);
+  const [showSlaEdit, setShowSlaEdit] = useState(false);
+  const [editingSlaId, setEditingSlaId] = useState<string | null>(null);
+  const [slaForm, setSlaForm] = useState({
+    name: '', description: '', isDefault: false,
+    criticalResponseMinutes: '60', criticalResolutionMinutes: '240',
+    highResponseMinutes: '240', highResolutionMinutes: '480',
+    mediumResponseMinutes: '480', mediumResolutionMinutes: '1440',
+    lowResponseMinutes: '1440', lowResolutionMinutes: '2880',
+  });
+
+  // Profile
+  const [profileForm, setProfileForm] = useState({ displayName: '', currentPassword: '', newPassword: '' });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState('');
+
+  // Notifications
+  const [notifs, setNotifs] = useState({ ticketAssignment: true, slaWarning: true, rmmAlerts: true, invoicePayments: true });
+
+  // Timezone
+  const [timezone, setTimezone] = useState('America/New_York');
+
+  useEffect(() => {
+    api<{ timezone: string }>('/settings/timezone').then(d => setTimezone(d.timezone)).catch(() => {});
+  }, []);
+
+  async function saveTimezone(tz: string) {
+    setTimezone(tz);
+    await api('/settings/timezone', { method: 'PATCH', body: JSON.stringify({ timezone: tz }) });
+  }
+
+  // Initialize profile form from user
+  useEffect(() => {
+    if (user) setProfileForm(f => ({ ...f, displayName: user.displayName }));
+  }, [user]);
+
+  // Load notification preferences from business profile
+  useEffect(() => {
+    api<Record<string, unknown>>('/settings/business-profile').then(d => {
+      setNotifs({
+        ticketAssignment: (d as any).notifTicketAssignment !== false,
+        slaWarning: (d as any).notifSlaWarning !== false,
+        rmmAlerts: (d as any).notifRmmAlerts !== false,
+        invoicePayments: (d as any).notifInvoicePayments !== false,
+      });
+    }).catch(() => {});
+  }, []);
+
+  async function saveProfile() {
+    setProfileSaving(true); setProfileMsg('');
+    try {
+      const payload: Record<string, string> = {};
+      if (profileForm.displayName !== user?.displayName) payload.displayName = profileForm.displayName;
+      if (profileForm.newPassword && profileForm.currentPassword) {
+        payload.currentPassword = profileForm.currentPassword;
+        payload.newPassword = profileForm.newPassword;
+      }
+      if (Object.keys(payload).length === 0) { setProfileMsg('No changes'); setProfileSaving(false); return; }
+      await api('/settings/profile', { method: 'PATCH', body: JSON.stringify(payload) });
+      setProfileMsg('Profile saved');
+      setProfileForm(f => ({ ...f, currentPassword: '', newPassword: '' }));
+    } catch (e: unknown) {
+      setProfileMsg(e instanceof Error ? e.message : 'Failed to save');
+    } finally { setProfileSaving(false); }
+  }
+
+  async function saveNotifications() {
+    await api('/settings/business-profile', { method: 'PUT', body: JSON.stringify({
+      notifTicketAssignment: notifs.ticketAssignment,
+      notifSlaWarning: notifs.slaWarning,
+      notifRmmAlerts: notifs.rmmAlerts,
+      notifInvoicePayments: notifs.invoicePayments,
+    })});
+  }
+
+  useEffect(() => {
+    api<SlaPolicy[]>('/settings/sla-policies').then(setSlaPolicies).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    api<{ orgDefaults: { internalCostCents: number; billableRateCents: number }; techs: TechRate[] }>('/settings/billing-rates')
+      .then(data => { setOrgRates(data.orgDefaults); setTechs(data.techs); })
+      .catch(() => {});
+  }, []);
+
+  async function saveOrgRates() {
+    setRatesSaving(true); setRatesSuccess('');
+    try {
+      await api('/settings/billing-rates/org', { method: 'PATCH', body: JSON.stringify(orgRates) });
+      setRatesSuccess('Default rates saved');
+    } catch { /* */ }
+    finally { setRatesSaving(false); }
+  }
+
+  async function saveTechRate(userId: string, internalCostCents: number | null, billableRateCents: number | null) {
+    await api(`/settings/billing-rates/tech/${userId}`, {
+      method: 'PATCH', body: JSON.stringify({ internalCostCents, billableRateCents }),
+    });
+    setTechs(prev => prev.map(t => t.id === userId ? { ...t, internalCostCents, billableRateCents } : t));
+  }
+
+  useEffect(() => {
+    api<Record<string, number>>('/settings/sequences')
+      .then(data => {
+        setSequences(data);
+        setSeqForm({
+          ticket: String(data.ticket ?? 0),
+          invoice: String(data.invoice ?? 0),
+          quote: String(data.quote ?? 0),
+        });
+      })
+      .catch(() => {});
+  }, []);
+
+  async function saveSequences() {
+    setSeqSaving(true);
+    setSeqSuccess('');
+    try {
+      const data = await api<Record<string, number>>('/settings/sequences', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          ticket: parseInt(seqForm.ticket, 10),
+          invoice: parseInt(seqForm.invoice, 10),
+          quote: parseInt(seqForm.quote, 10),
+        }),
+      });
+      setSequences(data);
+      setSeqSuccess('Sequences updated. Next ticket will be #' + (data.ticket + 1));
+    } catch { /* */ }
+    finally { setSeqSaving(false); }
+  }
+
+  useEffect(() => {
+    if (emailLoaded) return;
+    api<EmailConfig>('/settings/email')
+      .then(data => { setEmailForm(data); setEmailLoaded(true); })
+      .catch(() => setEmailLoaded(true));
+    api<{ connected: boolean; email: string | null; configured: boolean }>('/integrations/microsoft365/status')
+      .then(setO365Status).catch(() => {});
+
+    // Handle OAuth callback — if we have a ?code= in the URL, exchange it
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (code) {
+      setO365Connecting(true);
+      // Clean the URL
+      window.history.replaceState(null, '', '/settings');
+      api<{ success: boolean; email: string }>('/integrations/microsoft365/callback', {
+        method: 'POST', body: JSON.stringify({ code }),
+      }).then(result => {
+        setO365Status({ connected: true, email: result.email, configured: true });
+        setEmailSuccess(`Connected to Microsoft 365 as ${result.email}`);
+        setEmailLoaded(false);
+      }).catch(e => {
+        setEmailError(e instanceof Error ? e.message : 'Failed to complete Microsoft 365 connection');
+      }).finally(() => setO365Connecting(false));
+    }
+  }, [emailLoaded]);
+
+  async function saveEmail() {
+    setEmailSaving(true); setEmailSuccess(''); setEmailError('');
+    try {
+      await api('/settings/email', { method: 'PUT', body: JSON.stringify(emailForm) });
+      setEmailSuccess('Email settings saved');
+    } catch (e: unknown) { setEmailError(e instanceof Error ? e.message : 'Failed to save'); }
+    finally { setEmailSaving(false); }
+  }
+
+  async function connectO365() {
+    // If not set up yet, show the one-time setup dialog
+    if (o365Status.needsSetup) {
+      setShowO365Setup(true);
+      return;
+    }
+    setO365Connecting(true); setEmailError(''); setEmailSuccess('');
+    try {
+      const res = await api<{ authUrl: string }>('/integrations/microsoft365/authorize');
+      window.location.href = res.authUrl;
+    } catch (e: unknown) {
+      setEmailError(e instanceof Error ? e.message : 'Failed to start Microsoft 365 connection');
+      setO365Connecting(false);
+    }
+  }
+
+  async function saveO365Setup() {
+    setEmailError('');
+    try {
+      await api('/integrations/microsoft365/setup', {
+        method: 'POST', body: JSON.stringify(o365SetupForm),
+      });
+      setShowO365Setup(false);
+      setO365Status(s => ({ ...s, configured: true, needsSetup: false }));
+      // Now trigger the actual authorize flow
+      setO365Connecting(true);
+      const res = await api<{ authUrl: string }>('/integrations/microsoft365/authorize');
+      window.location.href = res.authUrl;
+    } catch (e: unknown) {
+      setEmailError(e instanceof Error ? e.message : 'Setup failed');
+      setO365Connecting(false);
+    }
+  }
+
+  async function disconnectO365() {
+    try {
+      await api('/integrations/microsoft365/disconnect', { method: 'POST' });
+      setO365Status({ connected: false, email: null });
+      setEmailSuccess('Microsoft 365 disconnected');
+      setEmailLoaded(false);
+    } catch (e: unknown) { setEmailError(e instanceof Error ? e.message : 'Failed'); }
+  }
+
+  async function checkInbox() {
+    setCheckingInbox(true); setInboxResult(null); setEmailError('');
+    try {
+      const result = await api<{ processed: number; tickets: number; comments: number }>('/settings/email/check-inbox', { method: 'POST' });
+      setInboxResult(result);
+      setEmailSuccess(`Processed ${result.processed} emails: ${result.tickets} new tickets, ${result.comments} comments`);
+    } catch (e: unknown) { setEmailError(e instanceof Error ? e.message : 'Failed to check inbox'); }
+    finally { setCheckingInbox(false); }
+  }
+
+  async function loadEmailLog() {
+    const log = await api<Array<{ id: string; fromAddress: string; subject: string; direction: string; ticketId: string | null; createdAt: string }>>('/settings/email/log');
+    setEmailLog(log);
+  }
+
+  async function testEmail() {
+    setEmailError(''); setEmailSuccess('');
+    try {
+      const res = await api<{ message: string }>('/settings/email/test', { method: 'POST' });
+      setEmailSuccess(res.message);
+    } catch (e: unknown) { setEmailError(e instanceof Error ? e.message : 'Test failed'); }
+  }
+
+  // SLA functions
+  async function seedSlaPolicies() {
+    await api('/settings/sla-policies/seed-defaults', { method: 'POST' });
+    const data = await api<SlaPolicy[]>('/settings/sla-policies');
+    setSlaPolicies(data);
+  }
+
+  function openSlaEdit(policy?: SlaPolicy) {
+    if (policy) {
+      setEditingSlaId(policy.id);
+      setSlaForm({
+        name: policy.name, description: policy.description ?? '', isDefault: policy.isDefault,
+        criticalResponseMinutes: String(policy.criticalResponseMinutes), criticalResolutionMinutes: String(policy.criticalResolutionMinutes),
+        highResponseMinutes: String(policy.highResponseMinutes), highResolutionMinutes: String(policy.highResolutionMinutes),
+        mediumResponseMinutes: String(policy.mediumResponseMinutes), mediumResolutionMinutes: String(policy.mediumResolutionMinutes),
+        lowResponseMinutes: String(policy.lowResponseMinutes), lowResolutionMinutes: String(policy.lowResolutionMinutes),
+      });
+    } else {
+      setEditingSlaId(null);
+      setSlaForm({ name: '', description: '', isDefault: false, criticalResponseMinutes: '60', criticalResolutionMinutes: '240', highResponseMinutes: '240', highResolutionMinutes: '480', mediumResponseMinutes: '480', mediumResolutionMinutes: '1440', lowResponseMinutes: '1440', lowResolutionMinutes: '2880' });
+    }
+    setShowSlaEdit(true);
+  }
+
+  async function saveSlaPolicy(e: React.FormEvent) {
+    e.preventDefault();
+    const payload = {
+      name: slaForm.name, description: slaForm.description || undefined, isDefault: slaForm.isDefault,
+      criticalResponseMinutes: parseInt(slaForm.criticalResponseMinutes), criticalResolutionMinutes: parseInt(slaForm.criticalResolutionMinutes),
+      highResponseMinutes: parseInt(slaForm.highResponseMinutes), highResolutionMinutes: parseInt(slaForm.highResolutionMinutes),
+      mediumResponseMinutes: parseInt(slaForm.mediumResponseMinutes), mediumResolutionMinutes: parseInt(slaForm.mediumResolutionMinutes),
+      lowResponseMinutes: parseInt(slaForm.lowResponseMinutes), lowResolutionMinutes: parseInt(slaForm.lowResolutionMinutes),
+    };
+    if (editingSlaId) {
+      await api(`/settings/sla-policies/${editingSlaId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+    } else {
+      await api('/settings/sla-policies', { method: 'POST', body: JSON.stringify(payload) });
+    }
+    setShowSlaEdit(false);
+    const data = await api<SlaPolicy[]>('/settings/sla-policies');
+    setSlaPolicies(data);
+  }
+
+  function fmtMins(m: number): string {
+    if (m < 60) return `${m}m`;
+    if (m % 60 === 0) return `${m / 60}h`;
+    return `${Math.floor(m / 60)}h ${m % 60}m`;
+  }
+
+  return (
+    <div className="max-w-4xl">
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="email">Email</TabsTrigger>
+          <TabsTrigger value="templates">Templates</TabsTrigger>
+          <TabsTrigger value="rmm">RMM</TabsTrigger>
+          <TabsTrigger value="security">Security</TabsTrigger>
+          <TabsTrigger value="catalog">Product Catalog</TabsTrigger>
+        </TabsList>
+
+        {/* GENERAL TAB */}
+        <TabsContent value="general">
+          <div className="space-y-6 mt-4">
+            {/* Profile */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><User className="h-5 w-5" />Profile</CardTitle>
+                <CardDescription>Your personal account settings</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {profileMsg && (
+                  <div className={`text-sm p-3 rounded-md ${profileMsg.startsWith('Failed') || profileMsg.startsWith('Current password') ? 'bg-destructive/10 text-destructive' : 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800'}`}>
+                    {profileMsg}
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Display Name</Label>
+                    <Input value={profileForm.displayName} onChange={e => setProfileForm({ ...profileForm, displayName: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Email</Label>
+                    <Input defaultValue={user?.email} disabled />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Role</Label>
+                  <Input value={user?.role ?? ''} disabled className="w-40" />
+                </div>
+                <Separator />
+                <div className="space-y-2">
+                  <Label>Change Password</Label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input type="password" placeholder="Current password" value={profileForm.currentPassword} onChange={e => setProfileForm({ ...profileForm, currentPassword: e.target.value })} />
+                    <Input type="password" placeholder="New password" value={profileForm.newPassword} onChange={e => setProfileForm({ ...profileForm, newPassword: e.target.value })} />
+                  </div>
+                </div>
+                <Button onClick={saveProfile} disabled={profileSaving}>{profileSaving ? 'Saving...' : 'Save Changes'}</Button>
+              </CardContent>
+            </Card>
+
+            {/* Organization / Business Profile */}
+            <BusinessProfileCard />
+
+            {/* Timezone */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Timezone</CardTitle>
+                <CardDescription>Default timezone for displaying dates and SLA calculations</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <select value={timezone} onChange={e => saveTimezone(e.target.value)}
+                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm max-w-xs">
+                  <option value="America/New_York">Eastern (ET)</option>
+                  <option value="America/Chicago">Central (CT)</option>
+                  <option value="America/Denver">Mountain (MT)</option>
+                  <option value="America/Los_Angeles">Pacific (PT)</option>
+                  <option value="America/Anchorage">Alaska (AKT)</option>
+                  <option value="Pacific/Honolulu">Hawaii (HT)</option>
+                  <option value="UTC">UTC</option>
+                </select>
+              </CardContent>
+            </Card>
+
+            {/* Numbering */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Hash className="h-5 w-5" />Numbering</CardTitle>
+                <CardDescription>
+                  Set the current counter for tickets, invoices, and quotes. The next created item will use counter + 1.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {seqSuccess && (
+                  <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800">
+                    {seqSuccess}
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Ticket Counter</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={seqForm.ticket}
+                      onChange={e => setSeqForm({ ...seqForm, ticket: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">Next ticket: #{parseInt(seqForm.ticket || '0', 10) + 1}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Invoice Counter</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={seqForm.invoice}
+                      onChange={e => setSeqForm({ ...seqForm, invoice: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">Next invoice: #{parseInt(seqForm.invoice || '0', 10) + 1}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Quote Counter</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={seqForm.quote}
+                      onChange={e => setSeqForm({ ...seqForm, quote: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">Next quote: #{parseInt(seqForm.quote || '0', 10) + 1}</p>
+                  </div>
+                </div>
+                <Button onClick={saveSequences} disabled={seqSaving}>
+                  {seqSaving ? 'Saving...' : 'Update Counters'}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Billing Rates */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><DollarSign className="h-5 w-5" />Billing Rates</CardTitle>
+                <CardDescription>Default internal cost and billable rates. Per-tech overrides apply when set.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {ratesSuccess && <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800">{ratesSuccess}</div>}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Default Internal Cost ($/hr)</Label>
+                    <Input type="number" step="0.01" min="0"
+                      value={(orgRates.internalCostCents / 100).toFixed(2)}
+                      onChange={e => setOrgRates({ ...orgRates, internalCostCents: Math.round(parseFloat(e.target.value || '0') * 100) })} />
+                    <p className="text-xs text-muted-foreground">What it costs you per hour of tech labor</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Default Billable Rate ($/hr)</Label>
+                    <Input type="number" step="0.01" min="0"
+                      value={(orgRates.billableRateCents / 100).toFixed(2)}
+                      onChange={e => setOrgRates({ ...orgRates, billableRateCents: Math.round(parseFloat(e.target.value || '0') * 100) })} />
+                    <p className="text-xs text-muted-foreground">What you charge customers per hour</p>
+                  </div>
+                </div>
+                <Button onClick={saveOrgRates} disabled={ratesSaving}>{ratesSaving ? 'Saving...' : 'Save Default Rates'}</Button>
+
+                <Separator />
+                <div className="space-y-2">
+                  <Label className="text-base">Per-Tech Rate Overrides</Label>
+                  <p className="text-xs text-muted-foreground">Leave blank to use org defaults. Set per-tech when individual rates differ.</p>
+                </div>
+                <div className="border rounded-md overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-muted/50 border-b">
+                      <th className="text-left p-3 font-medium">Tech</th>
+                      <th className="text-left p-3 font-medium">Role</th>
+                      <th className="text-right p-3 font-medium">Internal Cost ($/hr)</th>
+                      <th className="text-right p-3 font-medium">Billable Rate ($/hr)</th>
+                    </tr></thead>
+                    <tbody>
+                      {techs.map(t => (
+                        <tr key={t.id} className="border-b">
+                          <td className="p-3">
+                            <div className="font-medium">{t.displayName}</div>
+                            <div className="text-xs text-muted-foreground">{t.email}</div>
+                          </td>
+                          <td className="p-3 capitalize">{t.role}</td>
+                          <td className="p-2 text-right">
+                            <Input type="number" step="0.01" min="0" className="w-28 text-right ml-auto"
+                              placeholder={(orgRates.internalCostCents / 100).toFixed(2)}
+                              value={t.internalCostCents !== null ? (t.internalCostCents / 100).toFixed(2) : ''}
+                              onChange={e => {
+                                const val = e.target.value ? Math.round(parseFloat(e.target.value) * 100) : null;
+                                saveTechRate(t.id, val, t.billableRateCents);
+                              }} />
+                          </td>
+                          <td className="p-2 text-right">
+                            <Input type="number" step="0.01" min="0" className="w-28 text-right ml-auto"
+                              placeholder={(orgRates.billableRateCents / 100).toFixed(2)}
+                              value={t.billableRateCents !== null ? (t.billableRateCents / 100).toFixed(2) : ''}
+                              onChange={e => {
+                                const val = e.target.value ? Math.round(parseFloat(e.target.value) * 100) : null;
+                                saveTechRate(t.id, t.internalCostCents, val);
+                              }} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* SLA Policies */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" />SLA Policies</CardTitle>
+                    <CardDescription>Define response and resolution times per priority level</CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    {slaPolicies.length === 0 && <Button variant="outline" size="sm" onClick={seedSlaPolicies}>Seed Defaults</Button>}
+                    <Button size="sm" onClick={() => openSlaEdit()}>Add Policy</Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b bg-muted/50">
+                    <th className="text-left p-3 font-medium">Policy</th>
+                    <th className="text-center p-3 font-medium">Critical</th>
+                    <th className="text-center p-3 font-medium">High</th>
+                    <th className="text-center p-3 font-medium">Medium</th>
+                    <th className="text-center p-3 font-medium">Low</th>
+                    <th className="w-20"></th>
+                  </tr></thead>
+                  <tbody>
+                    {slaPolicies.map(p => (
+                      <tr key={p.id} className="border-b hover:bg-muted/30">
+                        <td className="p-3"><div className="font-medium">{p.name} {p.isDefault && <Badge variant="outline" className="ml-1 text-xs">Default</Badge>}</div>{p.description && <div className="text-xs text-muted-foreground">{p.description}</div>}</td>
+                        <td className="p-3 text-center text-xs"><div>{fmtMins(p.criticalResponseMinutes)} resp</div><div className="text-muted-foreground">{fmtMins(p.criticalResolutionMinutes)} res</div></td>
+                        <td className="p-3 text-center text-xs"><div>{fmtMins(p.highResponseMinutes)} resp</div><div className="text-muted-foreground">{fmtMins(p.highResolutionMinutes)} res</div></td>
+                        <td className="p-3 text-center text-xs"><div>{fmtMins(p.mediumResponseMinutes)} resp</div><div className="text-muted-foreground">{fmtMins(p.mediumResolutionMinutes)} res</div></td>
+                        <td className="p-3 text-center text-xs"><div>{fmtMins(p.lowResponseMinutes)} resp</div><div className="text-muted-foreground">{fmtMins(p.lowResolutionMinutes)} res</div></td>
+                        <td className="p-3"><Button variant="ghost" size="sm" onClick={() => openSlaEdit(p)}>Edit</Button></td>
+                      </tr>
+                    ))}
+                    {slaPolicies.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No SLA policies. Click "Seed Defaults" to create Standard and Premium.</td></tr>}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+
+            {/* SLA Edit Dialog */}
+            <Dialog open={showSlaEdit} onOpenChange={setShowSlaEdit}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader><DialogTitle>{editingSlaId ? 'Edit SLA Policy' : 'Add SLA Policy'}</DialogTitle></DialogHeader>
+                <form onSubmit={saveSlaPolicy} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2"><Label>Policy Name</Label><Input required value={slaForm.name} onChange={e => setSlaForm({...slaForm, name: e.target.value})} placeholder="Standard" /></div>
+                    <div className="space-y-2"><Label>Description</Label><Input value={slaForm.description} onChange={e => setSlaForm({...slaForm, description: e.target.value})} /></div>
+                  </div>
+                  <div className="flex items-center gap-2"><input type="checkbox" checked={slaForm.isDefault} onChange={e => setSlaForm({...slaForm, isDefault: e.target.checked})} className="h-4 w-4" /><Label>Default policy (applied to customers without a specific SLA)</Label></div>
+                  <Separator />
+                  <div className="text-sm font-medium">Response / Resolution Times (minutes)</div>
+                  {(['critical', 'high', 'medium', 'low'] as const).map(pri => (
+                    <div key={pri} className="grid grid-cols-3 gap-3 items-center">
+                      <Label className="capitalize">{pri}</Label>
+                      <div className="space-y-1"><Input type="number" min="1" value={(slaForm as any)[`${pri}ResponseMinutes`]} onChange={e => setSlaForm({...slaForm, [`${pri}ResponseMinutes`]: e.target.value})} /><span className="text-xs text-muted-foreground">Response</span></div>
+                      <div className="space-y-1"><Input type="number" min="1" value={(slaForm as any)[`${pri}ResolutionMinutes`]} onChange={e => setSlaForm({...slaForm, [`${pri}ResolutionMinutes`]: e.target.value})} /><span className="text-xs text-muted-foreground">Resolution</span></div>
+                    </div>
+                  ))}
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setShowSlaEdit(false)}>Cancel</Button>
+                    <Button type="submit">{editingSlaId ? 'Save' : 'Create'}</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+
+            {/* Notifications */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Bell className="h-5 w-5" />Notifications</CardTitle>
+                <CardDescription>Configure email and alert preferences</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {[
+                  { key: 'ticketAssignment' as const, label: 'Ticket Assignments', desc: 'Email when a ticket is assigned to you' },
+                  { key: 'slaWarning' as const, label: 'SLA Warnings', desc: 'Alert before SLA breach' },
+                  { key: 'rmmAlerts' as const, label: 'RMM Alerts', desc: 'Agent offline and critical device alerts' },
+                  { key: 'invoicePayments' as const, label: 'Invoice Payments', desc: 'Notify when a customer pays an invoice' },
+                ].map((item, i) => (
+                  <div key={i}>
+                    {i > 0 && <Separator className="my-3" />}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium">{item.label}</div>
+                        <div className="text-xs text-muted-foreground">{item.desc}</div>
+                      </div>
+                      <input type="checkbox" checked={notifs[item.key]} onChange={e => setNotifs({ ...notifs, [item.key]: e.target.checked })} className="h-4 w-4" />
+                    </div>
+                  </div>
+                ))}
+                <Button className="mt-2" onClick={saveNotifications}>Save Preferences</Button>
+              </CardContent>
+            </Card>
+
+            {/* Integrations teaser */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Integrations</CardTitle>
+                <CardDescription>Connect to external services</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-3">
+                  {['Pax8', 'QuickBooks Online', 'Stripe'].map(name => (
+                    <div key={name} className="border rounded-lg p-4 text-center">
+                      <div className="text-sm font-medium">{name}</div>
+                      <div className="text-xs text-muted-foreground mt-1">Not connected</div>
+                      <Button variant="outline" size="sm" className="mt-2" disabled>Configure</Button>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* EMAIL TAB */}
+        <TabsContent value="email">
+          <div className="space-y-6 mt-4 max-w-2xl">
+            {emailSuccess && <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800 flex items-center gap-2"><CheckCircle className="h-4 w-4" />{emailSuccess}</div>}
+            {emailError && <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-md">{emailError}</div>}
+
+            {/* Microsoft 365 Connection — Primary */}
+            <Card className={o365Status.connected ? 'border-green-300 dark:border-green-800' : ''}>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <svg viewBox="0 0 23 23" className="h-5 w-5" fill="none"><path d="M1 1h10v10H1z" fill="#F25022"/><path d="M12 1h10v10H12z" fill="#7FBA00"/><path d="M1 12h10v10H1z" fill="#00A4EF"/><path d="M12 12h10v10H12z" fill="#FFB900"/></svg>
+                  Microsoft 365
+                </CardTitle>
+                <CardDescription>
+                  {o365Status.connected
+                    ? `Connected — sending and receiving email as ${o365Status.email}`
+                    : 'Sign in with your helpdesk or support mailbox to send and receive emails'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {o365Status.connected ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Badge variant="default" className="bg-green-600">Connected</Badge>
+                        <div>
+                          <div className="text-sm font-medium">{o365Status.email}</div>
+                          <div className="text-xs text-muted-foreground">Emails will be sent and received via this mailbox</div>
+                        </div>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={disconnectO365}>Disconnect</Button>
+                    </div>
+                  </div>
+                ) : o365Connecting ? (
+                  <div className="flex items-center justify-center gap-3 py-4">
+                    <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    <span className="text-sm text-muted-foreground">Redirecting to Microsoft...</span>
+                  </div>
+                ) : (
+                  <Button onClick={connectO365} className="w-full" size="lg">
+                    <svg viewBox="0 0 23 23" className="h-5 w-5 mr-2" fill="none"><path d="M1 1h10v10H1z" fill="#F25022"/><path d="M12 1h10v10H12z" fill="#7FBA00"/><path d="M1 12h10v10H1z" fill="#00A4EF"/><path d="M12 12h10v10H12z" fill="#FFB900"/></svg>
+                    Authorize Microsoft 365
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* M365 Setup Guide */}
+            <Card>
+              <CardHeader className="cursor-pointer" onClick={() => setShowM365Guide(!showM365Guide)}>
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span>How to Connect Microsoft 365</span>
+                  <Button variant="ghost" size="sm">{showM365Guide ? 'Hide' : 'Show'}</Button>
+                </CardTitle>
+              </CardHeader>
+              {showM365Guide && (
+                <CardContent className="space-y-3 text-sm">
+                  <div className="bg-muted p-4 rounded-lg space-y-3">
+                    <h4 className="font-semibold">Step 1: Create Azure App Registration</h4>
+                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                      <li>Go to <strong>Azure Portal</strong> → Azure Active Directory → App Registrations</li>
+                      <li>Click <strong>New Registration</strong></li>
+                      <li>Name: <code className="bg-background px-1 rounded">Rivertown PSA</code></li>
+                      <li>Supported account types: <strong>Accounts in any organizational directory</strong></li>
+                      <li>Redirect URI: Web → <code className="bg-background px-1 rounded">{window.location.origin}/settings/email/callback</code></li>
+                      <li>Click <strong>Register</strong></li>
+                    </ol>
+
+                    <h4 className="font-semibold">Step 2: Add API Permissions</h4>
+                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                      <li>Go to <strong>API Permissions</strong> → Add a permission → Microsoft Graph</li>
+                      <li>Select <strong>Delegated permissions</strong></li>
+                      <li>Add these permissions:
+                        <ul className="list-disc list-inside ml-4 mt-1">
+                          <li><code className="bg-background px-1 rounded">Mail.Read</code> — Read emails</li>
+                          <li><code className="bg-background px-1 rounded">Mail.Send</code> — Send emails</li>
+                          <li><code className="bg-background px-1 rounded">Mail.ReadWrite</code> — Manage emails</li>
+                          <li><code className="bg-background px-1 rounded">Calendars.Read</code> — Read calendars</li>
+                          <li><code className="bg-background px-1 rounded">Calendars.ReadWrite</code> — Create/update calendar events</li>
+                          <li><code className="bg-background px-1 rounded">offline_access</code> — Refresh tokens</li>
+                        </ul>
+                      </li>
+                      <li>Click <strong>Grant admin consent</strong> for your organization</li>
+                    </ol>
+
+                    <h4 className="font-semibold">Step 3: Create Client Secret</h4>
+                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                      <li>Go to <strong>Certificates & secrets</strong> → New client secret</li>
+                      <li>Set an expiry (recommended: 24 months)</li>
+                      <li>Copy the <strong>Value</strong> (not the Secret ID)</li>
+                    </ol>
+
+                    <h4 className="font-semibold">Step 4: Connect in Rivertown PSA</h4>
+                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                      <li>Click <strong>Authorize Microsoft 365</strong> above</li>
+                      <li>First time: enter the Application (Client) ID and Secret from Azure</li>
+                      <li>Sign in with the <strong>shared mailbox account</strong> (e.g. support@yourcompany.com)</li>
+                      <li>Grant the requested permissions</li>
+                      <li>You'll be redirected back — email is now connected</li>
+                    </ol>
+
+                    <h4 className="font-semibold">Step 5: Connect Tech Calendars (Optional)</h4>
+                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                      <li>Each technician goes to <strong>Settings → Profile</strong></li>
+                      <li>Click <strong>Connect My Calendar</strong></li>
+                      <li>Sign in with their individual M365 account</li>
+                      <li>Scheduled tickets will sync to their Outlook calendar</li>
+                    </ol>
+                  </div>
+                </CardContent>
+              )}
+            </Card>
+
+            {/* Email-to-Ticket */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Mail className="h-5 w-5" />Email-to-Ticket</CardTitle>
+                <CardDescription>Inbound emails from known contacts automatically create tickets. Replies to [Ticket #N] add comments.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <Button onClick={checkInbox} disabled={checkingInbox} variant="outline">
+                    <Mail className="h-4 w-4 mr-1" />
+                    {checkingInbox ? 'Checking...' : 'Check Inbox Now'}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={loadEmailLog}>View Email Log</Button>
+                </div>
+                {inboxResult && (
+                  <div className="text-sm bg-muted p-3 rounded-md">
+                    Processed <strong>{inboxResult.processed}</strong> emails: <strong>{inboxResult.tickets}</strong> new tickets, <strong>{inboxResult.comments}</strong> comments added
+                  </div>
+                )}
+                {emailLog.length > 0 && (
+                  <div className="border rounded-md overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead><tr className="bg-muted/50 border-b">
+                        <th className="text-left p-2">Direction</th>
+                        <th className="text-left p-2">From</th>
+                        <th className="text-left p-2">Subject</th>
+                        <th className="text-left p-2">Ticket</th>
+                        <th className="text-left p-2">Date</th>
+                      </tr></thead>
+                      <tbody>
+                        {emailLog.map(e => (
+                          <tr key={e.id} className="border-b">
+                            <td className="p-2"><Badge variant={e.direction === 'inbound' ? 'outline' : 'secondary'} className="text-xs">{e.direction}</Badge></td>
+                            <td className="p-2">{e.fromAddress}</td>
+                            <td className="p-2 max-w-[200px] truncate">{e.subject}</td>
+                            <td className="p-2">{e.ticketId ? 'Linked' : '-'}</td>
+                            <td className="p-2 text-muted-foreground">{new Date(e.createdAt).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* SMTP Fallback */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Mail className="h-5 w-5" />SMTP Configuration</CardTitle>
+                <CardDescription>{o365Status.connected ? 'Fallback SMTP (not used while Microsoft 365 is connected)' : 'Manual SMTP configuration for email sending'}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium">Enable SMTP</div>
+                    <div className="text-xs text-muted-foreground">Use manual SMTP settings instead of Microsoft 365</div>
+                  </div>
+                  <input type="checkbox" className="h-4 w-4" checked={emailForm.isEnabled} onChange={e => setEmailForm({ ...emailForm, isEnabled: e.target.checked })} />
+                </div>
+                <Separator />
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="col-span-2 space-y-2">
+                    <Label>SMTP Host</Label>
+                    <Input value={emailForm.smtpHost} onChange={e => setEmailForm({ ...emailForm, smtpHost: e.target.value })} placeholder="smtp.office365.com" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Port</Label>
+                    <Input type="number" value={emailForm.smtpPort} onChange={e => setEmailForm({ ...emailForm, smtpPort: parseInt(e.target.value) || 587 })} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Username</Label>
+                    <Input value={emailForm.smtpUser} onChange={e => setEmailForm({ ...emailForm, smtpUser: e.target.value })} placeholder="noreply@yourcompany.com" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Password</Label>
+                    <Input type="password" value={emailForm.smtpPassword} onChange={e => setEmailForm({ ...emailForm, smtpPassword: e.target.value })} placeholder="App password or API key" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>From Address</Label>
+                    <Input type="email" value={emailForm.fromAddress} onChange={e => setEmailForm({ ...emailForm, fromAddress: e.target.value })} placeholder="support@yourcompany.com" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>From Name</Label>
+                    <Input value={emailForm.fromName} onChange={e => setEmailForm({ ...emailForm, fromName: e.target.value })} placeholder="Rivertown Support" />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="useTls" checked={emailForm.useTls} onChange={e => setEmailForm({ ...emailForm, useTls: e.target.checked })} />
+                  <Label htmlFor="useTls">Use TLS/STARTTLS</Label>
+                </div>
+
+                <Separator />
+                <div className="flex gap-2">
+                  <Button onClick={saveEmail} disabled={emailSaving}>{emailSaving ? 'Saving...' : 'Save SMTP Settings'}</Button>
+                  <Button variant="outline" onClick={testEmail} disabled={!emailForm.isEnabled}>
+                    <Send className="h-4 w-4 mr-1" />Send Test Email
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* One-time Azure App Setup Dialog */}
+            <Dialog open={showO365Setup} onOpenChange={setShowO365Setup}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Microsoft 365 — First-Time Setup</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    To connect Microsoft 365, you need an Azure App Registration. This is a one-time setup — after this, the "Authorize" button will work for any mailbox.
+                  </p>
+                  <div className="bg-muted p-3 rounded-md text-sm space-y-1">
+                    <p className="font-medium">Quick setup:</p>
+                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                      <li>Go to Azure Portal &gt; App Registrations &gt; New Registration</li>
+                      <li>Name it "Rivertown PSA", set to "Accounts in any org directory"</li>
+                      <li>Redirect URI: <code className="bg-background px-1 rounded text-xs">{window.location.origin}/settings/email/callback</code></li>
+                      <li>Under API Permissions, add: Mail.Read, Mail.Send, Mail.ReadWrite</li>
+                      <li>Under Certificates &amp; Secrets, create a Client Secret</li>
+                      <li>Copy the Application (Client) ID and Secret below</li>
+                    </ol>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label>Application (Client) ID</Label>
+                      <Input value={o365SetupForm.clientId} onChange={e => setO365SetupForm(f => ({ ...f, clientId: e.target.value }))} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Client Secret Value</Label>
+                      <Input type="password" value={o365SetupForm.clientSecret} onChange={e => setO365SetupForm(f => ({ ...f, clientSecret: e.target.value }))} placeholder="Your secret value" />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setShowO365Setup(false)}>Cancel</Button>
+                    <Button onClick={saveO365Setup} disabled={!o365SetupForm.clientId || !o365SetupForm.clientSecret}>
+                      Save &amp; Continue to Microsoft Login
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </TabsContent>
+
+        {/* TEMPLATES TAB */}
+        <TabsContent value="templates">
+          <div className="mt-4">
+            <TemplatesSettingsPage />
+          </div>
+        </TabsContent>
+
+        {/* RMM TAB */}
+        <TabsContent value="rmm">
+          <div className="mt-4">
+            <RmmSettingsPage />
+          </div>
+        </TabsContent>
+
+        {/* SECURITY TAB */}
+        <TabsContent value="security">
+          <div className="mt-4">
+            <SecurityPage />
+          </div>
+        </TabsContent>
+
+        {/* PRODUCT CATALOG TAB */}
+        <TabsContent value="catalog">
+          <div className="mt-4">
+            <ProductCatalogPage />
+          </div>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
