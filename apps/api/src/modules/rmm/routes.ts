@@ -292,16 +292,60 @@ export async function rmmRoutes(fastify: FastifyInstance) {
       { expiresIn: '24h' },
     );
 
-    // Generate a unique key for MSI filename — short, URL-safe, encodes customer+site
-    const keyParts = [
-      request.tenantId.slice(0, 8),
-      customerId.slice(0, 8),
-      siteId ? siteId.slice(0, 8) : '00000000',
-      Date.now().toString(36),
-    ];
-    const key = keyParts.join('').replace(/-/g, '');
+    // Generate a short 20-char alphanumeric key for the installer filename
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    let key = '';
+    const bytes = new Uint8Array(20);
+    crypto.getRandomValues(bytes);
+    for (const b of bytes) key += chars[b % chars.length];
+
+    // Store the key → token mapping in tenant settings (using integration_configs as a simple KV store)
+    const { integrationConfigs } = await import('@rivertown/db');
+    // Store enrollment keys as a JSON object in a special config
+    const enrollKey = `enroll_${key}`;
+    await fastify.db.insert(integrationConfigs).values({
+      tenantId: request.tenantId,
+      provider: enrollKey,
+      isEnabled: true,
+      credentials: { token, customerId, siteId, apiUrl: request.headers.origin || 'https://psa.rivertowntechnology.com', createdAt: new Date().toISOString() },
+    });
 
     return { token, key, expiresIn: '24 hours' };
+  });
+
+  // Exchange enrollment key for full token (public — installer calls this)
+  fastify.get('/api/v1/rmm/enroll-key/:key', {
+    config: { public: true } as any,
+  }, async (request, reply) => {
+    const { key } = request.params as { key: string };
+    const { integrationConfigs } = await import('@rivertown/db');
+    const { eq } = await import('drizzle-orm');
+    const enrollKey = `enroll_${key}`;
+
+    // Search all tenants for this key
+    const [config] = await fastify.db.select().from(integrationConfigs)
+      .where(eq(integrationConfigs.provider, enrollKey)).limit(1);
+
+    if (!config) {
+      reply.code(404).send({ error: 'Invalid or expired enrollment key' });
+      return;
+    }
+
+    const creds = config.credentials as Record<string, string>;
+
+    // Check if token is still valid (24h)
+    const created = new Date(creds.createdAt);
+    if (Date.now() - created.getTime() > 24 * 60 * 60 * 1000) {
+      await fastify.db.delete(integrationConfigs).where(eq(integrationConfigs.id, config.id));
+      reply.code(410).send({ error: 'Enrollment key has expired' });
+      return;
+    }
+
+    return {
+      token: creds.token,
+      apiUrl: creds.apiUrl,
+      mqttUrl: 'wss://rmm.' + new URL(creds.apiUrl).hostname.replace(/^psa\./, ''),
+    };
   });
 
   // ===== REMOTE DESKTOP (ScreenConnect integration — v0.2.0) =====

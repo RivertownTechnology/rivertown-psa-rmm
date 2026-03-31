@@ -1,5 +1,5 @@
-import { eq, and } from 'drizzle-orm';
-import { tickets, contacts, customers, emailTemplates, tenants } from '@rivertown/db';
+import { eq, and, desc } from 'drizzle-orm';
+import { tickets, ticketComments, contacts, customers, emailTemplates, tenants, users } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import { sendEmail } from './email.js';
 import { renderTemplate } from './template-renderer.js';
@@ -201,6 +201,113 @@ export async function sendTicketClosedEmail(db: Database, tenantId: string, tick
  * Removes everything below common reply separators so only the new content is kept.
  * Handles both line-start patterns and inline patterns (Outlook often concatenates without newlines).
  */
+/**
+ * Send a "Ticket Assigned" notification to the assigned tech AND the customer.
+ * Includes full ticket context: customer info, contact, discussion thread.
+ */
+export async function sendTicketAssignedEmail(db: Database, tenantId: string, ticketId: string, assignedById: string) {
+  const [ticket] = await db.select().from(tickets)
+    .where(and(eq(tickets.id, ticketId), eq(tickets.tenantId, tenantId)))
+    .limit(1);
+  if (!ticket || !ticket.assignedTo) return;
+
+  // Get all the context
+  const [customer] = await db.select().from(customers).where(eq(customers.id, ticket.customerId)).limit(1);
+  const [assignedTech] = await db.select().from(users).where(eq(users.id, ticket.assignedTo)).limit(1);
+  const [assignedBy] = await db.select().from(users).where(eq(users.id, assignedById)).limit(1);
+
+  let contact = null;
+  if (ticket.contactId) {
+    const [c] = await db.select().from(contacts).where(eq(contacts.id, ticket.contactId)).limit(1);
+    contact = c ?? null;
+  }
+
+  // Get discussion thread (comments)
+  const comments = await db.select().from(ticketComments)
+    .where(and(eq(ticketComments.ticketId, ticketId), eq(ticketComments.tenantId, tenantId)))
+    .orderBy(desc(ticketComments.createdAt));
+
+  // Resolve comment author names
+  const authorIds = [...new Set(comments.map(c => c.authorId).filter(Boolean))];
+  const authorNames: Record<string, string> = {};
+  for (const aid of authorIds) {
+    const [u] = await db.select({ displayName: users.displayName }).from(users).where(eq(users.id, aid)).limit(1);
+    if (u) { authorNames[aid] = u.displayName; continue; }
+    const [c] = await db.select({ firstName: contacts.firstName, lastName: contacts.lastName }).from(contacts).where(eq(contacts.id, aid)).limit(1);
+    if (c) authorNames[aid] = `${c.firstName} ${c.lastName}`;
+  }
+
+  const contactName = contact ? `${contact.firstName} ${contact.lastName}` : '';
+  const contactPhone = contact?.phone || customer?.phone || '';
+  const customerAddr = [customer?.address, [customer?.city, customer?.state].filter(Boolean).join(', '), customer?.zip].filter(Boolean).join('\n');
+  const now = new Date();
+  const dateAssigned = now.toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+
+  // Build discussion HTML
+  const discussionHtml = comments.length > 0 ? comments.map(c => {
+    const name = authorNames[c.authorId] || (c.authorType === 'system' ? 'System' : 'Unknown');
+    const date = new Date(c.createdAt).toLocaleString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const typeLabel = c.isInternal ? '<span style="color:#d97706;font-weight:600">Internal</span>' : '';
+    return `<div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #e5e7eb">
+      <div style="font-weight:600;font-size:13px">${name} ${typeLabel}</div>
+      <div style="font-size:11px;color:#9ca3af">${date}</div>
+      <div style="margin-top:4px;font-size:13px;white-space:pre-wrap">${c.body}</div>
+    </div>`;
+  }).join('') : '<div style="color:#9ca3af;font-size:13px">No discussion yet.</div>';
+
+  const businessVars = await getBusinessVars(db, tenantId);
+
+  const html = `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:600px;margin:0 auto">
+    <div style="border-bottom:2px solid #2563eb;padding:16px 0;margin-bottom:24px">
+      <strong style="font-size:18px;color:#111">${businessVars.businessName}</strong>
+    </div>
+
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#1e40af">
+      --- REPLY above this line to respond ---
+    </div>
+
+    <p style="margin:0 0 16px;color:#111">Your schedule for this ticket has been updated.</p>
+
+    <h3 style="margin:0 0 12px;color:#111">Summary:</h3>
+    <div style="font-weight:600;font-size:15px;margin-bottom:16px">${ticket.subject}</div>
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:13px">
+      <tr><td style="padding:6px 12px 6px 0;color:#6b7280;width:120px;vertical-align:top">Status:</td><td style="padding:6px 0;font-weight:500">${ticket.status}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#6b7280;vertical-align:top">Ticket #</td><td style="padding:6px 0">${ticket.ticketNumber}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#6b7280;vertical-align:top">Company:</td><td style="padding:6px 0">${customer?.name || ''}</td></tr>
+      ${contactName ? `<tr><td style="padding:6px 12px 6px 0;color:#6b7280;vertical-align:top">Contact:</td><td style="padding:6px 0">${contactName}</td></tr>` : ''}
+      ${contactPhone ? `<tr><td style="padding:6px 12px 6px 0;color:#6b7280;vertical-align:top">Phone:</td><td style="padding:6px 0">${contactPhone}</td></tr>` : ''}
+      ${customerAddr ? `<tr><td style="padding:6px 12px 6px 0;color:#6b7280;vertical-align:top">Address:</td><td style="padding:6px 0;white-space:pre-line">${customerAddr}</td></tr>` : ''}
+      <tr><td style="padding:6px 12px 6px 0;color:#6b7280;vertical-align:top">Assigned To:</td><td style="padding:6px 0;font-weight:500">${assignedTech?.displayName || 'Unassigned'}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#6b7280;vertical-align:top">Assigned By:</td><td style="padding:6px 0">${assignedBy?.displayName || ''}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#6b7280;vertical-align:top">Date Assigned:</td><td style="padding:6px 0">${dateAssigned}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#6b7280;vertical-align:top">Priority:</td><td style="padding:6px 0">${ticket.priority}</td></tr>
+    </table>
+
+    <h3 style="margin:16px 0 12px;color:#111;border-top:2px solid #e5e7eb;padding-top:16px">Discussion</h3>
+    ${discussionHtml}
+
+    <div style="border-top:1px solid #e5e7eb;margin-top:24px;padding-top:16px;font-size:12px;color:#6b7280">
+      <p>${businessVars.businessName}</p>
+      <p>${businessVars.businessAddress} ${businessVars.businessCity}, ${businessVars.businessState} ${businessVars.businessZip}</p>
+      <p>${businessVars.businessPhone} | ${businessVars.businessEmail}</p>
+    </div>
+  </div>${THREAD_SEPARATOR}`;
+
+  const subject = `[Ticket #${ticket.ticketNumber}] Assigned: ${ticket.subject}`;
+
+  // Send to assigned tech
+  if (assignedTech?.email) {
+    await sendEmail(db, tenantId, { to: assignedTech.email, subject, html });
+  }
+
+  // Also send to customer contact
+  const customerTo = await getTicketRecipient(db, tenantId, ticket);
+  if (customerTo && customerTo !== assignedTech?.email) {
+    await sendEmail(db, tenantId, { to: customerTo, subject, html });
+  }
+}
+
 export function stripQuotedReply(text: string): string {
   // Find the earliest match among ALL separator patterns and cut there
   const patterns: RegExp[] = [

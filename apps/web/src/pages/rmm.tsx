@@ -369,11 +369,33 @@ export function RmmPage({ onNavigateToCustomer }: { onNavigateToCustomer: (id: s
             ) : (
               <div className="space-y-4">
                 <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800">
-                  Enrollment key generated. Choose your install method below.
+                  Enrollment key: <code className="font-mono font-bold">{enrollmentResult.key}</code> — expires in 24 hours
                 </div>
 
-                {/* PowerShell Install — Primary method */}
+                {/* EXE Download — Primary method */}
                 <Card className="border-primary">
+                  <CardContent className="p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-sm">Download Installer (Recommended)</div>
+                        <div className="text-xs text-muted-foreground">Single EXE — downloads agent, installs service, enrolls automatically. Send to tech or customer.</div>
+                      </div>
+                      <Button size="sm" onClick={() => {
+                        // For now: download the agent zip and instruct to rename. Future: API generates named EXE.
+                        const a = document.createElement('a');
+                        a.href = `${apiBaseUrl}/api/v1/rmm/agent/download/latest/win-x64`;
+                        a.download = `RivertownRMM_${enrollmentResult.key}.zip`;
+                        a.click();
+                      }}>
+                        <Download className="h-4 w-4 mr-1" />RivertownRMM_{enrollmentResult.key}.zip
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Extract and run <code className="bg-muted px-1 rounded">RivertownAgentSetup.exe --token {enrollmentResult.key}</code> as Administrator, or rename the setup to <code className="bg-muted px-1 rounded">RivertownRMM_{enrollmentResult.key}.exe</code></p>
+                  </CardContent>
+                </Card>
+
+                {/* PowerShell Install */}
+                <Card>
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <div>

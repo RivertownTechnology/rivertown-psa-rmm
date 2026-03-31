@@ -37,8 +37,16 @@ Write-Host "`nBuilding Updater..." -ForegroundColor Yellow
 dotnet publish "$AgentDir\src\Rivertown.Agent.Updater\Rivertown.Agent.Updater.csproj" `
     -c $Configuration -r win-x64 --self-contained -o "$OutputDir\agent" /p:PublishSingleFile=true
 
-# Build Setup
-Write-Host "`nBuilding Setup..." -ForegroundColor Yellow
+# Copy agent binaries into Setup embed folder (so they get embedded as resources)
+Write-Host "`nEmbedding agent binaries into Setup..." -ForegroundColor Yellow
+$embedDir = "$AgentDir\src\Rivertown.Agent.Setup\embed"
+New-Item -ItemType Directory -Path $embedDir -Force | Out-Null
+Copy-Item "$OutputDir\agent\Rivertown.Agent.Core.exe" "$embedDir\" -Force
+Copy-Item "$OutputDir\agent\Rivertown.Agent.Tray.exe" "$embedDir\" -Force
+Copy-Item "$OutputDir\agent\RivertownUpdater.exe" "$embedDir\" -Force
+
+# Build Setup (with embedded binaries)
+Write-Host "`nBuilding Setup (single-file installer with embedded agent)..." -ForegroundColor Yellow
 dotnet publish "$AgentDir\src\Rivertown.Agent.Setup\Rivertown.Agent.Setup.csproj" `
     -c $Configuration -r win-x64 --self-contained -o "$OutputDir\setup" /p:PublishSingleFile=true
 
@@ -47,24 +55,29 @@ $version = (Get-Item "$OutputDir\agent\Rivertown.Agent.Core.exe").VersionInfo.Pr
 if (-not $version) { $version = "0.2.0" }
 Write-Host "`nVersion: $version" -ForegroundColor Green
 
-# Create agent distribution zip
-Write-Host "`nCreating distribution zip..." -ForegroundColor Yellow
+# Copy the single-file installer to the output root
+Copy-Item "$OutputDir\setup\RivertownAgentSetup.exe" "$OutputDir\RivertownAgentSetup.exe" -Force
+
+# Also create a distribution zip of just the agent binaries (for the download API)
+Write-Host "`nCreating agent distribution zip..." -ForegroundColor Yellow
 $zipPath = "$OutputDir\rivertown-agent-$version-win-x64.zip"
 Compress-Archive -Path "$OutputDir\agent\*" -DestinationPath $zipPath -Force
 
-# Copy setup alongside
-Copy-Item "$OutputDir\setup\RivertownAgentSetup.exe" "$OutputDir\RivertownAgentSetup.exe"
+# Clean up embed folder
+Remove-Item "$embedDir" -Recurse -Force -ErrorAction SilentlyContinue
+
+$setupSize = (Get-Item "$OutputDir\RivertownAgentSetup.exe").Length / 1MB
 
 Write-Host "`n============================================" -ForegroundColor Green
 Write-Host "  Build Complete!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Output:"
-Write-Host "  Agent zip:  $zipPath"
-Write-Host "  Setup exe:  $OutputDir\RivertownAgentSetup.exe"
+Write-Host "  INSTALLER:  $OutputDir\RivertownAgentSetup.exe ($([math]::Round($setupSize, 1)) MB) - single file, everything embedded"
+Write-Host "  Agent zip:  $zipPath (for API distribution)"
 Write-Host "  Version:    $version"
 Write-Host ""
-Write-Host "To upload to the API:"
-Write-Host "  1. Upload the zip to POST /api/v1/rmm/agent/upload"
-Write-Host "  2. Or place in the AGENT_BUILDS_DIR directory"
+Write-Host "Usage:"
+Write-Host "  RivertownAgentSetup.exe --token ENROLLMENT_KEY"
+Write-Host "  Or rename to: RivertownRMM_ENROLLMENTKEY.exe"
 Write-Host ""

@@ -207,6 +207,13 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // Send assigned email when tech changes
+      if ((body as any).assignedTo && (body as any).assignedTo !== existing.assignedTo) {
+        import('../../services/email-notifications.js').then(({ sendTicketAssignedEmail }) => {
+          sendTicketAssignedEmail(fastify.db, request.tenantId, id, request.user.sub).catch(e => console.error('Ticket assigned email failed:', e));
+        });
+      }
+
       moduleEvents.emit('ticket.updated', updated, body);
       return updated;
     },

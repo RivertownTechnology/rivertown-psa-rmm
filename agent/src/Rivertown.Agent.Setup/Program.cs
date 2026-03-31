@@ -63,8 +63,19 @@ static class Program
             }
         }
 
-        // If no args, check for config.json in same directory (baked-in installer)
+        // Try to extract enrollment token from own filename: RivertownRMM_KEYHERE.exe
         if (token == null)
+        {
+            var exeName = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "");
+            var match = System.Text.RegularExpressions.Regex.Match(exeName, @"RivertownRMM_(.+)");
+            if (match.Success)
+            {
+                token = match.Groups[1].Value;
+            }
+        }
+
+        // Also check for install-config.json in same directory
+        if (token == null || apiUrl == null)
         {
             var configJsonPath = Path.Combine(Path.GetDirectoryName(Environment.ProcessPath!) ?? ".", "install-config.json");
             if (File.Exists(configJsonPath))
@@ -72,18 +83,46 @@ static class Program
                 try
                 {
                     var json = JsonSerializer.Deserialize<JsonElement>(File.ReadAllText(configJsonPath));
-                    token = json.TryGetProperty("token", out var t) ? t.GetString() : null;
-                    apiUrl = json.TryGetProperty("apiUrl", out var a) ? a.GetString() : null;
-                    mqttUrl = json.TryGetProperty("mqttUrl", out var m) ? m.GetString() : null;
+                    token ??= json.TryGetProperty("token", out var t) ? t.GetString() : null;
+                    apiUrl ??= json.TryGetProperty("apiUrl", out var a) ? a.GetString() : null;
+                    mqttUrl ??= json.TryGetProperty("mqttUrl", out var m) ? m.GetString() : null;
                 }
                 catch { }
             }
         }
 
-        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(apiUrl))
+        // Default API URL
+        apiUrl ??= "https://psa.rivertowntechnology.com";
+
+        if (string.IsNullOrEmpty(token))
         {
-            ShowError("Usage: RivertownAgentSetup.exe --token TOKEN --api https://psa.example.com\n\nEnrollment token and API URL are required.");
+            ShowError("Enrollment token not found.\n\nEither:\n• Rename this file to RivertownRMM_YOURKEY.exe\n• Or run with: --token TOKEN --api URL");
             return 1;
+        }
+
+        // If token looks like a short key (not a JWT), exchange it for the full token
+        if (!token.Contains('.'))
+        {
+            if (!silent) ShowProgress("Resolving enrollment key...");
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+                var res = http.GetAsync($"{apiUrl}/api/v1/rmm/enroll-key/{token}").Result;
+                if (!res.IsSuccessStatusCode)
+                {
+                    ShowError($"Invalid or expired enrollment key.\n\nHTTP {(int)res.StatusCode}: {res.Content.ReadAsStringAsync().Result}");
+                    return 1;
+                }
+                var data = JsonSerializer.Deserialize<JsonElement>(res.Content.ReadAsStringAsync().Result);
+                token = data.GetProperty("token").GetString()!;
+                apiUrl = data.TryGetProperty("apiUrl", out var au) ? au.GetString() ?? apiUrl : apiUrl;
+                mqttUrl = data.TryGetProperty("mqttUrl", out var mu) ? mu.GetString() : null;
+            }
+            catch (Exception ex)
+            {
+                ShowError($"Failed to resolve enrollment key:\n{ex.Message}\n\nCheck your internet connection and try again.");
+                return 1;
+            }
         }
 
         mqttUrl ??= "wss://rmm." + new Uri(apiUrl).Host.Replace("psa.", "");
@@ -97,9 +136,9 @@ static class Program
             Directory.CreateDirectory(InstallPath);
             Directory.CreateDirectory(ConfigDir);
 
-            // 3. Download agent binaries from API
-            if (!silent) ShowProgress("Downloading agent...");
-            DownloadAgentFiles(apiUrl).GetAwaiter().GetResult();
+            // 3. Extract embedded agent binaries (or download if not embedded)
+            if (!silent) ShowProgress("Installing agent files...");
+            ExtractOrDownloadAgent(apiUrl).GetAwaiter().GetResult();
 
             // 4. Write config
             var config = new
@@ -164,12 +203,36 @@ static class Program
         }
     }
 
-    static async Task DownloadAgentFiles(string apiUrl)
+    static async Task ExtractOrDownloadAgent(string apiUrl)
     {
+        var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+        var resourceNames = assembly.GetManifestResourceNames();
+        var embeddedFiles = new[] { "Rivertown.Agent.Core.exe", "Rivertown.Agent.Tray.exe", "RivertownUpdater.exe" };
+        var extracted = 0;
+
+        // Try embedded resources first (single-file installer)
+        foreach (var fileName in embeddedFiles)
+        {
+            using var stream = assembly.GetManifestResourceStream(fileName);
+            if (stream != null)
+            {
+                var destPath = Path.Combine(InstallPath, fileName);
+                using var fs = File.Create(destPath);
+                await stream.CopyToAsync(fs);
+                extracted++;
+            }
+        }
+
+        if (extracted > 0)
+        {
+            Console.WriteLine($"Extracted {extracted} embedded files");
+            return;
+        }
+
+        // Fallback: download from API
+        Console.WriteLine("No embedded files — downloading from API...");
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         var downloadUrl = $"{apiUrl.TrimEnd('/')}/api/v1/rmm/agent/download/latest/win-x64";
-
-        // Download zip
         var zipPath = Path.Combine(Path.GetTempPath(), "rivertown-agent.zip");
         try
         {
@@ -179,24 +242,19 @@ static class Program
                 await using var fs = File.Create(zipPath);
                 await response.Content.CopyToAsync(fs);
                 fs.Close();
-
-                // Extract
                 System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, InstallPath, true);
                 return;
             }
         }
-        catch { /* fall through to copy from local */ }
+        catch { /* fall through */ }
         finally { if (File.Exists(zipPath)) File.Delete(zipPath); }
 
-        // Fallback: copy files from the setup's directory (for bundled installers)
+        // Last resort: copy from same directory as setup exe
         var setupDir = Path.GetDirectoryName(Environment.ProcessPath!) ?? ".";
-        foreach (var file in Directory.GetFiles(setupDir, "Rivertown.Agent.*"))
+        foreach (var file in Directory.GetFiles(setupDir, "Rivertown.Agent.*").Concat(Directory.GetFiles(setupDir, "RivertownUpdater*")))
         {
-            var dest = Path.Combine(InstallPath, Path.GetFileName(file));
-            File.Copy(file, dest, true);
+            File.Copy(file, Path.Combine(InstallPath, Path.GetFileName(file)), true);
         }
-        var updater = Path.Combine(setupDir, "RivertownUpdater.exe");
-        if (File.Exists(updater)) File.Copy(updater, Path.Combine(InstallPath, "RivertownUpdater.exe"), true);
     }
 
     static void StopExistingService()
