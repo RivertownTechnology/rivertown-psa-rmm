@@ -240,7 +240,7 @@ async function processViaImap(db: Database, tenantId: string, creds: Record<stri
           toAddress: toAddr ?? '',
           subject: parsed.subject ?? '(No subject)',
           bodyText: parsed.text ?? '',
-          bodyHtml: parsed.html ?? undefined,
+          bodyHtml: (parsed.html || undefined) as string | undefined,
         });
 
         if (result.blocked) { blockedCount++; }
