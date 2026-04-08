@@ -4,6 +4,7 @@ import { customers } from './customers.js';
 import { contacts } from './contacts.js';
 import { assets } from './assets.js';
 import { users } from './users.js';
+import { ticketCategories, ticketSubcategories } from './ticket-categories.js';
 
 export const tickets = pgTable(
   'tickets',
@@ -20,6 +21,8 @@ export const tickets = pgTable(
     assetId: uuid('asset_id').references(() => assets.id),
     contractId: uuid('contract_id'),
     assignedTo: uuid('assigned_to').references(() => users.id),
+    categoryId: uuid('category_id').references(() => ticketCategories.id),
+    subcategoryId: uuid('subcategory_id').references(() => ticketSubcategories.id),
     subject: text('subject').notNull(),
     description: text('description'),
     status: text('status').notNull().default('new'),

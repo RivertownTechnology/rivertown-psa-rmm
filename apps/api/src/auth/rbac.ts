@@ -17,8 +17,6 @@ const rolePermissions: Record<string, string[]> = {
     'contracts:read',
     'quotes:read',
     'invoices:read',
-    'rmm:read',
-    'rmm:command',
   ],
   portal_user: [
     'portal:tickets:read',

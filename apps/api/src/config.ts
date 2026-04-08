@@ -3,7 +3,6 @@ import { z } from 'zod';
 const envSchema = z.object({
   DATABASE_URL: z.string().default('postgresql://rivertown:rivertown@localhost:5432/rivertown'),
   REDIS_URL: z.string().default('redis://localhost:6379'),
-  MQTT_URL: z.string().default('mqtt://localhost:1883'),
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default('15m'),
   REFRESH_TOKEN_EXPIRES_IN: z.string().default('7d'),

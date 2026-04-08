@@ -13,8 +13,6 @@ import { stripeRoutes } from './modules/integrations/stripe.js';
 import { loadModules } from './modules/registry.js';
 import { AppError } from './common/errors.js';
 import { ZodError } from 'zod';
-import { startMqttClient } from './services/mqtt-client.js';
-
 // Module imports
 import customersModule from './modules/customers/index.js';
 import contactsModule from './modules/contacts/index.js';
@@ -27,8 +25,8 @@ import quotesModule from './modules/quotes/index.js';
 import settingsModule from './modules/settings/index.js';
 import ticketsModule from './modules/tickets/index.js';
 import dispatchModule from './modules/dispatch/index.js';
-import rmmModule from './modules/rmm/index.js';
 import portalModule from './modules/portal/index.js';
+import publicApiModule from './modules/public-api/index.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -135,11 +133,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   await fastify.register(stripeRoutes);
 
   // Load feature modules
-  await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, rmmModule, portalModule]);
-
-  // Start MQTT client for agent communication (after all modules loaded)
-  const mqttUrl = config.MQTT_URL || 'mqtt://localhost:1883';
-  startMqttClient(db, mqttUrl);
+  await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, portalModule, publicApiModule]);
 
   // Start email inbox polling (check all tenant inboxes every 30 seconds)
   const { processInboundEmails } = await import('./services/email-to-ticket.js');

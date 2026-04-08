@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, index } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants.js';
 import { customers } from './customers.js';
 import { sites } from './sites.js';
@@ -25,16 +25,10 @@ export const assets = pgTable(
     osVersion: text('os_version'),
     ipAddress: text('ip_address'),
     macAddress: text('mac_address'),
-    // Detailed inventory (populated by agent)
-    systemInventory: jsonb('system_inventory'), // full system details as JSON
-    lastInventoryAt: timestamp('last_inventory_at', { withTimezone: true }),
     notes: text('notes'),
     status: text('status').default('active').notNull(),
-    rmmPolicyId: uuid('rmm_policy_id'),
-    cveRiskScore: integer('cve_risk_score').default(0),
-    cveRiskRating: text('cve_risk_rating').default('low'),
-    agentId: uuid('agent_id'),
-    meshAgentId: text('mesh_agent_id'), // MeshCentral device node ID
+    // RMM integration fields (populated by external RMM like N-able or NinjaRMM)
+    externalRmmId: text('external_rmm_id'), // Device ID in external RMM
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

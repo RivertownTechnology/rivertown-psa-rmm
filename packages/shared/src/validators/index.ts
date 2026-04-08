@@ -111,6 +111,8 @@ export const createTicketSchema = z.object({
   assetId: z.string().uuid().optional(),
   contractId: z.string().uuid().optional(),
   assignedTo: z.string().uuid().optional(),
+  categoryId: z.string().uuid().optional(),
+  subcategoryId: z.string().uuid().optional(),
   subject: z.string().min(1).max(500),
   description: z.string().optional(),
   priority: z.enum(TICKET_PRIORITIES).default('medium'),
@@ -126,6 +128,8 @@ export const updateTicketSchema = z.object({
   priority: z.enum(TICKET_PRIORITIES).optional(),
   ticketType: z.enum(TICKET_TYPES).optional(),
   contractId: z.string().uuid().nullable().optional(),
+  categoryId: z.string().uuid().nullable().optional(),
+  subcategoryId: z.string().uuid().nullable().optional(),
 });
 
 export const createTicketCommentSchema = z.object({

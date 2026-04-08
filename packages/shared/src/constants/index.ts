@@ -46,8 +46,7 @@ export type ContractLineItemType = (typeof CONTRACT_LINE_ITEM_TYPES)[number];
 
 export const LINE_ITEM_CATEGORIES = [
   'license',
-  'rmm',
-  'edr_av',
+  'security',
   'backup',
   'managed_service',
   'support_hours',
@@ -99,23 +98,6 @@ export type AssetStatus = (typeof ASSET_STATUSES)[number];
 
 export const USER_ROLES = ['owner', 'admin', 'tech'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
-
-export const AGENT_STATUSES = ['online', 'offline', 'maintenance'] as const;
-export type AgentStatus = (typeof AGENT_STATUSES)[number];
-
-export const PATCH_STATUSES = [
-  'available',
-  'approved',
-  'downloading',
-  'installing',
-  'installed',
-  'failed',
-  'excluded',
-] as const;
-export type PatchStatus = (typeof PATCH_STATUSES)[number];
-
-export const PATCH_REBOOT_POLICIES = ['never', 'if_needed', 'always'] as const;
-export type PatchRebootPolicy = (typeof PATCH_REBOOT_POLICIES)[number];
 
 export const INTEGRATION_PROVIDERS = ['pax8', 'quickbooks', 'stripe'] as const;
 export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];

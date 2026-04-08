@@ -4,6 +4,8 @@ import {
   tickets,
   ticketComments,
   ticketTimeEntries,
+  ticketCategories,
+  ticketSubcategories,
   tenantSequences,
   users,
   contacts,
@@ -106,6 +108,8 @@ export async function ticketRoutes(fastify: FastifyInstance) {
           assetId: body.assetId,
           contractId: body.contractId,
           assignedTo: body.assignedTo,
+          categoryId: body.categoryId,
+          subcategoryId: body.subcategoryId,
           subject: body.subject,
           description: body.description,
           priority: body.priority,
@@ -372,6 +376,30 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       await fastify.db.delete(ticketTimeEntries)
         .where(and(eq(ticketTimeEntries.id, entryId), eq(ticketTimeEntries.tenantId, request.tenantId)));
       reply.code(204).send();
+    },
+  );
+
+  // List ticket categories with subcategories
+  fastify.get(
+    '/api/v1/ticket-categories',
+    { preHandler: [fastify.authenticate, requirePermission('tickets:read')] },
+    async (request) => {
+      const categories = await fastify.db
+        .select()
+        .from(ticketCategories)
+        .where(and(eq(ticketCategories.tenantId, request.tenantId), eq(ticketCategories.isActive, true)))
+        .orderBy(ticketCategories.sortOrder);
+
+      const subcategories = await fastify.db
+        .select()
+        .from(ticketSubcategories)
+        .where(and(eq(ticketSubcategories.tenantId, request.tenantId), eq(ticketSubcategories.isActive, true)))
+        .orderBy(ticketSubcategories.sortOrder);
+
+      return categories.map((cat) => ({
+        ...cat,
+        subcategories: subcategories.filter((sub) => sub.categoryId === cat.id),
+      }));
     },
   );
 
