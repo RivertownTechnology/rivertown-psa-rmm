@@ -1,10 +1,11 @@
-import { ModuleDefinition } from '../registry.js';
+import { defineModule } from '../registry.js';
 import { publicApiRoutes } from './routes.js';
 
-const publicApiModule: ModuleDefinition = {
+export default defineModule({
   name: 'public-api',
-  routes: publicApiRoutes,
+  version: '1.0.0',
   dependencies: ['customers', 'tickets'],
-};
-
-export default publicApiModule;
+  register: async (fastify) => {
+    await fastify.register(publicApiRoutes);
+  },
+});

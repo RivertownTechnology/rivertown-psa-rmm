@@ -7,8 +7,6 @@ import { CustomersPage } from '@/pages/customers';
 import { CustomerDetailPage } from '@/pages/customer-detail';
 import { TicketsPage } from '@/pages/tickets';
 import { TicketDetailPage } from '@/pages/ticket-detail';
-import { RmmPage } from '@/pages/rmm';
-import { RmmDeviceDetailPage } from '@/pages/rmm-device-detail';
 import { ContractsPage } from '@/pages/contracts';
 import { ContractDetailPage } from '@/pages/contract-detail';
 import { InvoicesPage } from '@/pages/invoices';
@@ -61,8 +59,6 @@ function AppRouter() {
   const ticketMatch = pathname.match(/^\/tickets\/([a-f0-9-]+)$/);
   const invoiceMatch = pathname.match(/^\/billing\/invoices\/([a-f0-9-]+)$/);
   const quoteMatch = pathname.match(/^\/billing\/quotes\/([a-f0-9-]+)$/);
-  const rmmDeviceMatch = pathname.match(/^\/rmm\/devices\/([a-f0-9-]+)$/);
-
   let title = 'Dashboard';
   let currentNav = pathname;
   let content: React.ReactNode;
@@ -82,12 +78,6 @@ function AppRouter() {
   } else if (pathname === '/dispatch') {
     title = 'Dispatch';
     content = <DispatchPage />;
-  } else if (rmmDeviceMatch) {
-    title = 'Device'; currentNav = '/rmm';
-    content = <RmmDeviceDetailPage deviceId={rmmDeviceMatch[1]} onBack={() => navigate('/rmm')} />;
-  } else if (pathname === '/rmm') {
-    title = 'RMM - Devices';
-    content = <RmmPage onNavigateToCustomer={navigateToCustomer} />;
   } else if (contractMatch) {
     title = 'Contract Detail'; currentNav = '/billing/contracts';
     content = <ContractDetailPage contractId={contractMatch[1]} onBack={() => navigate('/billing/contracts')} onNavigateToCustomer={navigateToCustomer} />;
@@ -117,9 +107,6 @@ function AppRouter() {
     // Microsoft 365 OAuth callback — catches the redirect from Microsoft login
     title = 'Settings'; currentNav = '/settings';
     content = <SettingsPage initialTab="email" />;
-  } else if (pathname === '/settings/rmm') {
-    title = 'Settings'; currentNav = '/settings';
-    content = <SettingsPage initialTab="rmm" />;
   } else if (pathname === '/settings/security') {
     title = 'Settings'; currentNav = '/settings';
     content = <SettingsPage initialTab="security" />;

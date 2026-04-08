@@ -6,7 +6,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import { eq, and, sql, ilike, or } from 'drizzle-orm';
+import { eq, and, sql, ilike } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   tickets,
@@ -21,20 +21,15 @@ import { AppError, NotFoundError } from '../../common/errors.js';
 import { logAudit } from '../../common/audit.js';
 
 const createTicketApiSchema = z.object({
-  // Caller info — Jake uses these to match or describe the caller
   callerName: z.string().min(1),
   callerCompany: z.string().optional(),
   callerPhone: z.string().optional(),
   callerEmail: z.string().email().optional(),
-
-  // Ticket details
   subject: z.string().min(1).max(500),
   description: z.string().optional(),
   priority: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
   categorySlug: z.string().optional(),
   subcategorySlug: z.string().optional(),
-
-  // Source identification
   source: z.enum(['phone', 'api']).default('phone'),
 });
 
@@ -64,38 +59,37 @@ async function getNextTicketNumber(db: any, tenantId: string): Promise<number> {
 
 export async function publicApiRoutes(fastify: FastifyInstance) {
   // API key auth hook for all /api/public/* routes
-  fastify.addHook('onRequest', async (request, reply) => {
+  fastify.addHook('onRequest', async (request) => {
+    if (!request.url.startsWith('/api/public/')) return;
+
     const apiKey = request.headers['x-api-key'] as string;
     if (!apiKey) {
-      throw new AppError('API key required', 'UNAUTHORIZED', 401);
+      throw new AppError(401, 'API key required', 'UNAUTHORIZED');
     }
 
-    // Look up tenant by API key (stored in tenant settings)
-    // For now, check against PUBLIC_API_KEY env var + default tenant
     const expectedKey = process.env.PUBLIC_API_KEY;
     const tenantId = process.env.DEFAULT_TENANT_ID;
 
     if (!expectedKey || !tenantId) {
-      throw new AppError('Public API not configured', 'NOT_CONFIGURED', 503);
+      throw new AppError(503, 'Public API not configured', 'NOT_CONFIGURED');
     }
 
     if (apiKey !== expectedKey) {
-      throw new AppError('Invalid API key', 'UNAUTHORIZED', 401);
+      throw new AppError(401, 'Invalid API key', 'UNAUTHORIZED');
     }
 
-    // Set tenant context for downstream handlers
     (request as any).tenantId = tenantId;
   });
 
   // ----------------------------------------------------------------
-  // Create ticket (Jake creates these from phone calls)
+  // Create ticket
   // ----------------------------------------------------------------
   fastify.post(
     '/api/public/tickets',
     { config: { public: true } as any },
     async (request, reply) => {
       const body = createTicketApiSchema.parse(request.body);
-      const tenantId = (request as any).tenantId;
+      const tenantId = (request as any).tenantId as string;
 
       // Try to match customer by company name
       let customerId: string | null = null;
@@ -116,7 +110,6 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
         if (customer) {
           customerId = customer.id;
 
-          // Try to match contact within customer
           if (body.callerEmail) {
             const [contact] = await fastify.db
               .select()
@@ -151,7 +144,6 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
           .limit(1);
         if (cat) {
           categoryId = cat.id;
-
           if (body.subcategorySlug) {
             const [sub] = await fastify.db
               .select()
@@ -169,10 +161,8 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // If no customer matched, we still need one — use a default "Walk-in / Phone" customer
-      // or create the ticket without a customer match (the tech can assign later)
+      // Fallback to "Unassigned" customer if no match
       if (!customerId) {
-        // Try to find a default "Unassigned" customer
         const [defaultCustomer] = await fastify.db
           .select()
           .from(customers)
@@ -188,17 +178,16 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
           customerId = defaultCustomer.id;
         } else {
           throw new AppError(
+            422,
             `Could not match company "${body.callerCompany || 'unknown'}". Create the customer first or use an exact name.`,
             'CUSTOMER_NOT_FOUND',
-            422,
           );
         }
       }
 
       const ticketNumber = await getNextTicketNumber(fastify.db, tenantId);
 
-      // Build description with caller info
-      const descParts = [];
+      const descParts: string[] = [];
       if (body.description) descParts.push(body.description);
       descParts.push('');
       descParts.push('--- Submitted via phone ---');
@@ -246,7 +235,6 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
         action: 'ticket.created.phone',
         entityType: 'ticket',
         entityId: ticket.id,
-        changes: { source: body.source, callerName: body.callerName },
         ipAddress: request.ip,
       });
 
@@ -264,7 +252,7 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
   );
 
   // ----------------------------------------------------------------
-  // Resolve ticket (Jake resolves after troubleshooting)
+  // Resolve ticket
   // ----------------------------------------------------------------
   fastify.post(
     '/api/public/tickets/:id/resolve',
@@ -272,7 +260,7 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
     async (request) => {
       const { id } = request.params as { id: string };
       const body = resolveTicketApiSchema.parse(request.body);
-      const tenantId = (request as any).tenantId;
+      const tenantId = (request as any).tenantId as string;
 
       const [existing] = await fastify.db
         .select()
@@ -282,7 +270,6 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
 
       if (!existing) throw new NotFoundError('Ticket', id);
 
-      // Add resolution comment
       await fastify.db.insert(ticketComments).values({
         tenantId,
         ticketId: id,
@@ -292,7 +279,6 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
         isInternal: true,
       });
 
-      // Update ticket status
       const [updated] = await fastify.db
         .update(tickets)
         .set({
@@ -310,7 +296,6 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
         action: 'ticket.resolved.phone',
         entityType: 'ticket',
         entityId: id,
-        changes: { resolution: body.resolution },
         ipAddress: request.ip,
       });
 
@@ -327,7 +312,7 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const body = addCommentApiSchema.parse(request.body);
-      const tenantId = (request as any).tenantId;
+      const tenantId = (request as any).tenantId as string;
 
       const [comment] = await fastify.db
         .insert(ticketComments)
@@ -347,57 +332,22 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
   );
 
   // ----------------------------------------------------------------
-  // List categories (Jake uses this to classify tickets)
-  // ----------------------------------------------------------------
-  fastify.get(
-    '/api/public/ticket-categories',
-    { config: { public: true } as any },
-    async (request) => {
-      const tenantId = (request as any).tenantId;
-
-      const categories = await fastify.db
-        .select()
-        .from(ticketCategories)
-        .where(and(eq(ticketCategories.tenantId, tenantId), eq(ticketCategories.isActive, true)))
-        .orderBy(ticketCategories.sortOrder);
-
-      const subcats = await fastify.db
-        .select()
-        .from(ticketSubcategories)
-        .where(and(eq(ticketSubcategories.tenantId, tenantId), eq(ticketSubcategories.isActive, true)))
-        .orderBy(ticketSubcategories.sortOrder);
-
-      return categories.map((cat) => ({
-        id: cat.id,
-        name: cat.name,
-        slug: cat.slug,
-        subcategories: subcats
-          .filter((s) => s.categoryId === cat.id)
-          .map((s) => ({ id: s.id, name: s.name, slug: s.slug })),
-      }));
-    },
-  );
-
-  // ----------------------------------------------------------------
-  // Lookup client by phone number (first thing Jake tries)
+  // Lookup client by phone number
   // ----------------------------------------------------------------
   fastify.get(
     '/api/public/lookup-by-phone',
     { config: { public: true } as any },
     async (request) => {
       const { phone } = request.query as { phone?: string };
-      const tenantId = (request as any).tenantId;
+      const tenantId = (request as any).tenantId as string;
 
       if (!phone || phone.length < 7) {
         return { found: false, message: 'Phone number too short' };
       }
 
-      // Normalize: strip everything except digits
       const digits = phone.replace(/\D/g, '');
-      // Try last 10 digits (US number without country code)
       const last10 = digits.slice(-10);
 
-      // Search contacts by phone (partial match on last 10 digits)
       const allContacts = await fastify.db
         .select({
           contactId: contacts.id,
@@ -412,7 +362,6 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
         .innerJoin(customers, eq(contacts.customerId, customers.id))
         .where(eq(contacts.tenantId, tenantId));
 
-      // Match by normalized digits
       const match = allContacts.find((c) => {
         if (!c.phone) return false;
         const cDigits = c.phone.replace(/\D/g, '').slice(-10);
@@ -441,24 +390,21 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
   );
 
   // ----------------------------------------------------------------
-  // Search contact by company + first name (fallback if phone doesn't match)
+  // Search contact by company + first name
   // ----------------------------------------------------------------
   fastify.get(
     '/api/public/contacts/search',
     { config: { public: true } as any },
     async (request) => {
       const { company, firstName } = request.query as { company?: string; firstName?: string };
-      const tenantId = (request as any).tenantId;
+      const tenantId = (request as any).tenantId as string;
 
       if (!company && !firstName) return [];
 
-      const conditions = [eq(contacts.tenantId, tenantId)];
-
-      // First find matching customers by company name
       let customerIds: string[] = [];
       if (company) {
         const matchedCustomers = await fastify.db
-          .select({ id: customers.id, name: customers.name })
+          .select({ id: customers.id })
           .from(customers)
           .where(
             and(
@@ -471,7 +417,16 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
         if (customerIds.length === 0) return [];
       }
 
-      // Search contacts within those customers
+      const conditions: any[] = [eq(contacts.tenantId, tenantId)];
+      if (customerIds.length > 0) {
+        conditions.push(
+          sql`${contacts.customerId} IN (${sql.join(customerIds.map((id) => sql`${id}::uuid`), sql`, `)})`,
+        );
+      }
+      if (firstName) {
+        conditions.push(ilike(contacts.firstName, `%${firstName}%`));
+      }
+
       const results = await fastify.db
         .select({
           contactId: contacts.id,
@@ -484,15 +439,7 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
         })
         .from(contacts)
         .innerJoin(customers, eq(contacts.customerId, customers.id))
-        .where(
-          and(
-            eq(contacts.tenantId, tenantId),
-            ...(customerIds.length > 0
-              ? [sql`${contacts.customerId} = ANY(ARRAY[${sql.join(customerIds.map(id => sql`${id}::uuid`), sql`, `)}])`]
-              : []),
-            ...(firstName ? [ilike(contacts.firstName, `%${firstName}%`)] : []),
-          ),
-        )
+        .where(and(...conditions))
         .limit(5);
 
       return results.map((r) => ({
@@ -512,14 +459,14 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
   );
 
   // ----------------------------------------------------------------
-  // Search customer by name (for matching callers)
+  // Search customer by name
   // ----------------------------------------------------------------
   fastify.get(
     '/api/public/customers/search',
     { config: { public: true } as any },
     async (request) => {
       const { q } = request.query as { q?: string };
-      const tenantId = (request as any).tenantId;
+      const tenantId = (request as any).tenantId as string;
 
       if (!q || q.length < 2) return [];
 
@@ -533,6 +480,38 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
           ),
         )
         .limit(10);
+    },
+  );
+
+  // ----------------------------------------------------------------
+  // List categories
+  // ----------------------------------------------------------------
+  fastify.get(
+    '/api/public/ticket-categories',
+    { config: { public: true } as any },
+    async (request) => {
+      const tenantId = (request as any).tenantId as string;
+
+      const categories = await fastify.db
+        .select()
+        .from(ticketCategories)
+        .where(and(eq(ticketCategories.tenantId, tenantId), eq(ticketCategories.isActive, true)))
+        .orderBy(ticketCategories.sortOrder);
+
+      const subcats = await fastify.db
+        .select()
+        .from(ticketSubcategories)
+        .where(and(eq(ticketSubcategories.tenantId, tenantId), eq(ticketSubcategories.isActive, true)))
+        .orderBy(ticketSubcategories.sortOrder);
+
+      return categories.map((cat) => ({
+        id: cat.id,
+        name: cat.name,
+        slug: cat.slug,
+        subcategories: subcats
+          .filter((s) => s.categoryId === cat.id)
+          .map((s) => ({ id: s.id, name: s.name, slug: s.slug })),
+      }));
     },
   );
 }

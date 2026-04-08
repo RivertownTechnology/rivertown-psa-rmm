@@ -15,7 +15,6 @@ import { BusinessProfileCard } from '@/components/business-profile-card';
 import { SecurityPage } from './security';
 import { ProductCatalogPage } from './product-catalog';
 import { TemplatesSettingsPage } from './templates-settings';
-import { RmmSettingsPage } from './rmm-settings';
 
 interface EmailConfig {
   isEnabled: boolean; smtpHost: string; smtpPort: number; smtpUser: string;
@@ -413,7 +412,6 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
           <TabsTrigger value="templates">Templates</TabsTrigger>
           <TabsTrigger value="billing">Billing</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
-          <TabsTrigger value="rmm">RMM</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
           <TabsTrigger value="catalog">Product Catalog</TabsTrigger>
         </TabsList>
@@ -1106,13 +1104,6 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
                 <Button variant="outline" disabled>Connect QuickBooks (Coming Soon)</Button>
               </CardContent>
             </Card>
-          </div>
-        </TabsContent>
-
-        {/* RMM TAB */}
-        <TabsContent value="rmm">
-          <div className="mt-4">
-            <RmmSettingsPage />
           </div>
         </TabsContent>
 

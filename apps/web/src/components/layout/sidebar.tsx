@@ -30,7 +30,6 @@ const navGroups: NavGroup[] = [
       { label: 'Tickets', icon: Ticket, href: '/tickets' },
       { label: 'Dispatch', icon: Calendar, href: '/dispatch' },
       { label: 'Customers', icon: Building2, href: '/customers' },
-      { label: 'RMM', icon: Monitor, href: '/rmm' },
     ],
   },
   {
