@@ -64,8 +64,12 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   });
 
   // CORS
+  const allowedOrigins = [
+    'https://psa.rivertowntechnology.com',
+    'https://rivertown-psa-rmm-production.up.railway.app',
+  ];
   await fastify.register(cors, {
-    origin: config.NODE_ENV === 'development' ? true : false,
+    origin: config.NODE_ENV === 'development' ? true : allowedOrigins,
     credentials: true,
   });
 
