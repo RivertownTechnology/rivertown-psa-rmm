@@ -134,6 +134,13 @@
       "when": 1774761073571,
       "tag": "0018_known_wiccan",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1775702274856,
+      "tag": "0019_flashy_sprite",
+      "breakpoints": true
     }
   ]
 }
