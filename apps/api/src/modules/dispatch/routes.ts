@@ -98,10 +98,10 @@ export async function dispatchRoutes(fastify: FastifyInstance) {
       updatedAt: new Date(),
     }).where(eq(tickets.id, ticketId));
 
-    // Try to sync to M365 calendar
+    // Try to sync to Google Calendar
     try {
-      const { syncEventToM365 } = await import('./calendar-sync.js');
-      await syncEventToM365(fastify.db, request.tenantId, userId, event);
+      const { syncEventToGoogleCalendar } = await import('./calendar-sync.js');
+      await syncEventToGoogleCalendar(fastify.db, request.tenantId, userId, event);
     } catch { /* calendar sync is best-effort */ }
 
     reply.code(201);

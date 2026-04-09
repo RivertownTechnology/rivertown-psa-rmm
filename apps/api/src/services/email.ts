@@ -19,19 +19,19 @@ interface EmailOptions {
   attachments?: EmailAttachment[];
 }
 
-const MS_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GMAIL_API_URL = 'https://gmail.googleapis.com/gmail/v1';
 
-async function getFreshO365Token(db: Database, tenantId: string): Promise<{ accessToken: string; fromAddress: string; fromName: string } | null> {
-  const [m365Config] = await db.select().from(integrationConfigs)
-    .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'microsoft365')))
+async function getFreshGmailToken(db: Database, tenantId: string): Promise<{ accessToken: string; fromAddress: string; fromName: string } | null> {
+  const [gmailConfig] = await db.select().from(integrationConfigs)
+    .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'google-email')))
     .limit(1);
-  if (!m365Config?.isEnabled) return null;
+  if (!gmailConfig?.isEnabled) return null;
 
-  const creds = m365Config.credentials as Record<string, unknown>;
-  const clientId = creds.clientId as string;
-  const clientSecret = creds.clientSecret as string;
+  const creds = gmailConfig.credentials as Record<string, unknown>;
+  const clientId = (creds.clientId as string) || process.env.GOOGLE_CLIENT_ID || '';
+  const clientSecret = (creds.clientSecret as string) || process.env.GOOGLE_CLIENT_SECRET || '';
 
-  // Get primary mailbox (first in array, or legacy single format)
   const mailboxes = Array.isArray(creds.mailboxes) ? creds.mailboxes as Array<Record<string, unknown>> : [];
   const primary = mailboxes[0] ?? (creds.accessToken ? creds : null);
   if (!primary?.accessToken) return null;
@@ -43,25 +43,23 @@ async function getFreshO365Token(db: Database, tenantId: string): Promise<{ acce
   // Refresh if expired or about to expire
   if (expiresAt && Date.now() > expiresAt - 60000 && refreshToken && clientId && clientSecret) {
     try {
-      const res = await fetch(MS_TOKEN_URL, {
+      const res = await fetch(GOOGLE_TOKEN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           client_id: clientId, client_secret: clientSecret,
           refresh_token: refreshToken, grant_type: 'refresh_token',
-          scope: 'Mail.Read Mail.Send Mail.ReadWrite offline_access',
         }),
       });
       if (res.ok) {
         const tokens = await res.json() as { access_token: string; refresh_token?: string; expires_in: number };
         accessToken = tokens.access_token;
-        // Update stored tokens
         if (mailboxes[0]) {
           (mailboxes[0] as Record<string, unknown>).accessToken = tokens.access_token;
-          (mailboxes[0] as Record<string, unknown>).refreshToken = tokens.refresh_token ?? refreshToken;
+          if (tokens.refresh_token) (mailboxes[0] as Record<string, unknown>).refreshToken = tokens.refresh_token;
           (mailboxes[0] as Record<string, unknown>).expiresAt = Date.now() + tokens.expires_in * 1000;
           await db.update(integrationConfigs).set({ credentials: { ...creds, mailboxes }, updatedAt: new Date() })
-            .where(eq(integrationConfigs.id, m365Config.id));
+            .where(eq(integrationConfigs.id, gmailConfig.id));
         }
         // Also update email config
         const [emailCfg] = await db.select().from(integrationConfigs)
@@ -75,7 +73,7 @@ async function getFreshO365Token(db: Database, tenantId: string): Promise<{ acce
         }
       }
     } catch (err) {
-      console.error('[EMAIL] Token refresh failed:', err);
+      console.error('[EMAIL] Gmail token refresh failed:', err);
     }
   }
 
@@ -96,18 +94,18 @@ export async function getEmailTransporter(db: Database, tenantId: string): Promi
   const creds = config.credentials as Record<string, unknown>;
   const provider = (creds.provider as string) ?? 'smtp';
 
-  // Microsoft 365 OAuth — always get fresh token
-  if (provider === 'microsoft365') {
-    const o365 = await getFreshO365Token(db, tenantId);
-    if (!o365) return null;
+  // Gmail OAuth2
+  if (provider === 'google-email') {
+    const gmail = await getFreshGmailToken(db, tenantId);
+    if (!gmail) return null;
     return nodemailer.createTransport({
-      host: 'smtp.office365.com',
-      port: 587,
-      secure: false,
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: {
         type: 'OAuth2',
-        user: o365.fromAddress,
-        accessToken: o365.accessToken,
+        user: gmail.fromAddress,
+        accessToken: gmail.accessToken,
       },
     });
   }
@@ -125,41 +123,73 @@ export async function getEmailTransporter(db: Database, tenantId: string): Promi
   });
 }
 
-const GRAPH_SEND_URL = 'https://graph.microsoft.com/v1.0/me/sendMail';
+function buildRfc2822Message(options: EmailOptions & { fromAddress: string; fromName: string }): string {
+  const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const lines: string[] = [];
 
-async function sendViaGraph(token: string, options: EmailOptions & { fromAddress: string }): Promise<boolean> {
-  const message: Record<string, unknown> = {
-    subject: options.subject,
-    body: {
-      contentType: 'HTML',
-      content: options.html || options.text || '',
-    },
-    toRecipients: [{ emailAddress: { address: options.to } }],
-  };
+  lines.push(`From: "${options.fromName}" <${options.fromAddress}>`);
+  lines.push(`To: ${options.to}`);
+  lines.push(`Subject: ${options.subject}`);
+  lines.push('MIME-Version: 1.0');
 
-  if (options.attachments?.length) {
-    message.attachments = options.attachments.map(a => ({
-      '@odata.type': '#microsoft.graph.fileAttachment',
-      name: a.filename,
-      contentType: a.contentType || 'application/octet-stream',
-      contentBytes: typeof a.content === 'string'
-        ? Buffer.from(a.content).toString('base64')
-        : (a.content as Buffer).toString('base64'),
-    }));
+  if (options.replyTo) {
+    lines.push(`Reply-To: ${options.replyTo}`);
   }
 
-  const res = await fetch(GRAPH_SEND_URL, {
+  if (options.attachments?.length) {
+    lines.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+    lines.push('');
+
+    // Body part
+    lines.push(`--${boundary}`);
+    lines.push('Content-Type: text/html; charset=UTF-8');
+    lines.push('Content-Transfer-Encoding: base64');
+    lines.push('');
+    lines.push(Buffer.from(options.html || options.text || '').toString('base64'));
+
+    // Attachment parts
+    for (const att of options.attachments) {
+      lines.push(`--${boundary}`);
+      lines.push(`Content-Type: ${att.contentType || 'application/octet-stream'}; name="${att.filename}"`);
+      lines.push('Content-Transfer-Encoding: base64');
+      lines.push(`Content-Disposition: attachment; filename="${att.filename}"`);
+      lines.push('');
+      const b64 = typeof att.content === 'string'
+        ? Buffer.from(att.content).toString('base64')
+        : (att.content as Buffer).toString('base64');
+      lines.push(b64);
+    }
+    lines.push(`--${boundary}--`);
+  } else {
+    lines.push('Content-Type: text/html; charset=UTF-8');
+    lines.push('Content-Transfer-Encoding: base64');
+    lines.push('');
+    lines.push(Buffer.from(options.html || options.text || '').toString('base64'));
+  }
+
+  return lines.join('\r\n');
+}
+
+async function sendViaGmailApi(token: string, options: EmailOptions & { fromAddress: string; fromName: string }): Promise<boolean> {
+  const rawMessage = buildRfc2822Message(options);
+  const encodedMessage = Buffer.from(rawMessage)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  const res = await fetch(`${GMAIL_API_URL}/users/me/messages/send`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ message, saveToSentItems: true }),
+    body: JSON.stringify({ raw: encodedMessage }),
   });
 
   if (!res.ok) {
     const err = await res.text();
-    console.error(`[EMAIL-SEND] Graph API send failed (${res.status}):`, err.substring(0, 300));
+    console.error(`[EMAIL-SEND] Gmail API send failed (${res.status}):`, err.substring(0, 300));
     return false;
   }
   return true;
@@ -178,12 +208,12 @@ export async function sendEmail(db: Database, tenantId: string, options: EmailOp
   console.log(`[EMAIL-SEND] Sending to=${options.to} subject="${options.subject}" via ${provider}`);
 
   try {
-    // Use Microsoft Graph API for O365 (much more reliable than SMTP AUTH)
-    if (provider === 'microsoft365') {
-      const o365 = await getFreshO365Token(db, tenantId);
-      if (!o365) { console.error('[EMAIL-SEND] No O365 token available'); return false; }
-      const sent = await sendViaGraph(o365.accessToken, { ...options, fromAddress: o365.fromAddress });
-      if (sent) console.log(`[EMAIL-SEND] Sent successfully to=${options.to} via Graph API`);
+    // Use Gmail API (more reliable than SMTP OAuth2)
+    if (provider === 'google-email') {
+      const gmail = await getFreshGmailToken(db, tenantId);
+      if (!gmail) { console.error('[EMAIL-SEND] No Gmail token available'); return false; }
+      const sent = await sendViaGmailApi(gmail.accessToken, { ...options, fromAddress: gmail.fromAddress, fromName: gmail.fromName });
+      if (sent) console.log(`[EMAIL-SEND] Sent successfully to=${options.to} via Gmail API`);
       return sent;
     }
 

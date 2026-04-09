@@ -15,7 +15,7 @@ export const calendarEvents = pgTable(
     startAt: timestamp('start_at', { withTimezone: true }).notNull(),
     endAt: timestamp('end_at', { withTimezone: true }).notNull(),
     eventType: text('event_type').notNull().default('ticket'),
-    m365EventId: text('m365_event_id'),
+    googleEventId: text('google_event_id'),
     syncedAt: timestamp('synced_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

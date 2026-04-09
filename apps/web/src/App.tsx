@@ -122,7 +122,7 @@ function AppRouter() {
     const q = new URLSearchParams(window.location.search).get('q') ?? '';
     content = <SearchResultsPage query={q} onNavigateToCustomer={navigateToCustomer} onNavigateToTicket={navigateToTicket} />;
   } else if (pathname === '/settings/email/callback') {
-    // Microsoft 365 OAuth callback — catches the redirect from Microsoft login
+    // Google email OAuth callback — catches the redirect from Google login
     title = 'Settings'; currentNav = '/settings';
     content = <SettingsPage initialTab="email" />;
   } else if (pathname === '/settings/security') {

@@ -51,12 +51,10 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
   const [emailError, setEmailError] = useState('');
   const [emailLoaded, setEmailLoaded] = useState(false);
 
-  // Microsoft 365
-  const [o365Status, setO365Status] = useState<{ connected: boolean; email: string | null; configured: boolean; needsSetup: boolean; mailboxes: Array<{ email: string; displayName: string }> }>({ connected: false, email: null, configured: false, needsSetup: true, mailboxes: [] });
-  const [o365Connecting, setO365Connecting] = useState(false);
-  const [showO365Setup, setShowO365Setup] = useState(false);
-  const [showM365Guide, setShowM365Guide] = useState(false);
-  const [o365SetupForm, setO365SetupForm] = useState({ clientId: '', clientSecret: '' });
+  // Google Email
+  const [gmailStatus, setGmailStatus] = useState<{ connected: boolean; email: string | null; configured: boolean; needsSetup: boolean; mailboxes: Array<{ email: string; displayName: string }> }>({ connected: false, email: null, configured: false, needsSetup: true, mailboxes: [] });
+  const [gmailConnecting, setGmailConnecting] = useState(false);
+  const [showGmailGuide, setShowGmailGuide] = useState(false);
 
   // Email-to-ticket
   const [checkingInbox, setCheckingInbox] = useState(false);
@@ -226,8 +224,8 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
     api<EmailConfig>('/settings/email')
       .then(data => { setEmailForm(data); setEmailLoaded(true); })
       .catch(() => setEmailLoaded(true));
-    api<{ connected: boolean; email: string | null; configured: boolean }>('/integrations/microsoft365/status')
-      .then(data => setO365Status(s => ({ ...s, ...data }))).catch(() => {});
+    api<{ connected: boolean; email: string | null; configured: boolean }>('/integrations/google-email/status')
+      .then(data => setGmailStatus(s => ({ ...s, ...data }))).catch(() => {});
     if (!blockedLoaded) {
       api<{ blocked: string[] }>('/settings/email/blocked')
         .then(data => { setBlockedEmails(data.blocked); setBlockedLoaded(true); }).catch(() => setBlockedLoaded(true));
@@ -239,18 +237,18 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     const code = params.get('code') || hashParams.get('code');
     if (code) {
-      setO365Connecting(true);
+      setGmailConnecting(true);
       // Clean the URL (remove code from query string and hash)
       window.history.replaceState(null, '', '/settings');
-      api<{ success: boolean; email: string }>('/integrations/microsoft365/callback', {
+      api<{ success: boolean; email: string }>('/integrations/google-email/callback', {
         method: 'POST', body: JSON.stringify({ code }),
       }).then(result => {
-        setO365Status(s => ({ ...s, connected: true, email: result.email, configured: true }));
-        setEmailSuccess(`Connected to Microsoft 365 as ${result.email}`);
+        setGmailStatus(s => ({ ...s, connected: true, email: result.email, configured: true }));
+        setEmailSuccess(`Connected Gmail as ${result.email}`);
         setEmailLoaded(false);
       }).catch(e => {
-        setEmailError(e instanceof Error ? e.message : 'Failed to complete Microsoft 365 connection');
-      }).finally(() => setO365Connecting(false));
+        setEmailError(e instanceof Error ? e.message : 'Failed to complete Google email connection');
+      }).finally(() => setGmailConnecting(false));
     }
   }, [emailLoaded]);
 
@@ -263,52 +261,29 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
     finally { setEmailSaving(false); }
   }
 
-  async function connectO365() {
-    // If not set up yet, show the one-time setup dialog
-    if (o365Status.needsSetup) {
-      setShowO365Setup(true);
-      return;
-    }
-    setO365Connecting(true); setEmailError(''); setEmailSuccess('');
+  async function connectGmail() {
+    setGmailConnecting(true); setEmailError(''); setEmailSuccess('');
     try {
-      const res = await api<{ authUrl: string }>('/integrations/microsoft365/authorize');
+      const res = await api<{ authUrl: string }>('/integrations/google-email/authorize');
       window.location.href = res.authUrl;
     } catch (e: unknown) {
-      setEmailError(e instanceof Error ? e.message : 'Failed to start Microsoft 365 connection');
-      setO365Connecting(false);
+      setEmailError(e instanceof Error ? e.message : 'Failed to start Google email connection');
+      setGmailConnecting(false);
     }
   }
 
-  async function saveO365Setup() {
-    setEmailError('');
+  async function disconnectGmail(targetEmail?: string) {
     try {
-      await api('/integrations/microsoft365/setup', {
-        method: 'POST', body: JSON.stringify(o365SetupForm),
-      });
-      setShowO365Setup(false);
-      setO365Status(s => ({ ...s, configured: true, needsSetup: false }));
-      // Now trigger the actual authorize flow
-      setO365Connecting(true);
-      const res = await api<{ authUrl: string }>('/integrations/microsoft365/authorize');
-      window.location.href = res.authUrl;
-    } catch (e: unknown) {
-      setEmailError(e instanceof Error ? e.message : 'Setup failed');
-      setO365Connecting(false);
-    }
-  }
-
-  async function disconnectO365(targetEmail?: string) {
-    try {
-      await api('/integrations/microsoft365/disconnect', { method: 'POST', body: JSON.stringify({ email: targetEmail }) });
+      await api('/integrations/google-email/disconnect', { method: 'POST', body: JSON.stringify({ email: targetEmail }) });
       if (targetEmail) {
-        setO365Status(s => {
+        setGmailStatus(s => {
           const remaining = s.mailboxes.filter(m => m.email !== targetEmail);
           return { ...s, connected: remaining.length > 0, email: remaining[0]?.email ?? null, mailboxes: remaining };
         });
         setEmailSuccess(`Disconnected ${targetEmail}`);
       } else {
-        setO365Status(s => ({ ...s, connected: false, email: null, mailboxes: [] }));
-        setEmailSuccess('All Microsoft 365 mailboxes disconnected');
+        setGmailStatus(s => ({ ...s, connected: false, email: null, mailboxes: [] }));
+        setEmailSuccess('All Google mailboxes disconnected');
       }
       setEmailLoaded(false);
     } catch (e: unknown) { setEmailError(e instanceof Error ? e.message : 'Failed'); }
@@ -710,30 +685,30 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
             {emailSuccess && <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800 flex items-center gap-2"><CheckCircle className="h-4 w-4" />{emailSuccess}</div>}
             {emailError && <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-md">{emailError}</div>}
 
-            {/* Microsoft 365 Connection — Primary */}
-            <Card className={o365Status.connected ? 'border-green-300 dark:border-green-800' : ''}>
+            {/* Google Email Connection — Primary */}
+            <Card className={gmailStatus.connected ? 'border-green-300 dark:border-green-800' : ''}>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <svg viewBox="0 0 23 23" className="h-5 w-5" fill="none"><path d="M1 1h10v10H1z" fill="#F25022"/><path d="M12 1h10v10H12z" fill="#7FBA00"/><path d="M1 12h10v10H1z" fill="#00A4EF"/><path d="M12 12h10v10H12z" fill="#FFB900"/></svg>
-                  Microsoft 365 Mailboxes
+                  <svg viewBox="0 0 24 24" className="h-5 w-5"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                  Google Mailboxes
                 </CardTitle>
                 <CardDescription>
-                  {o365Status.mailboxes.length > 0
-                    ? `${o365Status.mailboxes.length} mailbox${o365Status.mailboxes.length > 1 ? 'es' : ''} connected — first mailbox is primary for sending`
-                    : 'Connect your support, sales, or billing mailboxes'}
+                  {gmailStatus.mailboxes.length > 0
+                    ? `${gmailStatus.mailboxes.length} mailbox${gmailStatus.mailboxes.length > 1 ? 'es' : ''} connected — first mailbox is primary for sending`
+                    : 'Connect your Google Workspace or Gmail mailboxes'}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {o365Connecting ? (
+                {gmailConnecting ? (
                   <div className="flex items-center justify-center gap-3 py-4">
                     <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm text-muted-foreground">Redirecting to Microsoft...</span>
+                    <span className="text-sm text-muted-foreground">Redirecting to Google...</span>
                   </div>
                 ) : (
                   <>
-                    {o365Status.mailboxes.length > 0 && (
+                    {gmailStatus.mailboxes.length > 0 && (
                       <div className="space-y-2">
-                        {o365Status.mailboxes.map((mb, i) => (
+                        {gmailStatus.mailboxes.map((mb, i) => (
                           <div key={mb.email} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                             <div className="flex items-center gap-3">
                               <Badge variant="default" className="bg-green-600">Connected</Badge>
@@ -744,82 +719,72 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
                                 </div>
                               </div>
                             </div>
-                            <Button variant="ghost" size="sm" onClick={() => disconnectO365(mb.email)} className="text-destructive hover:text-destructive">
+                            <Button variant="ghost" size="sm" onClick={() => disconnectGmail(mb.email)} className="text-destructive hover:text-destructive">
                               <X className="h-4 w-4" />
                             </Button>
                           </div>
                         ))}
                       </div>
                     )}
-                    <Button onClick={connectO365} variant={o365Status.mailboxes.length > 0 ? 'outline' : 'default'} className={o365Status.mailboxes.length > 0 ? '' : 'w-full'} size={o365Status.mailboxes.length > 0 ? 'sm' : 'lg'}>
-                      <svg viewBox="0 0 23 23" className="h-4 w-4 mr-1.5" fill="none"><path d="M1 1h10v10H1z" fill="#F25022"/><path d="M12 1h10v10H12z" fill="#7FBA00"/><path d="M1 12h10v10H1z" fill="#00A4EF"/><path d="M12 12h10v10H12z" fill="#FFB900"/></svg>
-                      {o365Status.mailboxes.length > 0 ? 'Add Mailbox' : o365Status.configured ? 'Connect Mailbox' : 'Authorize Microsoft 365'}
+                    <Button onClick={connectGmail} variant={gmailStatus.mailboxes.length > 0 ? 'outline' : 'default'} className={gmailStatus.mailboxes.length > 0 ? '' : 'w-full'} size={gmailStatus.mailboxes.length > 0 ? 'sm' : 'lg'}>
+                      <svg viewBox="0 0 24 24" className="h-4 w-4 mr-1.5"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                      {gmailStatus.mailboxes.length > 0 ? 'Add Mailbox' : 'Connect Google Mailbox'}
                     </Button>
                   </>
                 )}
               </CardContent>
             </Card>
 
-            {/* M365 Setup Guide */}
+            {/* Google Setup Guide */}
             <Card>
-              <CardHeader className="cursor-pointer" onClick={() => setShowM365Guide(!showM365Guide)}>
+              <CardHeader className="cursor-pointer" onClick={() => setShowGmailGuide(!showGmailGuide)}>
                 <CardTitle className="text-base flex items-center justify-between">
-                  <span>How to Connect Microsoft 365</span>
-                  <Button variant="ghost" size="sm">{showM365Guide ? 'Hide' : 'Show'}</Button>
+                  <span>How to Connect Google Email</span>
+                  <Button variant="ghost" size="sm">{showGmailGuide ? 'Hide' : 'Show'}</Button>
                 </CardTitle>
               </CardHeader>
-              {showM365Guide && (
+              {showGmailGuide && (
                 <CardContent className="space-y-3 text-sm">
                   <div className="bg-muted p-4 rounded-lg space-y-3">
-                    <h4 className="font-semibold">Step 1: Create Azure App Registration</h4>
+                    <h4 className="font-semibold">Step 1: Enable Gmail API</h4>
                     <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                      <li>Go to <strong>Azure Portal</strong> → Azure Active Directory → App Registrations</li>
-                      <li>Click <strong>New Registration</strong></li>
-                      <li>Name: <code className="bg-background px-1 rounded">Rivertown PSA</code></li>
-                      <li>Supported account types: <strong>Accounts in any organizational directory</strong></li>
-                      <li>Redirect URI: Web → <code className="bg-background px-1 rounded">{window.location.origin}/settings/email/callback</code></li>
-                      <li>Click <strong>Register</strong></li>
+                      <li>Go to <strong>Google Cloud Console</strong> → APIs & Services → Library</li>
+                      <li>Search for <strong>Gmail API</strong> and click <strong>Enable</strong></li>
                     </ol>
 
-                    <h4 className="font-semibold">Step 2: Add API Permissions</h4>
+                    <h4 className="font-semibold">Step 2: Configure OAuth Consent Screen</h4>
                     <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                      <li>Go to <strong>API Permissions</strong> → Add a permission → Microsoft Graph</li>
-                      <li>Select <strong>Delegated permissions</strong></li>
-                      <li>Add these permissions:
+                      <li>Go to <strong>APIs & Services</strong> → OAuth consent screen</li>
+                      <li>If already configured for SSO, just add the Gmail scopes below</li>
+                      <li>Add scopes:
                         <ul className="list-disc list-inside ml-4 mt-1">
-                          <li><code className="bg-background px-1 rounded">Mail.Read</code> — Read emails</li>
-                          <li><code className="bg-background px-1 rounded">Mail.Send</code> — Send emails</li>
-                          <li><code className="bg-background px-1 rounded">Mail.ReadWrite</code> — Manage emails</li>
-                          <li><code className="bg-background px-1 rounded">Calendars.Read</code> — Read calendars</li>
-                          <li><code className="bg-background px-1 rounded">Calendars.ReadWrite</code> — Create/update calendar events</li>
-                          <li><code className="bg-background px-1 rounded">offline_access</code> — Refresh tokens</li>
+                          <li><code className="bg-background px-1 rounded">gmail.readonly</code> — Read emails</li>
+                          <li><code className="bg-background px-1 rounded">gmail.send</code> — Send emails</li>
+                          <li><code className="bg-background px-1 rounded">gmail.modify</code> — Mark as read</li>
                         </ul>
                       </li>
-                      <li>Click <strong>Grant admin consent</strong> for your organization</li>
                     </ol>
 
-                    <h4 className="font-semibold">Step 3: Create Client Secret</h4>
+                    <h4 className="font-semibold">Step 3: Add Redirect URI</h4>
                     <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                      <li>Go to <strong>Certificates & secrets</strong> → New client secret</li>
-                      <li>Set an expiry (recommended: 24 months)</li>
-                      <li>Copy the <strong>Value</strong> (not the Secret ID)</li>
+                      <li>Go to <strong>APIs & Services</strong> → Credentials → your OAuth 2.0 Client</li>
+                      <li>Under <strong>Authorized redirect URIs</strong>, add:</li>
+                      <li><code className="bg-background px-1 rounded text-xs">{window.location.origin}/settings/email/callback</code></li>
                     </ol>
 
-                    <h4 className="font-semibold">Step 4: Connect in Rivertown PSA</h4>
+                    <h4 className="font-semibold">Step 4: Set Environment Variables</h4>
                     <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                      <li>Click <strong>Authorize Microsoft 365</strong> above</li>
-                      <li>First time: enter the Application (Client) ID and Secret from Azure</li>
-                      <li>Sign in with the <strong>shared mailbox account</strong> (e.g. support@yourcompany.com)</li>
+                      <li>Set <code className="bg-background px-1 rounded">GOOGLE_CLIENT_ID</code> and <code className="bg-background px-1 rounded">GOOGLE_CLIENT_SECRET</code> on the API server</li>
+                      <li>Set <code className="bg-background px-1 rounded">GOOGLE_EMAIL_REDIRECT_URI</code> to <code className="bg-background px-1 rounded text-xs">{window.location.origin}/settings/email/callback</code></li>
+                      <li>These are the same credentials used for Google SSO</li>
+                    </ol>
+
+                    <h4 className="font-semibold">Step 5: Connect in Rivertown PSA</h4>
+                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                      <li>Click <strong>Connect Google Mailbox</strong> above</li>
+                      <li>Sign in with the mailbox account (e.g. support@yourcompany.com)</li>
                       <li>Grant the requested permissions</li>
                       <li>You'll be redirected back — email is now connected</li>
-                    </ol>
-
-                    <h4 className="font-semibold">Step 5: Connect Tech Calendars (Optional)</h4>
-                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                      <li>Each technician goes to <strong>Settings → Profile</strong></li>
-                      <li>Click <strong>Connect My Calendar</strong></li>
-                      <li>Sign in with their individual M365 account</li>
-                      <li>Scheduled tickets will sync to their Outlook calendar</li>
                     </ol>
                   </div>
                 </CardContent>
@@ -907,8 +872,8 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
               </CardContent>
             </Card>
 
-            {/* SMTP — only show if no O365 mailboxes */}
-            {!o365Status.connected && <Card>
+            {/* SMTP — only show if no Google mailboxes */}
+            {!gmailStatus.connected && <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Mail className="h-5 w-5" />SMTP Configuration</CardTitle>
                 <CardDescription>Manual SMTP configuration for email sending</CardDescription>
@@ -917,7 +882,7 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-medium">Enable SMTP</div>
-                    <div className="text-xs text-muted-foreground">Use manual SMTP settings instead of Microsoft 365</div>
+                    <div className="text-xs text-muted-foreground">Use manual SMTP settings instead of Google email</div>
                   </div>
                   <input type="checkbox" className="h-4 w-4" checked={emailForm.isEnabled} onChange={e => setEmailForm({ ...emailForm, isEnabled: e.target.checked })} />
                 </div>
@@ -971,46 +936,6 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
               </CardContent>
             </Card>}
 
-            {/* One-time Azure App Setup Dialog */}
-            <Dialog open={showO365Setup} onOpenChange={setShowO365Setup}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Microsoft 365 — First-Time Setup</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    To connect Microsoft 365, you need an Azure App Registration. This is a one-time setup — after this, the "Authorize" button will work for any mailbox.
-                  </p>
-                  <div className="bg-muted p-3 rounded-md text-sm space-y-1">
-                    <p className="font-medium">Quick setup:</p>
-                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                      <li>Go to Azure Portal &gt; App Registrations &gt; New Registration</li>
-                      <li>Name it "Rivertown PSA", set to "Accounts in any org directory"</li>
-                      <li>Redirect URI: <code className="bg-background px-1 rounded text-xs">{window.location.origin}/settings/email/callback</code></li>
-                      <li>Under API Permissions, add: Mail.Read, Mail.Send, Mail.ReadWrite</li>
-                      <li>Under Certificates &amp; Secrets, create a Client Secret</li>
-                      <li>Copy the Application (Client) ID and Secret below</li>
-                    </ol>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <Label>Application (Client) ID</Label>
-                      <Input value={o365SetupForm.clientId} onChange={e => setO365SetupForm(f => ({ ...f, clientId: e.target.value }))} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Client Secret Value</Label>
-                      <Input type="password" value={o365SetupForm.clientSecret} onChange={e => setO365SetupForm(f => ({ ...f, clientSecret: e.target.value }))} placeholder="Your secret value" />
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setShowO365Setup(false)}>Cancel</Button>
-                    <Button onClick={saveO365Setup} disabled={!o365SetupForm.clientId || !o365SetupForm.clientSecret}>
-                      Save &amp; Continue to Microsoft Login
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
           </div>
         </TabsContent>
 

@@ -12,10 +12,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
-  // Microsoft 365 OAuth (Azure App Registration)
-  MS365_CLIENT_ID: z.string().optional(),
-  MS365_CLIENT_SECRET: z.string().optional(),
-  MS365_REDIRECT_URI: z.string().optional(),
+  // Google Email OAuth (uses same Google OAuth app as SSO)
+  GOOGLE_EMAIL_REDIRECT_URI: z.string().optional(),
 
   // Stripe
   STRIPE_SECRET_KEY: z.string().optional(),

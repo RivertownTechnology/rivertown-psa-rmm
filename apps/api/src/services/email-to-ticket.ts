@@ -5,8 +5,8 @@ import { integrationConfigs, contacts, customers, tickets, ticketComments, email
 import type { Database } from '@rivertown/db';
 import { stripQuotedReply, sendTicketCreatedEmail } from './email-notifications.js';
 
-const GRAPH_API = 'https://graph.microsoft.com/v1.0';
-const MS_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1';
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 export async function processInboundEmails(db: Database, tenantId: string): Promise<{ processed: number; tickets: number; comments: number; blocked: number }> {
   const [config] = await db.select().from(integrationConfigs)
@@ -17,33 +17,32 @@ export async function processInboundEmails(db: Database, tenantId: string): Prom
 
   const creds = config.credentials as Record<string, unknown>;
 
-  // Use Microsoft Graph if O365 is connected, otherwise IMAP
-  if (creds.provider === 'microsoft365') {
-    console.log('[EMAIL] Using Graph API path, accessToken present:', !!creds.accessToken);
-    return processViaGraph(db, tenantId);
+  // Use Gmail API if Google email is connected, otherwise IMAP
+  if (creds.provider === 'google-email') {
+    console.log('[EMAIL] Using Gmail API path, accessToken present:', !!creds.accessToken);
+    return processViaGmail(db, tenantId);
   }
 
   if (!creds.smtpHost || !creds.smtpUser) return { processed: 0, tickets: 0, comments: 0, blocked: 0 };
   return processViaImap(db, tenantId, creds);
 }
 
-// --- Microsoft Graph API path ---
+// --- Gmail API path ---
 interface MailboxToken { email: string; accessToken: string; }
 
-async function getGraphTokens(db: Database, tenantId: string): Promise<MailboxToken[]> {
-  const [m365Config] = await db.select().from(integrationConfigs)
-    .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'microsoft365')))
+async function getGmailTokens(db: Database, tenantId: string): Promise<MailboxToken[]> {
+  const [gmailConfig] = await db.select().from(integrationConfigs)
+    .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'google-email')))
     .limit(1);
 
-  if (!m365Config?.isEnabled) return [];
-  const creds = m365Config.credentials as Record<string, unknown>;
-  const clientId = creds.clientId as string;
-  const clientSecret = creds.clientSecret as string;
+  if (!gmailConfig?.isEnabled) return [];
+  const creds = gmailConfig.credentials as Record<string, unknown>;
+  const clientId = (creds.clientId as string) || process.env.GOOGLE_CLIENT_ID || '';
+  const clientSecret = (creds.clientSecret as string) || process.env.GOOGLE_CLIENT_SECRET || '';
 
-  // Support both array and legacy single formats
   const mailboxes = Array.isArray(creds.mailboxes)
     ? (creds.mailboxes as Array<{ email: string; accessToken: string; refreshToken?: string; expiresAt: number }>)
-    : creds.accessToken ? [{ email: creds.email as string, accessToken: creds.accessToken as string, refreshToken: creds.refreshToken as string | undefined, expiresAt: (creds.expiresAt as number) ?? 0 }] : [];
+    : [];
 
   if (!mailboxes.length) return [];
 
@@ -54,23 +53,22 @@ async function getGraphTokens(db: Database, tenantId: string): Promise<MailboxTo
     // Refresh if expired
     if (mb.expiresAt && Date.now() > mb.expiresAt - 60000 && mb.refreshToken && clientId && clientSecret) {
       try {
-        const res = await fetch(MS_TOKEN_URL, {
+        const res = await fetch(GOOGLE_TOKEN_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({
             client_id: clientId, client_secret: clientSecret,
             refresh_token: mb.refreshToken, grant_type: 'refresh_token',
-            scope: 'Mail.Read Mail.Send Mail.ReadWrite offline_access',
           }),
         });
         if (res.ok) {
           const tokens = await res.json() as { access_token: string; refresh_token?: string; expires_in: number };
           mb.accessToken = tokens.access_token;
-          mb.refreshToken = tokens.refresh_token ?? mb.refreshToken;
+          if (tokens.refresh_token) mb.refreshToken = tokens.refresh_token;
           mb.expiresAt = Date.now() + tokens.expires_in * 1000;
           updated = true;
         }
-      } catch (err) { console.error(`Token refresh failed for ${mb.email}:`, err); }
+      } catch (err) { console.error(`Gmail token refresh failed for ${mb.email}:`, err); }
     }
     if (mb.accessToken) results.push({ email: mb.email, accessToken: mb.accessToken });
   }
@@ -78,7 +76,7 @@ async function getGraphTokens(db: Database, tenantId: string): Promise<MailboxTo
   if (updated) {
     const updatedCreds = { ...creds, mailboxes };
     await db.update(integrationConfigs).set({ credentials: updatedCreds, updatedAt: new Date() })
-      .where(eq(integrationConfigs.id, m365Config.id));
+      .where(eq(integrationConfigs.id, gmailConfig.id));
     // Update email config with primary token
     if (mailboxes[0]) {
       const [emailCfg] = await db.select().from(integrationConfigs)
@@ -94,41 +92,121 @@ async function getGraphTokens(db: Database, tenantId: string): Promise<MailboxTo
   return results;
 }
 
-async function processViaGraph(db: Database, tenantId: string): Promise<{ processed: number; tickets: number; comments: number; blocked: number }> {
-  const tokens = await getGraphTokens(db, tenantId);
-  console.log('[EMAIL] Graph tokens found:', tokens.length, tokens.map(t => t.email));
+interface GmailMessage {
+  id: string;
+  threadId: string;
+}
+
+interface GmailMessageDetail {
+  id: string;
+  threadId: string;
+  labelIds: string[];
+  payload: {
+    headers: Array<{ name: string; value: string }>;
+    mimeType: string;
+    body?: { data?: string; size: number };
+    parts?: Array<{
+      mimeType: string;
+      body?: { data?: string; size: number };
+      parts?: Array<{ mimeType: string; body?: { data?: string } }>;
+    }>;
+  };
+}
+
+function getHeader(msg: GmailMessageDetail, name: string): string {
+  return msg.payload.headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value ?? '';
+}
+
+function parseEmailAddress(headerValue: string): { address: string; name: string } {
+  // "Display Name <email@example.com>" or just "email@example.com"
+  const match = headerValue.match(/^"?([^"<]*)"?\s*<?([^>]+@[^>]+)>?$/);
+  if (match) {
+    return { name: match[1].trim(), address: match[2].trim().toLowerCase() };
+  }
+  return { name: '', address: headerValue.trim().toLowerCase() };
+}
+
+function decodeBase64Url(data: string): string {
+  const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+  return Buffer.from(base64, 'base64').toString('utf-8');
+}
+
+function extractBody(msg: GmailMessageDetail): { text: string; html?: string } {
+  // Simple single-part message
+  if (msg.payload.body?.data) {
+    const decoded = decodeBase64Url(msg.payload.body.data);
+    if (msg.payload.mimeType === 'text/html') return { text: stripHtml(decoded), html: decoded };
+    return { text: decoded };
+  }
+
+  // Multipart — walk parts to find text/html and text/plain
+  let textBody = '';
+  let htmlBody: string | undefined;
+
+  function walkParts(parts: GmailMessageDetail['payload']['parts']) {
+    if (!parts) return;
+    for (const part of parts) {
+      if (part.mimeType === 'text/plain' && part.body?.data) {
+        textBody = decodeBase64Url(part.body.data);
+      } else if (part.mimeType === 'text/html' && part.body?.data) {
+        htmlBody = decodeBase64Url(part.body.data);
+      } else if (part.mimeType.startsWith('multipart/') && part.parts) {
+        walkParts(part.parts as GmailMessageDetail['payload']['parts']);
+      }
+    }
+  }
+
+  walkParts(msg.payload.parts);
+
+  if (!textBody && htmlBody) textBody = stripHtml(htmlBody);
+  return { text: textBody, html: htmlBody };
+}
+
+async function processViaGmail(db: Database, tenantId: string): Promise<{ processed: number; tickets: number; comments: number; blocked: number }> {
+  const tokens = await getGmailTokens(db, tenantId);
+  console.log('[EMAIL] Gmail tokens found:', tokens.length, tokens.map(t => t.email));
   if (!tokens.length) return { processed: 0, tickets: 0, comments: 0, blocked: 0 };
 
   let processed = 0, ticketsCreated = 0, commentsCreated = 0, blockedCount = 0;
 
   for (const { accessToken: token, email: mailboxEmail } of tokens) {
   try {
-    // Fetch unread messages from inbox for this mailbox
-    const res = await fetch(
-      `${GRAPH_API}/me/mailFolders/inbox/messages?$filter=isRead eq false&$top=50&$select=id,subject,from,toRecipients,body,receivedDateTime,internetMessageId`,
+    // List unread messages in inbox
+    const listRes = await fetch(
+      `${GMAIL_API}/users/me/messages?q=is:unread+in:inbox&maxResults=50`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
 
-    if (!res.ok) {
-      const err = await res.text();
-      console.error(`[EMAIL] Graph API fetch failed for ${mailboxEmail}:`, res.status, err.substring(0, 500));
+    if (!listRes.ok) {
+      const err = await listRes.text();
+      console.error(`[EMAIL] Gmail API list failed for ${mailboxEmail}:`, listRes.status, err.substring(0, 500));
       continue;
     }
-    console.log(`[EMAIL] Graph API response OK for ${mailboxEmail}`);
 
-    const data = await res.json() as { value: Array<{
-      id: string; subject: string; internetMessageId: string;
-      from: { emailAddress: { address: string; name: string } };
-      toRecipients: Array<{ emailAddress: { address: string } }>;
-      body: { content: string; contentType: string };
-      receivedDateTime: string;
-    }> };
+    const listData = await listRes.json() as { messages?: GmailMessage[]; resultSizeEstimate: number };
+    const messages = listData.messages ?? [];
+    console.log(`[EMAIL] Found ${messages.length} unread messages for ${mailboxEmail}`);
 
-    console.log(`[EMAIL] Found ${data.value.length} unread messages for ${mailboxEmail}`);
-    for (const msg of data.value) {
-      const fromAddress = msg.from?.emailAddress?.address?.toLowerCase();
-      const fromName = msg.from?.emailAddress?.name;
-      const messageId = msg.internetMessageId || msg.id;
+    for (const { id: msgId } of messages) {
+      // Get full message detail
+      const msgRes = await fetch(
+        `${GMAIL_API}/users/me/messages/${msgId}?format=full`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (!msgRes.ok) {
+        console.error(`[EMAIL] Gmail API get message ${msgId} failed:`, msgRes.status);
+        continue;
+      }
+
+      const msg = await msgRes.json() as GmailMessageDetail;
+
+      const fromHeader = getHeader(msg, 'From');
+      const { address: fromAddress, name: fromName } = parseEmailAddress(fromHeader);
+      const toHeader = getHeader(msg, 'To');
+      const { address: toAddress } = parseEmailAddress(toHeader);
+      const subject = getHeader(msg, 'Subject') || '(No subject)';
+      const messageId = getHeader(msg, 'Message-ID') || msgId;
 
       if (!fromAddress) continue;
 
@@ -137,20 +215,23 @@ async function processViaGraph(db: Database, tenantId: string): Promise<{ proces
         .where(and(eq(emailMessages.tenantId, tenantId), eq(emailMessages.messageId, messageId)))
         .limit(1);
       if (existing) {
-        // Mark as read in Graph
-        await fetch(`${GRAPH_API}/me/messages/${msg.id}`, {
-          method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ isRead: true }),
+        // Mark as read in Gmail
+        await fetch(`${GMAIL_API}/users/me/messages/${msgId}/modify`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ removeLabelIds: ['UNREAD'] }),
         });
         continue;
       }
 
+      const body = extractBody(msg);
+
       const result = await processEmail(db, tenantId, {
-        messageId, fromAddress, fromName: fromName ?? undefined,
-        toAddress: msg.toRecipients?.[0]?.emailAddress?.address ?? '',
-        subject: msg.subject ?? '(No subject)',
-        bodyText: msg.body?.contentType === 'text' ? msg.body.content : stripHtml(msg.body?.content ?? ''),
-        bodyHtml: msg.body?.contentType === 'html' ? msg.body.content : undefined,
+        messageId, fromAddress, fromName: fromName || undefined,
+        toAddress,
+        subject,
+        bodyText: body.text,
+        bodyHtml: body.html,
       });
 
       if (result.blocked) { blockedCount++; }
@@ -160,14 +241,15 @@ async function processViaGraph(db: Database, tenantId: string): Promise<{ proces
       }
 
       // Mark as read
-      await fetch(`${GRAPH_API}/me/messages/${msg.id}`, {
-        method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isRead: true }),
+      await fetch(`${GMAIL_API}/users/me/messages/${msgId}/modify`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ removeLabelIds: ['UNREAD'] }),
       });
       processed++;
     }
   } catch (err) {
-    console.error(`Graph API email processing failed for ${mailboxEmail}:`, err);
+    console.error(`Gmail API email processing failed for ${mailboxEmail}:`, err);
   }
   } // end for each mailbox
 
@@ -301,13 +383,11 @@ async function processEmail(db: Database, tenantId: string, email: {
   const isBlocked = blockedEmails.some(b => {
     const bl = b.toLowerCase().trim();
     if (!bl) return false;
-    // Support both full emails and @domain patterns
     if (bl.startsWith('@')) return senderDomain === bl.slice(1);
     return senderLower === bl;
   });
 
   if (isBlocked) {
-    // Store email record as blocked but don't create ticket
     await db.insert(emailMessages).values({
       tenantId, messageId: email.messageId, fromAddress: email.fromAddress,
       fromName: email.fromName, toAddress: email.toAddress, subject: email.subject,
@@ -334,15 +414,12 @@ async function processEmail(db: Database, tenantId: string, email: {
       .limit(1);
 
     if (existingTicket) {
-      // If we didn't find a contact by email, use the ticket's existing contactId
-      // (the sender may be using a different email than what's on the contact record)
       if (!contact && existingTicket.contactId) {
         const [ticketContact] = await db.select().from(contacts)
           .where(eq(contacts.id, existingTicket.contactId)).limit(1);
         if (ticketContact) contact = ticketContact;
       }
 
-      // Strip quoted reply text so only the new content is added
       const cleanBody = stripQuotedReply(email.bodyText);
       await db.insert(ticketComments).values({
         tenantId, ticketId: existingTicket.id,
@@ -356,12 +433,10 @@ async function processEmail(db: Database, tenantId: string, email: {
   }
 
   if (!ticketId) {
-    // Determine which customer to assign the ticket to
     const customerId = contact
       ? contact.customerId
       : await getOrCreateFallbackCustomer(db, tenantId);
 
-    // Create new ticket from email
     const [seq] = await db.select().from(tenantSequences)
       .where(and(eq(tenantSequences.tenantId, tenantId), eq(tenantSequences.sequenceName, 'ticket')))
       .limit(1);
@@ -384,7 +459,6 @@ async function processEmail(db: Database, tenantId: string, email: {
       status: 'new', priority: 'medium', ticketType: 'incident', source: 'email',
     }).returning();
 
-    // Apply SLA
     const { calculateSla } = await import('./sla-calculator.js');
     const sla = await calculateSla(db, tenantId, customerId, 'medium', new Date());
     if (sla.slaPolicyId) {
@@ -397,7 +471,6 @@ async function processEmail(db: Database, tenantId: string, email: {
     ticketId = newTicket.id;
     isTicket = true;
 
-    // Send ticket created email notification (fire and forget)
     sendTicketCreatedEmail(db, tenantId, newTicket.id).catch(e => console.error('Ticket created email failed:', e));
   }
 

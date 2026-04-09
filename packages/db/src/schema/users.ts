@@ -29,9 +29,9 @@ export const users = pgTable(
     ssoSubjectId: text('sso_subject_id'),
 
     timezone: text('user_timezone'),
-    m365CalendarConnected: boolean('m365_calendar_connected').default(false),
-    m365CalendarToken: text('m365_calendar_token'),
-    m365CalendarRefreshToken: text('m365_calendar_refresh_token'),
+    googleCalendarConnected: boolean('google_calendar_connected').default(false),
+    googleCalendarToken: text('google_calendar_token'),
+    googleCalendarRefreshToken: text('google_calendar_refresh_token'),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
