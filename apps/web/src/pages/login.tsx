@@ -175,7 +175,7 @@ export function LoginPage() {
               </div>
             </div>
             <a
-              href={`${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/api/v1/auth/google`.replace(window.location.origin, (import.meta as any).env?.VITE_API_URL || '')}
+              href={`${(import.meta as any).env?.VITE_API_URL || ''}/api/v1/auth/google`}
               className="inline-flex items-center justify-center gap-2 w-full rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24">

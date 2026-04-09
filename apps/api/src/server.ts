@@ -82,8 +82,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   // Global auth hook — applies to all routes except those marked public
   fastify.addHook('onRequest', async (request, reply) => {
     if ((request.routeOptions?.config as any)?.public) return;
-    // Skip health check
+    // Skip public paths
     if (request.url === '/health') return;
+    if (request.url.startsWith('/api/v1/auth/google')) return;
+    if (request.url.startsWith('/api/public/')) return;
     await fastify.authenticate(request, reply);
   });
 
