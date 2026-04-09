@@ -36,7 +36,7 @@ function pushPath(path: string) {
 }
 
 function AppRouter() {
-  const { user, loading } = useAuth();
+  const { user, loading, login } = useAuth();
   const pathname = useLocation();
 
   if (loading) {
@@ -45,6 +45,24 @@ function AppRouter() {
         <div className="text-muted-foreground">Loading...</div>
       </div>
     );
+  }
+
+  // Handle Google SSO callback
+  if (pathname === '/auth/callback') {
+    const params = new URLSearchParams(window.location.search);
+    const accessToken = params.get('accessToken');
+    const refreshToken = params.get('refreshToken');
+    if (accessToken && refreshToken) {
+      login(accessToken, refreshToken).then(() => {
+        window.history.replaceState(null, '', '/');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      return (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-muted-foreground">Signing in...</div>
+        </div>
+      );
+    }
   }
 
   if (!user) return <LoginPage />;

@@ -57,9 +57,7 @@ export function Sidebar({ currentPath, onNavigate }: SidebarProps) {
     <aside className="w-64 border-r bg-card flex flex-col h-screen sticky top-0">
       <div className="p-4 border-b">
         <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-sm">R</span>
-          </div>
+          <img src="/logo.png" alt="Rivertown Technology" className="h-8 w-8 rounded-lg object-contain" />
           <div>
             <h1 className="text-sm font-semibold">Rivertown PSA</h1>
             <p className="text-xs text-muted-foreground">v0.1.0</p>
