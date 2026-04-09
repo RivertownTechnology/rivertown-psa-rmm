@@ -115,12 +115,12 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
 
         // Issue JWT tokens
         const accessToken = fastify.jwt.sign(
-          { sub: user.id, email: user.email, role: user.role, tenantId: user.tenantId },
+          { sub: user.id, tid: user.tenantId, role: user.role, type: 'access' as const },
           { expiresIn: fastify.config.JWT_EXPIRES_IN || '15m' },
         );
 
         const refreshToken = fastify.jwt.sign(
-          { sub: user.id, type: 'refresh' },
+          { sub: user.id, tid: user.tenantId, role: user.role, type: 'refresh' as const },
           { expiresIn: fastify.config.REFRESH_TOKEN_EXPIRES_IN || '7d' },
         );
 
