@@ -12,6 +12,8 @@ declare module '@fastify/jwt' {
       type: 'access' | 'refresh' | 'mfa_challenge' | 'preview';
       cid?: string; // customerId — used by portal tokens
       resource?: string; // scoped resource — used by preview tokens
+      portalRole?: string; // 'admin' | 'user' — portal contacts only
+      perms?: string[]; // ['tickets', 'billing'] — portal permissions
     };
     user: {
       sub: string;
@@ -20,6 +22,8 @@ declare module '@fastify/jwt' {
       type: 'access' | 'refresh' | 'mfa_challenge' | 'preview';
       cid?: string;
       resource?: string;
+      portalRole?: string;
+      perms?: string[];
     };
   }
 }

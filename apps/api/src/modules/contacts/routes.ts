@@ -112,7 +112,10 @@ export async function contactRoutes(fastify: FastifyInstance) {
     { preHandler: [fastify.authenticate, requirePermission('customers:write')] },
     async (request) => {
       const { id } = request.params as { id: string };
-      const { enabled, password } = request.body as { enabled: boolean; password?: string };
+      const { enabled, password, portalRole, portalPermissions } = request.body as {
+        enabled: boolean; password?: string;
+        portalRole?: 'admin' | 'user'; portalPermissions?: string[];
+      };
 
       const [existing] = await fastify.db.select().from(contacts)
         .where(and(eq(contacts.id, id), eq(contacts.tenantId, request.tenantId))).limit(1);
@@ -127,8 +130,30 @@ export async function contactRoutes(fastify: FastifyInstance) {
         updateData.portalPasswordHash = await hash(password, 12);
       }
 
+      if (enabled) {
+        // Check if this is the first portal user for this company — auto-admin
+        const [existingPortalUser] = await fastify.db.select({ id: contacts.id }).from(contacts)
+          .where(and(
+            eq(contacts.tenantId, request.tenantId),
+            eq(contacts.customerId, existing.customerId),
+            eq(contacts.portalEnabled, true),
+          )).limit(1);
+
+        if (!existingPortalUser) {
+          // First portal user for this company — make them admin with full permissions
+          updateData.portalRole = 'admin';
+          updateData.portalPermissions = ['tickets', 'billing'];
+        } else {
+          // Set role/permissions from request or use defaults
+          updateData.portalRole = portalRole ?? 'user';
+          updateData.portalPermissions = portalPermissions ?? ['tickets'];
+        }
+      }
+
       if (!enabled) {
         updateData.portalPasswordHash = null;
+        updateData.portalRole = 'user';
+        updateData.portalPermissions = ['tickets'];
       }
 
       const [updated] = await fastify.db.update(contacts).set(updateData)
@@ -143,6 +168,8 @@ export async function contactRoutes(fastify: FastifyInstance) {
       return {
         id: updated.id,
         portalEnabled: updated.portalEnabled,
+        portalRole: updated.portalRole,
+        portalPermissions: updated.portalPermissions,
         hasPassword: !!updated.portalPasswordHash,
       };
     },

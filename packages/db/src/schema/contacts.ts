@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, boolean, timestamp, index, jsonb } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants.js';
 import { customers } from './customers.js';
 
@@ -20,6 +20,8 @@ export const contacts = pgTable(
     isPrimary: boolean('is_primary').default(false).notNull(),
     portalEnabled: boolean('portal_enabled').default(false).notNull(),
     portalPasswordHash: text('portal_password_hash'),
+    portalRole: text('portal_role').default('user'),  // 'admin' | 'user'
+    portalPermissions: jsonb('portal_permissions').default(['tickets']),  // ['tickets', 'billing']
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
