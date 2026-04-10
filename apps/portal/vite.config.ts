@@ -18,4 +18,14 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    port: 5174,
+    host: '0.0.0.0',
+    proxy: {
+      '/api': {
+        target: 'https://rivertownapi-production.up.railway.app',
+        changeOrigin: true,
+      },
+    },
+  },
 });
