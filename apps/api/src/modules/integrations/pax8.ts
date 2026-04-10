@@ -685,8 +685,30 @@ export async function pax8Routes(fastify: FastifyInstance) {
           .limit(1);
       }
 
-      // Auto-create catalog item if it doesn't exist
-      if (!catalogMatch) {
+      if (catalogMatch) {
+        // Re-activate if soft-deleted, and update pricing/name to latest
+        if (!catalogMatch.isActive || catalogMatch.name !== sub.productName) {
+          await fastify.db.update(serviceCatalogItems).set({
+            isActive: true,
+            name: sub.productName,
+            description: sub.productName,
+            defaultUnitPriceCents: msrpCents,
+            defaultUnitCostCents: unitCostCents,
+            vendor: vendorName ?? catalogMatch.vendor,
+            pax8ProductId: productId ?? catalogMatch.pax8ProductId,
+            pax8ProductName: sub.productName,
+            pax8VendorName: vendorName ?? catalogMatch.pax8VendorName,
+            updatedAt: new Date(),
+          }).where(eq(serviceCatalogItems.id, catalogMatch.id));
+          // Refresh the match with updated values
+          catalogMatch = { ...catalogMatch, isActive: true, name: sub.productName, defaultUnitPriceCents: msrpCents, defaultUnitCostCents: unitCostCents };
+          catalogCreated.push(`${sub.productName} (reactivated)`);
+          console.log(`[PAX8-IMPORT] Reactivated/updated catalog item: "${sub.productName}" (${catalogMatch.id})`);
+        } else {
+          console.log(`[PAX8-IMPORT] Found existing catalog item: "${catalogMatch.name}" (${catalogMatch.id})`);
+        }
+      } else {
+        // Auto-create catalog item
         console.log(`[PAX8-IMPORT] Creating catalog item: "${sub.productName}" cost=${unitCostCents} msrp=${msrpCents} vendor=${vendorName}`);
         [catalogMatch] = await fastify.db.insert(serviceCatalogItems).values({
           tenantId: request.tenantId,
@@ -703,8 +725,6 @@ export async function pax8Routes(fastify: FastifyInstance) {
         }).returning();
         catalogCreated.push(catalogMatch.name);
         console.log(`[PAX8-IMPORT] Created catalog item: ${catalogMatch.id}`);
-      } else {
-        console.log(`[PAX8-IMPORT] Found existing catalog item: "${catalogMatch.name}" (${catalogMatch.id})`);
       }
 
       const category = catalogMatch.category;
