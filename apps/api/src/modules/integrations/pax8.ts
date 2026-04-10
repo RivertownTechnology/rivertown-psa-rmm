@@ -93,10 +93,48 @@ interface Pax8Product {
   sku?: string;
 }
 
-interface Pax8ProductPricing {
+interface Pax8PricingRate {
   partnerBuyRate?: number;
   suggestedRetailPrice?: number;
-  rates?: Array<{ partnerBuyRate?: number; suggestedRetailPrice?: number }>;
+  startQuantity?: number;
+  endQuantity?: number;
+}
+
+interface Pax8PricingTier {
+  billingTerm?: string;
+  unitOfMeasurement?: string;
+  rates?: Pax8PricingRate[];
+}
+
+// The pricing endpoint returns an array of tiers, or sometimes a single object
+type Pax8PricingResponse = Pax8PricingTier[] | Pax8PricingTier;
+
+/**
+ * Extract MSRP from Pax8 pricing response.
+ * Response shape: { content: [{ billingTerm, rates: [{ partnerBuyRate, suggestedRetailPrice }] }] }
+ * Prefers Monthly billing term if multiple tiers exist.
+ */
+function extractMsrp(data: unknown): number | null {
+  if (data == null) return null;
+  const obj = data as Record<string, unknown>;
+
+  // Response has a `content` wrapper array
+  let tiers: Pax8PricingTier[];
+  if (Array.isArray(obj.content)) {
+    tiers = obj.content;
+  } else if (Array.isArray(data)) {
+    tiers = data as Pax8PricingTier[];
+  } else {
+    tiers = [data as Pax8PricingTier];
+  }
+
+  // Prefer the Monthly tier
+  const monthly = tiers.find((t) => t.billingTerm === 'Monthly');
+  const tier = monthly ?? tiers[0];
+  if (!tier?.rates?.length) return null;
+
+  const rate = tier.rates[0];
+  return rate.suggestedRetailPrice ?? null;
 }
 
 interface Pax8Subscription {
@@ -400,8 +438,8 @@ export async function pax8Routes(fastify: FastifyInstance) {
         productNameMap.set(pid, product.name);
         // Fetch MSRP
         try {
-          const pricing = await pax8Fetch<Pax8ProductPricing>(token, `/products/${pid}/pricing/${pax8CompanyId}`);
-          const srp = pricing.suggestedRetailPrice ?? pricing.rates?.[0]?.suggestedRetailPrice;
+          const pricingData = await pax8Fetch<unknown>(token, `/products/${pid}/pricing?companyId=${pax8CompanyId}`);
+          const srp = extractMsrp(pricingData);
           if (srp != null) productMsrpMap.set(pid, Math.round(srp * 100));
         } catch { /* pricing not available for all products */ }
       } catch {
@@ -597,9 +635,8 @@ export async function pax8Routes(fastify: FastifyInstance) {
 
           // Fetch MSRP from the pricing endpoint
           try {
-            const pricing = await pax8Fetch<Pax8ProductPricing>(token, `/products/${productId}/pricing/${sub.pax8CompanyId}`);
-            const srp = pricing.suggestedRetailPrice
-              ?? pricing.rates?.[0]?.suggestedRetailPrice;
+            const pricingData = await pax8Fetch<unknown>(token, `/products/${productId}/pricing?companyId=${sub.pax8CompanyId}`);
+            const srp = extractMsrp(pricingData);
             if (srp != null) msrpCents = Math.round(srp * 100);
           } catch { /* pricing endpoint may not be available for all products */ }
         } catch { /* use what we have */ }
