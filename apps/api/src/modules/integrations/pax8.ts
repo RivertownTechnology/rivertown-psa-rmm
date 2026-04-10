@@ -10,6 +10,65 @@ import {
 } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 
+// ── Proration helper ──────────────────────────────────────────────────
+
+function getDaysInMonth(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+}
+
+function getDaysRemaining(fromDate: Date): number {
+  const totalDays = getDaysInMonth(fromDate);
+  const currentDay = fromDate.getDate();
+  return totalDays - currentDay;
+}
+
+/**
+ * Creates a one-time "Partial Month" proration line item on a contract
+ * when the quantity increases mid-billing-cycle.
+ */
+async function createProrationLineItem(
+  db: any,
+  opts: {
+    tenantId: string;
+    contractId: string;
+    productName: string;
+    quantityDelta: number;
+    unitPriceCents: number;
+    unitCostCents: number;
+    category: string;
+    changeDate: Date;
+  },
+) {
+  const { tenantId, contractId, productName, quantityDelta, unitPriceCents, unitCostCents, category, changeDate } = opts;
+
+  const daysRemaining = getDaysRemaining(changeDate);
+  const totalDays = getDaysInMonth(changeDate);
+  const prorationFactor = daysRemaining / totalDays;
+
+  const proratedSellCents = Math.round(unitPriceCents * quantityDelta * prorationFactor);
+  const proratedCostCents = Math.round(unitCostCents * quantityDelta * prorationFactor);
+
+  const monthName = changeDate.toLocaleString('en-US', { month: 'short' });
+  const dayFrom = changeDate.getDate();
+  const dayTo = totalDays;
+
+  const description = `${productName} — Partial Month (${quantityDelta} added, ${monthName} ${dayFrom}–${dayTo})`;
+
+  const [lineItem] = await db.insert(contractLineItems).values({
+    tenantId,
+    contractId,
+    description,
+    itemType: 'one_time',
+    category,
+    unitPriceCents: proratedSellCents,
+    unitCostCents: proratedCostCents,
+    quantity: '1',
+    taxable: true,
+  }).returning();
+
+  return lineItem;
+}
+
 // ── Pax8 API helpers ──────────────────────────────────────────────────
 
 interface Pax8TokenResponse {
@@ -111,10 +170,12 @@ export async function pax8Routes(fastify: FastifyInstance) {
   }, async (request) => {
     const config = await getPax8Config(fastify.db, request.tenantId);
     const creds = (config?.credentials ?? {}) as Record<string, string>;
+    const settings = (config?.settings ?? {}) as Record<string, string>;
     return {
       isEnabled: config?.isEnabled ?? false,
       clientId: creds.clientId ? '••••••••' + creds.clientId.slice(-4) : '',
       clientSecret: creds.clientSecret ? '••••••••' : '',
+      syncFrequency: settings.syncFrequency || 'daily',
       lastSyncAt: config?.lastSyncAt ?? null,
       syncStatus: config?.syncStatus ?? 'idle',
       syncError: config?.syncError ?? null,
@@ -125,23 +186,29 @@ export async function pax8Routes(fastify: FastifyInstance) {
   fastify.put('/api/v1/settings/pax8', {
     preHandler: [fastify.authenticate, requirePermission('*')],
   }, async (request) => {
-    const body = request.body as { clientId?: string; clientSecret?: string; isEnabled: boolean };
+    const body = request.body as { clientId?: string; clientSecret?: string; isEnabled: boolean; syncFrequency?: string };
     const existing = await getPax8Config(fastify.db, request.tenantId);
     const prevCreds = (existing?.credentials ?? {}) as Record<string, string>;
+    const prevSettings = (existing?.settings ?? {}) as Record<string, string>;
 
     const credentials: Record<string, string> = {
       clientId: body.clientId && !body.clientId.startsWith('••') ? body.clientId : prevCreds.clientId || '',
       clientSecret: body.clientSecret && !body.clientSecret.startsWith('••') ? body.clientSecret : prevCreds.clientSecret || '',
     };
 
+    const settings: Record<string, string> = {
+      ...prevSettings,
+      syncFrequency: body.syncFrequency || prevSettings.syncFrequency || 'daily',
+    };
+
     if (existing) {
       await fastify.db.update(integrationConfigs).set({
-        isEnabled: body.isEnabled, credentials, updatedAt: new Date(),
+        isEnabled: body.isEnabled, credentials, settings, updatedAt: new Date(),
       }).where(eq(integrationConfigs.id, existing.id));
     } else {
       await fastify.db.insert(integrationConfigs).values({
         tenantId: request.tenantId, provider: 'pax8',
-        isEnabled: body.isEnabled, credentials,
+        isEnabled: body.isEnabled, credentials, settings,
       });
     }
     return { success: true };
@@ -364,6 +431,42 @@ export async function pax8Routes(fastify: FastifyInstance) {
       };
 
       if (existing) {
+        // Check for quantity increase on linked line items — create proration
+        if (existing.contractLineItemId) {
+          const oldQty = parseFloat(existing.quantity ?? '0');
+          const newQty = sub.quantity ?? 0;
+          const qtyDelta = newQty - oldQty;
+
+          if (qtyDelta > 0) {
+            const [linkedLi] = await fastify.db
+              .select({ contractId: contractLineItems.contractId, unitPriceCents: contractLineItems.unitPriceCents, category: contractLineItems.category })
+              .from(contractLineItems)
+              .where(eq(contractLineItems.id, existing.contractLineItemId))
+              .limit(1);
+
+            if (linkedLi) {
+              const costPerUnit = sub.price != null ? Math.round(sub.price * 100) : 0;
+              await createProrationLineItem(fastify.db, {
+                tenantId: request.tenantId,
+                contractId: linkedLi.contractId,
+                productName: resolvedName,
+                quantityDelta: qtyDelta,
+                unitPriceCents: linkedLi.unitPriceCents,
+                unitCostCents: costPerUnit,
+                category: linkedLi.category || 'license',
+                changeDate: new Date(),
+              });
+            }
+          }
+
+          // Update the recurring line item to the new quantity
+          await fastify.db.update(contractLineItems).set({
+            unitCostCents: sub.price != null ? Math.round(sub.price * 100) : undefined,
+            quantity: String(sub.quantity ?? 1),
+            updatedAt: new Date(),
+          }).where(eq(contractLineItems.id, existing.contractLineItemId));
+        }
+
         await fastify.db.update(pax8Subscriptions).set(values).where(eq(pax8Subscriptions.id, existing.id));
       } else {
         await fastify.db.insert(pax8Subscriptions).values({
@@ -562,11 +665,38 @@ export async function pax8Routes(fastify: FastifyInstance) {
           if (existing) {
             await fastify.db.update(pax8Subscriptions).set(values).where(eq(pax8Subscriptions.id, existing.id));
 
-            // If linked to a contract line item, update cost/qty there too
+            // If linked to a contract line item, check for quantity increase and prorate
             if (existing.contractLineItemId) {
+              const oldQty = parseFloat(existing.quantity ?? '0');
+              const newQty = sub.quantity ?? 0;
+              const qtyDelta = newQty - oldQty;
+
+              // Quantity increased mid-cycle — create a proration line item
+              if (qtyDelta > 0) {
+                const [linkedLi] = await fastify.db
+                  .select({ contractId: contractLineItems.contractId, unitPriceCents: contractLineItems.unitPriceCents, category: contractLineItems.category })
+                  .from(contractLineItems)
+                  .where(eq(contractLineItems.id, existing.contractLineItemId))
+                  .limit(1);
+
+                if (linkedLi) {
+                  const costPerUnit = sub.price != null ? Math.round(sub.price * 100) : 0;
+                  await createProrationLineItem(fastify.db, {
+                    tenantId: request.tenantId,
+                    contractId: linkedLi.contractId,
+                    productName: resolvedName,
+                    quantityDelta: qtyDelta,
+                    unitPriceCents: linkedLi.unitPriceCents,
+                    unitCostCents: costPerUnit,
+                    category: linkedLi.category || 'license',
+                    changeDate: new Date(),
+                  });
+                }
+              }
+
               await fastify.db.update(contractLineItems).set({
                 unitCostCents: sub.price != null ? Math.round(sub.price * 100) : undefined,
-                quantity: String(sub.quantity ?? 1),
+                quantity: String(newQty),
                 updatedAt: new Date(),
               }).where(eq(contractLineItems.id, existing.contractLineItemId));
             }

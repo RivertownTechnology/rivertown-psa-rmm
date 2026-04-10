@@ -77,7 +77,7 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
   const [stripeSuccess, setStripeSuccess] = useState('');
 
   // Pax8
-  const [pax8Form, setPax8Form] = useState({ clientId: '', clientSecret: '', isEnabled: false });
+  const [pax8Form, setPax8Form] = useState({ clientId: '', clientSecret: '', isEnabled: false, syncFrequency: 'daily' });
   const [pax8Loaded, setPax8Loaded] = useState(false);
   const [pax8Saving, setPax8Saving] = useState(false);
   const [pax8Success, setPax8Success] = useState('');
@@ -94,9 +94,9 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
 
   useEffect(() => {
     if (pax8Loaded) return;
-    api<{ isEnabled: boolean; clientId: string; clientSecret: string; lastSyncAt: string | null; syncStatus: string; syncError: string | null }>('/settings/pax8')
+    api<{ isEnabled: boolean; clientId: string; clientSecret: string; syncFrequency: string; lastSyncAt: string | null; syncStatus: string; syncError: string | null }>('/settings/pax8')
       .then(data => {
-        setPax8Form({ clientId: data.clientId, clientSecret: data.clientSecret, isEnabled: data.isEnabled });
+        setPax8Form({ clientId: data.clientId, clientSecret: data.clientSecret, isEnabled: data.isEnabled, syncFrequency: data.syncFrequency || 'daily' });
         setPax8Status({ lastSyncAt: data.lastSyncAt, syncStatus: data.syncStatus, syncError: data.syncError });
         setPax8Loaded(true);
       })
@@ -1096,6 +1096,16 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
                 <div className="space-y-2">
                   <Label>Client Secret</Label>
                   <Input type="password" value={pax8Form.clientSecret} onChange={e => setPax8Form({ ...pax8Form, clientSecret: e.target.value })} placeholder="Pax8 API Client Secret" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Auto-Sync Schedule</Label>
+                  <select className="w-full px-3 py-2 border rounded-md text-sm bg-background" value={pax8Form.syncFrequency} onChange={e => setPax8Form({ ...pax8Form, syncFrequency: e.target.value })}>
+                    <option value="15min">Every 15 minutes</option>
+                    <option value="30min">Every 30 minutes</option>
+                    <option value="hourly">Every hour</option>
+                    <option value="4hours">Every 4 hours</option>
+                    <option value="daily">Daily</option>
+                  </select>
                 </div>
                 <p className="text-xs text-muted-foreground">Get your API credentials from <strong>Pax8 Partner Portal → Developer → API Credentials</strong></p>
                 {pax8Status.lastSyncAt && (

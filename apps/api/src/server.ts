@@ -151,6 +151,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   // Load feature modules
   await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, portalModule, publicApiModule]);
 
+  // Start Pax8 auto-sync scheduler
+  const { startPax8SyncScheduler } = await import('./services/pax8-sync.js');
+  startPax8SyncScheduler(db);
+
   // Start email inbox polling (check all tenant inboxes every 30 seconds)
   const { processInboundEmails } = await import('./services/email-to-ticket.js');
   const { tenants } = await import('@rivertown/db');
