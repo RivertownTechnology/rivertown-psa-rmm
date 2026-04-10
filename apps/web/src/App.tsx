@@ -15,6 +15,7 @@ import { QuotesPage } from '@/pages/quotes';
 import { TimeEntriesPage } from '@/pages/time-entries';
 import { QuoteDetailPage } from '@/pages/quote-detail';
 import { SettingsPage } from '@/pages/settings';
+import { Pax8Page } from '@/pages/pax8';
 import { DispatchPage } from '@/pages/dispatch';
 import { SearchResultsPage } from '@/pages/search';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
@@ -135,6 +136,9 @@ function AppRouter() {
   } else if (pathname === '/settings/catalog') {
     title = 'Settings'; currentNav = '/settings';
     content = <SettingsPage initialTab="catalog" />;
+  } else if (pathname === '/pax8') {
+    title = 'Pax8'; currentNav = '/pax8';
+    content = <Pax8Page onBack={() => navigate('/settings')} />;
   } else if (pathname === '/settings') {
     title = 'Settings';
     content = <SettingsPage />;

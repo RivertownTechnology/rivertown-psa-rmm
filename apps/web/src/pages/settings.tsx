@@ -76,12 +76,32 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
   const [stripeSaving, setStripeSaving] = useState(false);
   const [stripeSuccess, setStripeSuccess] = useState('');
 
+  // Pax8
+  const [pax8Form, setPax8Form] = useState({ clientId: '', clientSecret: '', isEnabled: false });
+  const [pax8Loaded, setPax8Loaded] = useState(false);
+  const [pax8Saving, setPax8Saving] = useState(false);
+  const [pax8Success, setPax8Success] = useState('');
+  const [pax8Testing, setPax8Testing] = useState(false);
+  const [pax8TestResult, setPax8TestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [pax8Status, setPax8Status] = useState<{ lastSyncAt: string | null; syncStatus: string; syncError: string | null }>({ lastSyncAt: null, syncStatus: 'idle', syncError: null });
+
   useEffect(() => {
     if (stripeLoaded) return;
     api<{ isEnabled: boolean; secretKey: string; webhookSecret: string; publishableKey: string }>('/settings/stripe')
       .then(data => { setStripeForm(data); setStripeLoaded(true); })
       .catch(() => setStripeLoaded(true));
   }, [stripeLoaded]);
+
+  useEffect(() => {
+    if (pax8Loaded) return;
+    api<{ isEnabled: boolean; clientId: string; clientSecret: string; lastSyncAt: string | null; syncStatus: string; syncError: string | null }>('/settings/pax8')
+      .then(data => {
+        setPax8Form({ clientId: data.clientId, clientSecret: data.clientSecret, isEnabled: data.isEnabled });
+        setPax8Status({ lastSyncAt: data.lastSyncAt, syncStatus: data.syncStatus, syncError: data.syncError });
+        setPax8Loaded(true);
+      })
+      .catch(() => setPax8Loaded(true));
+  }, [pax8Loaded]);
 
   // SLA Policies
   interface SlaPolicy {
@@ -1060,20 +1080,54 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
                 <CardTitle className="flex items-center gap-2">
                   <Package className="h-5 w-5" />
                   Pax8
+                  {pax8Form.isEnabled && <Badge variant="default" className="ml-2">Enabled</Badge>}
                 </CardTitle>
                 <CardDescription>Sync cloud subscriptions, licenses, and billing from Pax8 marketplace.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" checked={pax8Form.isEnabled} onChange={e => setPax8Form({ ...pax8Form, isEnabled: e.target.checked })} id="pax8Enabled" />
+                  <Label htmlFor="pax8Enabled">Enable Pax8 Integration</Label>
+                </div>
                 <div className="space-y-2">
                   <Label>Client ID</Label>
-                  <Input placeholder="Pax8 API Client ID" />
+                  <Input value={pax8Form.clientId} onChange={e => setPax8Form({ ...pax8Form, clientId: e.target.value })} placeholder="Pax8 API Client ID" />
                 </div>
                 <div className="space-y-2">
                   <Label>Client Secret</Label>
-                  <Input type="password" placeholder="Pax8 API Client Secret" />
+                  <Input type="password" value={pax8Form.clientSecret} onChange={e => setPax8Form({ ...pax8Form, clientSecret: e.target.value })} placeholder="Pax8 API Client Secret" />
                 </div>
                 <p className="text-xs text-muted-foreground">Get your API credentials from <strong>Pax8 Partner Portal → Developer → API Credentials</strong></p>
-                <Button variant="outline" disabled>Connect Pax8 (Coming Soon)</Button>
+                {pax8Status.lastSyncAt && (
+                  <p className="text-xs text-muted-foreground">Last synced: {new Date(pax8Status.lastSyncAt).toLocaleString()}</p>
+                )}
+                {pax8Status.syncError && (
+                  <p className="text-xs text-destructive">Sync error: {pax8Status.syncError}</p>
+                )}
+                {pax8Success && <p className="text-sm text-green-600">{pax8Success}</p>}
+                {pax8TestResult && (
+                  <p className={`text-sm ${pax8TestResult.success ? 'text-green-600' : 'text-destructive'}`}>{pax8TestResult.message}</p>
+                )}
+                <div className="flex gap-2">
+                  <Button onClick={async () => {
+                    setPax8Saving(true); setPax8Success('');
+                    try { await api('/settings/pax8', { method: 'PUT', body: JSON.stringify(pax8Form) }); setPax8Success('Pax8 settings saved'); } catch { /* */ }
+                    finally { setPax8Saving(false); }
+                  }} disabled={pax8Saving}>{pax8Saving ? 'Saving...' : 'Save'}</Button>
+                  <Button variant="outline" onClick={async () => {
+                    setPax8Testing(true); setPax8TestResult(null);
+                    try {
+                      const res = await api<{ success: boolean; message: string }>('/settings/pax8/test', { method: 'POST' });
+                      setPax8TestResult(res);
+                    } catch (e: unknown) { setPax8TestResult({ success: false, message: e instanceof Error ? e.message : 'Test failed' }); }
+                    finally { setPax8Testing(false); }
+                  }} disabled={pax8Testing || !pax8Form.isEnabled}>{pax8Testing ? 'Testing...' : 'Test Connection'}</Button>
+                  {pax8Form.isEnabled && (
+                    <Button variant="outline" onClick={() => { window.history.pushState(null, '', '/pax8'); window.dispatchEvent(new PopStateEvent('popstate')); }}>
+                      Manage Pax8
+                    </Button>
+                  )}
+                </div>
               </CardContent>
             </Card>
 
