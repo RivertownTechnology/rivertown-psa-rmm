@@ -140,7 +140,7 @@ function CompaniesTab() {
     setMapDialog(company);
     setSelectedCustomerId('');
     setCustomerSearch('');
-    const data = await api<{ data: LocalCustomer[] }>('/customers?limit=200');
+    const data = await api<{ data: LocalCustomer[] }>('/customers?limit=100');
     setLocalCustomers(data.data);
   }
 
@@ -169,7 +169,7 @@ function CompaniesTab() {
     try {
       const [subData, contractData] = await Promise.all([
         api<{ subscriptions: Pax8Sub[]; customer: LocalCustomer | null }>(`/pax8/companies/${company.id}/subscriptions`),
-        company.customerId ? api<{ data: LocalContract[] }>(`/contracts?customerId=${company.customerId}&limit=100`) : Promise.resolve({ data: [] as LocalContract[] }),
+        company.customerId ? api<{ data: LocalContract[] }>(`/contracts?customerId=${company.customerId}`) : Promise.resolve({ data: [] as LocalContract[] }),
       ]);
       setSubscriptions(subData.subscriptions);
       setContracts(contractData.data);
