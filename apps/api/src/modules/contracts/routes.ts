@@ -208,6 +208,12 @@ export async function contractRoutes(fastify: FastifyInstance) {
     const [existing] = await fastify.db.select().from(contracts)
       .where(and(eq(contracts.id, id), eq(contracts.tenantId, request.tenantId))).limit(1);
     if (!existing) throw new NotFoundError('Contract', id);
+    // Unlink any pax8 subscriptions referencing line items in this contract
+    const lineItemIds = await fastify.db.select({ id: contractLineItems.id }).from(contractLineItems).where(eq(contractLineItems.contractId, id));
+    for (const li of lineItemIds) {
+      await fastify.db.update(pax8Subscriptions).set({ contractLineItemId: null, updatedAt: new Date() })
+        .where(eq(pax8Subscriptions.contractLineItemId, li.id));
+    }
     await fastify.db.delete(contractLineItems).where(eq(contractLineItems.contractId, id));
     await fastify.db.delete(contracts).where(and(eq(contracts.id, id), eq(contracts.tenantId, request.tenantId)));
     await logAudit(fastify.db, {
@@ -256,6 +262,9 @@ export async function contractRoutes(fastify: FastifyInstance) {
   // Delete line item
   fastify.delete('/api/v1/contracts/:id/line-items/:lineId', { preHandler: [fastify.authenticate, requirePermission('contracts:write')] }, async (request, reply) => {
     const { lineId } = request.params as { id: string; lineId: string };
+    // Unlink any pax8 subscription referencing this line item before deleting
+    await fastify.db.update(pax8Subscriptions).set({ contractLineItemId: null, updatedAt: new Date() })
+      .where(eq(pax8Subscriptions.contractLineItemId, lineId));
     await fastify.db.delete(contractLineItems)
       .where(and(eq(contractLineItems.id, lineId), eq(contractLineItems.tenantId, request.tenantId)));
     reply.code(204).send();

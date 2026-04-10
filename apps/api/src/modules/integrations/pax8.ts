@@ -93,6 +93,12 @@ interface Pax8Product {
   sku?: string;
 }
 
+interface Pax8ProductPricing {
+  partnerBuyRate?: number;
+  suggestedRetailPrice?: number;
+  rates?: Array<{ partnerBuyRate?: number; suggestedRetailPrice?: number }>;
+}
+
 interface Pax8Subscription {
   id: string;
   companyId: string;
@@ -384,13 +390,20 @@ export async function pax8Routes(fastify: FastifyInstance) {
       `/subscriptions?companyId=${pax8CompanyId}&size=200`,
     );
 
-    // Resolve product names — Pax8 subscriptions only have productId, not the name
+    // Resolve product names + MSRP — Pax8 subscriptions only have productId, not the name
     const productIds = [...new Set(pax8Data.content.map((s) => s.productId).filter(Boolean))];
     const productNameMap = new Map<string, string>();
+    const productMsrpMap = new Map<string, number>();
     for (const pid of productIds) {
       try {
         const product = await pax8Fetch<Pax8Product>(token, `/products/${pid}`);
         productNameMap.set(pid, product.name);
+        // Fetch MSRP
+        try {
+          const pricing = await pax8Fetch<Pax8ProductPricing>(token, `/products/${pid}/pricing/${pax8CompanyId}`);
+          const srp = pricing.suggestedRetailPrice ?? pricing.rates?.[0]?.suggestedRetailPrice;
+          if (srp != null) productMsrpMap.set(pid, Math.round(srp * 100));
+        } catch { /* pricing not available for all products */ }
       } catch {
         // Product may be delisted — fall back gracefully
       }
@@ -497,7 +510,11 @@ export async function pax8Routes(fastify: FastifyInstance) {
     const enriched = await Promise.all(
       localSubs.map(async (sub) => {
         let linkedContract: { contractId: string; contractName: string } | null = null;
-        const sellPriceCents = catalogPriceMap.get(sub.productName) ?? null;
+        // Sell price: catalog price > MSRP from Pax8 > null
+        const rawData = (sub.rawData ?? {}) as Record<string, unknown>;
+        const pid = rawData.productId as string | undefined;
+        const msrp = pid ? productMsrpMap.get(pid) ?? null : null;
+        const sellPriceCents = catalogPriceMap.get(sub.productName) ?? msrp;
         if (sub.contractLineItemId) {
           const [li] = await fastify.db
             .select({ contractId: contractLineItems.contractId })
@@ -555,8 +572,7 @@ export async function pax8Routes(fastify: FastifyInstance) {
       if (sub.contractLineItemId) continue;
 
       // Try to match a catalog item by pax8 product name
-      let category = 'license';
-      const [catalogMatch] = await fastify.db
+      let [catalogMatch] = await fastify.db
         .select()
         .from(serviceCatalogItems)
         .where(and(
@@ -564,11 +580,50 @@ export async function pax8Routes(fastify: FastifyInstance) {
           eq(serviceCatalogItems.pax8ProductName, sub.productName),
         ))
         .limit(1);
-      if (catalogMatch) category = catalogMatch.category;
 
       const unitCostCents = sub.unitPriceCents ? parseInt(sub.unitPriceCents, 10) : 0;
-      // Default sell price to cost (user should set their markup)
-      const unitPriceCents = catalogMatch?.defaultUnitPriceCents ?? unitCostCents;
+
+      // Resolve product details + MSRP from Pax8
+      const rawData = (sub.rawData ?? {}) as Record<string, unknown>;
+      const productId = rawData.productId as string | undefined;
+      let vendorName: string | undefined;
+      let msrpCents = unitCostCents; // fallback to cost if MSRP unavailable
+
+      if (productId) {
+        try {
+          const { token } = await getAuthenticatedPax8(fastify.db, request.tenantId);
+          const product = await pax8Fetch<Pax8Product>(token, `/products/${productId}`);
+          vendorName = product.vendorName;
+
+          // Fetch MSRP from the pricing endpoint
+          try {
+            const pricing = await pax8Fetch<Pax8ProductPricing>(token, `/products/${productId}/pricing/${sub.pax8CompanyId}`);
+            const srp = pricing.suggestedRetailPrice
+              ?? pricing.rates?.[0]?.suggestedRetailPrice;
+            if (srp != null) msrpCents = Math.round(srp * 100);
+          } catch { /* pricing endpoint may not be available for all products */ }
+        } catch { /* use what we have */ }
+      }
+
+      // Auto-create catalog item if it doesn't exist
+      if (!catalogMatch) {
+        [catalogMatch] = await fastify.db.insert(serviceCatalogItems).values({
+          tenantId: request.tenantId,
+          name: sub.productName,
+          description: sub.productName,
+          category: 'license',
+          itemType: 'recurring',
+          defaultUnitPriceCents: msrpCents,
+          defaultUnitCostCents: unitCostCents,
+          vendor: vendorName,
+          pax8ProductId: productId,
+          pax8ProductName: sub.productName,
+          pax8VendorName: vendorName,
+        }).returning();
+      }
+
+      const category = catalogMatch.category;
+      const unitPriceCents = catalogMatch.defaultUnitPriceCents ?? msrpCents;
 
       const [lineItem] = await fastify.db.insert(contractLineItems).values({
         tenantId: request.tenantId,
