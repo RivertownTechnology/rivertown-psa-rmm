@@ -201,11 +201,14 @@ function CompaniesTab() {
     if (!subsDialog || !selectedContractId || selectedSubs.size === 0) return;
     setImporting(true); setImportResult('');
     try {
-      const res = await api<{ imported: number }>(`/pax8/companies/${subsDialog.id}/import-to-contract`, {
+      const res = await api<{ imported: number; catalogCreated: string[]; skipped: string[] }>(`/pax8/companies/${subsDialog.id}/import-to-contract`, {
         method: 'POST',
         body: JSON.stringify({ contractId: selectedContractId, subscriptionIds: Array.from(selectedSubs) }),
       });
-      setImportResult(`Imported ${res.imported} subscription(s) as contract line items`);
+      let msg = `Imported ${res.imported} subscription(s) as contract line items`;
+      if (res.catalogCreated?.length) msg += ` | ${res.catalogCreated.length} catalog item(s) created`;
+      if (res.skipped?.length) msg += ` | Skipped: ${res.skipped.join(', ')}`;
+      setImportResult(msg);
       // Refresh
       const subData = await api<{ subscriptions: Pax8Sub[] }>(`/pax8/companies/${subsDialog.id}/subscriptions`);
       setSubscriptions(subData.subscriptions);

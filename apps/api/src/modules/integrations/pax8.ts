@@ -622,6 +622,8 @@ export async function pax8Routes(fastify: FastifyInstance) {
     if (!contract) throw new Error('Contract not found');
 
     const imported: string[] = [];
+    const catalogCreated: string[] = [];
+    const skipped: string[] = [];
     for (const subId of subscriptionIds) {
       const [sub] = await fastify.db
         .select()
@@ -632,10 +634,10 @@ export async function pax8Routes(fastify: FastifyInstance) {
           eq(pax8Subscriptions.pax8CompanyId, pax8CompanyId),
         ))
         .limit(1);
-      if (!sub) continue;
+      if (!sub) { skipped.push(`${subId}: not found`); continue; }
 
       // Skip if already linked to a line item
-      if (sub.contractLineItemId) continue;
+      if (sub.contractLineItemId) { skipped.push(`${sub.productName}: already linked`); continue; }
 
       // sub.unitPriceCents = partner cost (partnerBuyRate). rawData.price = MSRP.
       const unitCostCents = sub.unitPriceCents ? parseInt(sub.unitPriceCents, 10) : 0;
@@ -699,6 +701,7 @@ export async function pax8Routes(fastify: FastifyInstance) {
           pax8ProductName: sub.productName,
           pax8VendorName: vendorName,
         }).returning();
+        catalogCreated.push(catalogMatch.name);
         console.log(`[PAX8-IMPORT] Created catalog item: ${catalogMatch.id}`);
       } else {
         console.log(`[PAX8-IMPORT] Found existing catalog item: "${catalogMatch.name}" (${catalogMatch.id})`);
@@ -729,7 +732,7 @@ export async function pax8Routes(fastify: FastifyInstance) {
       imported.push(lineItem.id);
     }
 
-    return { imported: imported.length, lineItemIds: imported };
+    return { imported: imported.length, lineItemIds: imported, catalogCreated, skipped };
   });
 
   // Full sync — refresh all subscriptions for all mapped customers
