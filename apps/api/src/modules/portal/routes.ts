@@ -56,7 +56,35 @@ export async function portalRoutes(fastify: FastifyInstance) {
       customerId: contact.customerId,
       portalRole,
       portalPermissions: portalPerms,
+      mustChangePassword: contact.mustChangePassword,
     };
+  });
+
+  // ===== CHANGE PASSWORD =====
+
+  fastify.post('/api/v1/portal/auth/change-password', async (request) => {
+    const user = getPortalUser(request);
+    const { currentPassword, newPassword } = request.body as { currentPassword: string; newPassword: string };
+
+    if (!newPassword || newPassword.length < 15) {
+      throw new ValidationError('Password must be at least 15 characters');
+    }
+
+    const [contact] = await fastify.db.select().from(contacts)
+      .where(eq(contacts.id, user.sub)).limit(1);
+    if (!contact?.portalPasswordHash) throw new ValidationError('Account error');
+
+    const valid = await compare(currentPassword, contact.portalPasswordHash);
+    if (!valid) throw new ValidationError('Current password is incorrect');
+
+    const newHash = await hash(newPassword, 12);
+    await fastify.db.update(contacts).set({
+      portalPasswordHash: newHash,
+      mustChangePassword: false,
+      updatedAt: new Date(),
+    }).where(eq(contacts.id, user.sub));
+
+    return { success: true };
   });
 
   // ===== DASHBOARD STATS =====

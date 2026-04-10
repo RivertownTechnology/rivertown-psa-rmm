@@ -54,8 +54,9 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
   const [siteForm, setSiteForm] = useState({ name: '', addressLine1: '', city: '', state: '', postalCode: '' });
   const [saving, setSaving] = useState(false);
   // Portal access
-  const [portalContactId, setPortalContactId] = useState<string | null>(null);
-  const [portalPassword, setPortalPassword] = useState('');
+  const [portalConfirmContact, setPortalConfirmContact] = useState<{ id: string; name: string; email: string } | null>(null);
+  const [portalEnabling, setPortalEnabling] = useState(false);
+  const [portalMessage, setPortalMessage] = useState('');
 
   const load = useCallback(async () => {
     const [c, ct, s, a, t, con, inv] = await Promise.all([
@@ -102,34 +103,28 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
     await api(`/contacts/${id}`, { method: 'DELETE' }); load();
   }
 
-  async function togglePortalAccess(contactId: string, currentlyEnabled: boolean) {
-    if (currentlyEnabled) {
-      await api(`/contacts/${contactId}/portal-access`, { method: 'POST', body: JSON.stringify({ enabled: false }) });
-      load();
-    } else {
-      setPortalContactId(contactId);
-      setPortalPassword('');
-    }
-  }
-
-  async function enablePortalWithPassword() {
-    if (!portalContactId || portalPassword.length < 8) return;
-    await api(`/contacts/${portalContactId}/portal-access`, { method: 'POST', body: JSON.stringify({ enabled: true, password: portalPassword }) });
-    setPortalContactId(null);
-    setPortalPassword('');
+  async function disablePortal(contactId: string) {
+    await api(`/contacts/${contactId}/portal-access`, { method: 'POST', body: JSON.stringify({ enabled: false }) });
     load();
   }
 
-  async function resetPortalPassword(contactId: string) {
-    setPortalContactId(contactId);
-    setPortalPassword('');
+  async function confirmEnablePortal() {
+    if (!portalConfirmContact) return;
+    setPortalEnabling(true);
+    try {
+      await api(`/contacts/${portalConfirmContact.id}/portal-access`, { method: 'POST', body: JSON.stringify({ enabled: true }) });
+      setPortalMessage(`Portal access enabled for ${portalConfirmContact.name}. A welcome email with login credentials has been sent to ${portalConfirmContact.email}.`);
+      setPortalConfirmContact(null);
+      load();
+    } catch (e: unknown) {
+      setPortalMessage(e instanceof Error ? e.message : 'Failed to enable portal access');
+    } finally { setPortalEnabling(false); }
   }
 
-  async function savePortalPassword() {
-    if (!portalContactId || portalPassword.length < 8) return;
-    await api(`/contacts/${portalContactId}/portal-password`, { method: 'POST', body: JSON.stringify({ password: portalPassword }) });
-    setPortalContactId(null);
-    setPortalPassword('');
+  async function resetPortalPassword(contactId: string, contactName: string) {
+    await api(`/contacts/${contactId}/portal-access`, { method: 'POST', body: JSON.stringify({ enabled: true }) });
+    setPortalMessage(`Password reset for ${contactName}. A new temporary password has been emailed.`);
+    load();
   }
 
   async function deleteSite(id: string) {
@@ -187,6 +182,36 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
   return (
     <div className="space-y-4">
       <Breadcrumbs items={[{ label: 'Customers', href: '/customers' }, { label: customer.name }]} />
+      {portalMessage && (
+        <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800 flex items-center justify-between">
+          {portalMessage}
+          <button onClick={() => setPortalMessage('')} className="text-green-600 hover:text-green-800 ml-2">x</button>
+        </div>
+      )}
+
+      {/* Portal enable confirmation dialog */}
+      <Dialog open={!!portalConfirmContact} onOpenChange={() => setPortalConfirmContact(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enable Portal Access</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm">
+              Enable portal access for <strong>{portalConfirmContact?.name}</strong>?
+            </p>
+            <p className="text-sm text-muted-foreground">
+              An email will be sent to <strong>{portalConfirmContact?.email}</strong> with a link to the customer portal and a temporary password. They will be required to change their password on first login.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPortalConfirmContact(null)}>Cancel</Button>
+            <Button onClick={confirmEnablePortal} disabled={portalEnabling}>
+              {portalEnabling ? 'Enabling...' : 'Yes, Send Invite'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
         <h2 className="text-xl font-semibold">{customer.name}</h2>
@@ -295,42 +320,20 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
                             {c.portalEnabled ? (
                               <>
                                 <Badge variant="default" className="text-xs">Enabled</Badge>
-                                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => resetPortalPassword(c.id)}>
+                                {(c as any).portalRole === 'admin' && <Badge variant="outline" className="text-xs">Admin</Badge>}
+                                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => resetPortalPassword(c.id, `${c.firstName} ${c.lastName}`)}>
                                   <Key className="h-3 w-3 mr-1" />Reset Password
                                 </Button>
-                                <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" onClick={() => togglePortalAccess(c.id, true)}>
+                                <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" onClick={() => disablePortal(c.id)}>
                                   Disable
                                 </Button>
                               </>
                             ) : (
-                              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => togglePortalAccess(c.id, false)}>
+                              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setPortalConfirmContact({ id: c.id, name: `${c.firstName} ${c.lastName}`, email: c.email })}>
                                 <Globe className="h-3 w-3 mr-1" />Enable Portal
                               </Button>
                             )}
                           </div>
-                        </div>
-                        {c.portalEnabled && (
-                          <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                            Portal URL: <code className="bg-muted px-1 rounded">{`${window.location.protocol}//${window.location.hostname}:5174`}</code>
-                            <button className="text-primary hover:underline text-xs" onClick={() => navigator.clipboard.writeText(`${window.location.protocol}//${window.location.hostname}:5174`)}>Copy</button>
-                          </div>
-                        )}
-                        {portalContactId === c.id && (
-                          <div className="mt-2 flex items-center gap-2">
-                            <Input
-                              type="password"
-                              placeholder="Set portal password (min 8 chars)"
-                              value={portalPassword}
-                              onChange={e => setPortalPassword(e.target.value)}
-                              className="text-sm h-8"
-                            />
-                            <Button size="sm" className="h-8" disabled={portalPassword.length < 8}
-                              onClick={c.portalEnabled ? savePortalPassword : enablePortalWithPassword}>
-                              {c.portalEnabled ? 'Update' : 'Enable'}
-                            </Button>
-                            <Button variant="ghost" size="sm" className="h-8" onClick={() => setPortalContactId(null)}>Cancel</Button>
-                          </div>
-                        )}
                       </div>
                     </CardContent>
                   </Card>

@@ -168,17 +168,16 @@ export function getDefaultTemplates(): Array<{
       bodyHtml: `${header}
         <h2 style="color:#111;margin:0 0 8px">Welcome to Your Customer Portal</h2>
         <p>Hi {{contactName}},</p>
-        <p>Your customer portal account has been created. You can now:</p>
-        <ul style="color:#374151">
-          <li>Submit and track support tickets</li>
-          <li>View and approve quotes</li>
-          <li>View and pay invoices</li>
-          <li>See your devices and assets</li>
-        </ul>
-        <p>Log in at: <a href="{{portalUrl}}" style="color:#2563eb">{{portalUrl}}</a></p>
-        <p style="color:#6b7280;font-size:13px">Your username is: {{contactEmail}}</p>
+        <p>Your customer portal account has been created. You can now submit and track support tickets, view invoices, and manage your account.</p>
+        <div style="background:#f3f4f6;border-radius:8px;padding:16px;margin:16px 0">
+          <p style="margin:0 0 8px;font-weight:600">Your login credentials:</p>
+          <p style="margin:0 0 4px">Portal: <a href="{{portalUrl}}" style="color:#2563eb">{{portalUrl}}</a></p>
+          <p style="margin:0 0 4px">Email: <strong>{{contactEmail}}</strong></p>
+          <p style="margin:0">Temporary password: <code style="background:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:14px">{{tempPassword}}</code></p>
+        </div>
+        <p style="color:#dc2626;font-size:13px;font-weight:500">You will be required to change your password on first login.</p>
       ${footer}`,
-      bodyText: 'Welcome to the {{businessName}} Customer Portal!\n\nLog in at: {{portalUrl}}\nUsername: {{contactEmail}}',
+      bodyText: 'Welcome to the {{businessName}} Customer Portal!\n\nPortal: {{portalUrl}}\nEmail: {{contactEmail}}\nTemporary Password: {{tempPassword}}\n\nYou will be required to change your password on first login.',
     },
   ];
 }

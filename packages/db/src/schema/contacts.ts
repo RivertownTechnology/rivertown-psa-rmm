@@ -22,6 +22,9 @@ export const contacts = pgTable(
     portalPasswordHash: text('portal_password_hash'),
     portalRole: text('portal_role').default('user'),  // 'admin' | 'user'
     portalPermissions: jsonb('portal_permissions').default(['tickets']),  // ['tickets', 'billing']
+    mustChangePassword: boolean('must_change_password').default(false).notNull(),
+    portalMfaEnabled: boolean('portal_mfa_enabled').default(false).notNull(),
+    portalMfaMethod: text('portal_mfa_method'),  // 'sms' | 'duo' — future use
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

@@ -2,11 +2,18 @@ import { FastifyInstance } from 'fastify';
 import { eq, and, count, desc } from 'drizzle-orm';
 import { contacts } from '@rivertown/db';
 import { hash } from 'bcryptjs';
+import { randomBytes } from 'crypto';
 import { createContactSchema, updateContactSchema, paginationSchema } from '@rivertown/shared';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError, ValidationError } from '../../common/errors.js';
 import { paginationToOffset, paginate } from '../../common/pagination.js';
 import { logAudit } from '../../common/audit.js';
+
+function generatePassword(length = 20): string {
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*';
+  const bytes = randomBytes(length);
+  return Array.from(bytes).map(b => charset[b % charset.length]).join('');
+}
 
 export async function contactRoutes(fastify: FastifyInstance) {
   // List contacts (optionally filtered by customerId)
@@ -106,14 +113,14 @@ export async function contactRoutes(fastify: FastifyInstance) {
     },
   );
 
-  // Enable portal access for a contact
+  // Enable portal access for a contact — generates 20-char temp password, sends welcome email
   fastify.post(
     '/api/v1/contacts/:id/portal-access',
     { preHandler: [fastify.authenticate, requirePermission('customers:write')] },
     async (request) => {
       const { id } = request.params as { id: string };
-      const { enabled, password, portalRole, portalPermissions } = request.body as {
-        enabled: boolean; password?: string;
+      const { enabled, portalRole, portalPermissions } = request.body as {
+        enabled: boolean;
         portalRole?: 'admin' | 'user'; portalPermissions?: string[];
       };
 
@@ -126,11 +133,14 @@ export async function contactRoutes(fastify: FastifyInstance) {
         updatedAt: new Date(),
       };
 
-      if (password) {
-        updateData.portalPasswordHash = await hash(password, 12);
-      }
+      let tempPassword: string | null = null;
 
       if (enabled) {
+        // Generate 20-char random password
+        tempPassword = generatePassword(20);
+        updateData.portalPasswordHash = await hash(tempPassword, 12);
+        updateData.mustChangePassword = true;
+
         // Check if this is the first portal user for this company — auto-admin
         const [existingPortalUser] = await fastify.db.select({ id: contacts.id }).from(contacts)
           .where(and(
@@ -140,11 +150,9 @@ export async function contactRoutes(fastify: FastifyInstance) {
           )).limit(1);
 
         if (!existingPortalUser) {
-          // First portal user for this company — make them admin with full permissions
           updateData.portalRole = 'admin';
           updateData.portalPermissions = ['tickets', 'billing'];
         } else {
-          // Set role/permissions from request or use defaults
           updateData.portalRole = portalRole ?? 'user';
           updateData.portalPermissions = portalPermissions ?? ['tickets'];
         }
@@ -154,6 +162,7 @@ export async function contactRoutes(fastify: FastifyInstance) {
         updateData.portalPasswordHash = null;
         updateData.portalRole = 'user';
         updateData.portalPermissions = ['tickets'];
+        updateData.mustChangePassword = false;
       }
 
       const [updated] = await fastify.db.update(contacts).set(updateData)
@@ -164,6 +173,43 @@ export async function contactRoutes(fastify: FastifyInstance) {
         action: enabled ? 'contact.portal_enabled' : 'contact.portal_disabled',
         entityType: 'contact', entityId: id, ipAddress: request.ip,
       });
+
+      // Send welcome email with temp password
+      if (enabled && tempPassword) {
+        const { sendEmail } = await import('../../services/email.js');
+        const { renderTemplate, getDefaultTemplates } = await import('../../services/template-renderer.js');
+        const { tenants } = await import('@rivertown/db');
+
+        const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, request.tenantId)).limit(1);
+        const settings = (tenant?.settings ?? {}) as Record<string, string>;
+        const templates = getDefaultTemplates();
+        const tpl = templates.find(t => t.templateType === 'portal_welcome');
+
+        if (tpl) {
+          const portalUrl = settings.portalUrl || process.env.PORTAL_URL || 'https://portal.rivertowntechnology.com';
+          const vars: Record<string, string> = {
+            businessName: settings.businessName || 'Rivertown Technology',
+            businessLogo: settings.businessLogo || '',
+            businessPhone: settings.businessPhone || '',
+            businessEmail: settings.businessEmail || '',
+            contactName: `${existing.firstName} ${existing.lastName}`,
+            contactEmail: existing.email,
+            portalUrl,
+            tempPassword,
+          };
+
+          const subject = renderTemplate(tpl.subject, vars);
+          const bodyHtml = renderTemplate(tpl.bodyHtml, vars);
+          const bodyText = renderTemplate(tpl.bodyText, vars);
+
+          sendEmail(fastify.db, request.tenantId, {
+            to: existing.email,
+            subject,
+            html: bodyHtml,
+            text: bodyText,
+          }).catch(err => console.error('[PORTAL] Welcome email failed:', err));
+        }
+      }
 
       return {
         id: updated.id,
