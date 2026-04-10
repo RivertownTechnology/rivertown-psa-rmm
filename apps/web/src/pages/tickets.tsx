@@ -80,7 +80,8 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [contracts, setContracts] = useState<Contract[]>([]);
-  const [formData, setFormData] = useState({ customerId: '', subject: '', description: '', priority: 'medium', contractId: '' });
+  const [formData, setFormData] = useState({ customerId: '', subject: '', description: '', priority: 'medium', contractId: '', categoryId: '', subcategoryId: '' });
+  const [categories, setCategories] = useState<Array<{ id: string; name: string; subcategories: Array<{ id: string; name: string }> }>>([]);
 
   const fetchTickets = useCallback(async () => {
     const params = new URLSearchParams({ page: String(page), limit: '25' });
@@ -98,6 +99,7 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
   useEffect(() => {
     fetchTickets();
     fetchCustomers();
+    api<Array<{ id: string; name: string; subcategories: Array<{ id: string; name: string }> }>>('/ticket-categories').then(setCategories).catch(() => {});
   }, [fetchTickets, fetchCustomers]);
 
   const customerMap = new Map(customers.map((c) => [c.id, c.name]));
@@ -137,12 +139,14 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
     try {
       const payload: Record<string, unknown> = { ...formData };
       if (!payload.contractId) delete payload.contractId;
+      if (!payload.categoryId) delete payload.categoryId;
+      if (!payload.subcategoryId) delete payload.subcategoryId;
       await api('/tickets', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
       setShowCreate(false);
-      setFormData({ customerId: '', subject: '', description: '', priority: 'medium', contractId: '' });
+      setFormData({ customerId: '', subject: '', description: '', priority: 'medium', contractId: '', categoryId: '', subcategoryId: '' });
       setContracts([]);
       fetchTickets();
     } finally {
@@ -330,6 +334,37 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
                 <option value="high">High</option>
                 <option value="critical">Critical</option>
               </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="categoryId">Category</Label>
+                <select
+                  id="categoryId"
+                  value={formData.categoryId}
+                  onChange={(e) => setFormData({ ...formData, categoryId: e.target.value, subcategoryId: '' })}
+                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">No category</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="subcategoryId">Subcategory</Label>
+                <select
+                  id="subcategoryId"
+                  value={formData.subcategoryId}
+                  disabled={!formData.categoryId}
+                  onChange={(e) => setFormData({ ...formData, subcategoryId: e.target.value })}
+                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">{formData.categoryId ? 'Select subcategory' : 'Select category first'}</option>
+                  {categories.find(c => c.id === formData.categoryId)?.subcategories.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>

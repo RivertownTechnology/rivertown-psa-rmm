@@ -22,11 +22,17 @@ interface Ticket {
   status: string; priority: string; ticketType: string; source: string;
   customerId: string; contactId: string | null; assetId: string | null;
   contractId: string | null; assignedTo: string | null;
+  categoryId: string | null; subcategoryId: string | null;
   slaDueAt: string | null; resolvedAt: string | null; closedAt: string | null;
   createdAt: string; updatedAt: string;
   slaResponseDueAt: string | null; slaResolutionDueAt: string | null;
   slaResponseMet: boolean | null; slaBreached: boolean | null;
   slaPolicyId: string | null;
+}
+
+interface TicketCategory {
+  id: string; name: string; sortOrder: number;
+  subcategories: Array<{ id: string; name: string; sortOrder: number }>;
 }
 
 interface Comment {
@@ -139,6 +145,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
   const [customerName, setCustomerName] = useState('');
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [techs, setTechs] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [categories, setCategories] = useState<TicketCategory[]>([]);
 
   // UI state
   const [editingSubject, setEditingSubject] = useState(false);
@@ -215,6 +222,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
       loadCustomerName(t.customerId);
       loadContracts(t.customerId);
       api<Array<{ id: string; displayName: string }>>('/dispatch/techs').then(setTechs).catch(() => {});
+      api<TicketCategory[]>('/ticket-categories').then(setCategories).catch(() => {});
       // Auto-open new tickets when a tech views them
       if (t.status === 'new') {
         await api(`/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify({ status: 'open' }) });
@@ -632,6 +640,49 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
               </div>
 
               <Separator />
+
+              {/* Category */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Category</Label>
+                <select
+                  value={ticket.categoryId ?? ''}
+                  disabled={savingField === 'categoryId'}
+                  onChange={e => {
+                    const categoryId = e.target.value || null;
+                    updateTicketField('categoryId', categoryId);
+                    // Clear subcategory when category changes
+                    if (ticket.subcategoryId) updateTicketField('subcategoryId', null);
+                  }}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">No category</option>
+                  {categories.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Subcategory — only show if a category is selected and has subcategories */}
+              {ticket.categoryId && (() => {
+                const cat = categories.find(c => c.id === ticket.categoryId);
+                if (!cat || cat.subcategories.length === 0) return null;
+                return (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Subcategory</Label>
+                    <select
+                      value={ticket.subcategoryId ?? ''}
+                      disabled={savingField === 'subcategoryId'}
+                      onChange={e => updateTicketField('subcategoryId', e.target.value || null)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="">Select subcategory</option>
+                      {cat.subcategories.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              })()}
 
               {/* Source & Type */}
               <div className="grid grid-cols-2 gap-3">
