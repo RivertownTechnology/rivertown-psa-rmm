@@ -21,6 +21,7 @@ export default defineConfig({
   preview: {
     port: 5174,
     host: '0.0.0.0',
+    allowedHosts: ['portal.rivertowntechnology.com', 'rivertownportal-production.up.railway.app'],
     proxy: {
       '/api': {
         target: 'https://rivertownapi-production.up.railway.app',
