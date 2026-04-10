@@ -334,6 +334,7 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
                               </Button>
                             )}
                           </div>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
