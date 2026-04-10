@@ -10,6 +10,7 @@ import { authRoutes } from './auth/routes.js';
 import { mfaRoutes } from './auth/mfa.js';
 import { googleAuthRoutes } from './auth/google.js';
 import { googleEmailRoutes } from './modules/integrations/google-email.js';
+import { googleCalendarRoutes } from './modules/integrations/google-calendar.js';
 import { stripeRoutes } from './modules/integrations/stripe.js';
 import { loadModules } from './modules/registry.js';
 import { AppError } from './common/errors.js';
@@ -138,6 +139,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   await fastify.register(mfaRoutes);
   await fastify.register(googleAuthRoutes);
   await fastify.register(googleEmailRoutes);
+  await fastify.register(googleCalendarRoutes);
   await fastify.register(stripeRoutes);
 
   // Load feature modules

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useState, useCallback, useRef, type DragEvent, type MouseEvent as ReactMouseEvent, type TouchEvent as ReactTouchEvent } from 'react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -102,11 +102,19 @@ export function DispatchPage() {
     return { top: (sh - 6) * PX_PER_HOUR + HEADER_HEIGHT, height: Math.max(15, (eh - sh) * PX_PER_HOUR), startHour: sh, endHour: eh };
   }
 
-  // Mouse interaction for move/resize
+  // Mouse/touch interaction for move/resize
   function onEventMouseDown(e: ReactMouseEvent, type: 'move' | 'resize-top' | 'resize-bottom', evt: CalendarEvent) {
     e.preventDefault(); e.stopPropagation();
     const pos = eventPos(evt);
     setInteraction({ type, eventId: evt.id, techId: evt.userId, startY: e.clientY, origStartHour: pos.startHour, origEndHour: pos.endHour });
+    setPreview({ startHour: pos.startHour, endHour: pos.endHour, techId: evt.userId });
+  }
+
+  function onEventTouchStart(e: ReactTouchEvent, type: 'move' | 'resize-top' | 'resize-bottom', evt: CalendarEvent) {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const pos = eventPos(evt);
+    setInteraction({ type, eventId: evt.id, techId: evt.userId, startY: touch.clientY, origStartHour: pos.startHour, origEndHour: pos.endHour });
     setPreview({ startHour: pos.startHour, endHour: pos.endHour, techId: evt.userId });
   }
 
@@ -172,9 +180,35 @@ export function DispatchPage() {
       setInteraction(null); setPreview(null);
     }
 
+    function onTouchMove(e: globalThis.TouchEvent) {
+      if (!e.touches[0]) return;
+      const t = e.touches[0];
+      if (!moved && interaction && Math.abs(t.clientY - interaction.startY) > 3) moved = true;
+      if (moved) e.preventDefault(); // prevent scroll while dragging
+      const delta = (t.clientY - interaction.startY) / PX_PER_HOUR;
+      let sh = interaction.origStartHour; let eh = interaction.origEndHour;
+      if (interaction.type === 'move') { const dur = eh - sh; sh = snapToQuarter(sh + delta); eh = sh + dur; }
+      else if (interaction.type === 'resize-top') { sh = snapToQuarter(sh + delta); if (sh >= eh - 0.25) sh = eh - 0.25; }
+      else if (interaction.type === 'resize-bottom') { eh = snapToQuarter(eh + delta); if (eh <= sh + 0.25) eh = sh + 0.25; }
+      sh = Math.max(6, Math.min(20, sh)); eh = Math.max(6, Math.min(20, eh));
+      const hoveredTech = interaction.type === 'move' ? getTechAtX(t.clientX) : null;
+      setPreview({ startHour: sh, endHour: eh, techId: hoveredTech ?? interaction.techId });
+    }
+
+    function onTouchEnd() {
+      onMouseUp({ clientY: 0, clientX: 0 } as globalThis.MouseEvent);
+    }
+
     document.addEventListener('mousemove', trackingMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-    return () => { document.removeEventListener('mousemove', trackingMouseMove); document.removeEventListener('mouseup', onMouseUp); };
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd);
+    return () => {
+      document.removeEventListener('mousemove', trackingMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+    };
   }, [interaction, preview, events, selectedDay, loadData]);
 
   async function scheduleTicket(e: React.FormEvent) {
@@ -268,9 +302,10 @@ export function DispatchPage() {
                                   className={`absolute left-1 right-1 rounded border-l-[3px] overflow-hidden text-xs select-none ${priorityColors['medium']} ${isInteracting ? 'opacity-70 z-20 shadow-lg ring-2 ring-primary/50' : 'z-10'} ${isGhost ? 'opacity-60 border-dashed' : ''}`}
                                   style={{ top: displayTop, height: Math.max(20, displayHeight) }}
                                 >
-                                  <div className="absolute top-0 left-0 right-0 h-2 cursor-n-resize hover:bg-black/10 z-10"
-                                    onMouseDown={e => onEventMouseDown(e, 'resize-top', evt)} />
-                                  <div className="p-1.5 cursor-move h-full" onMouseDown={e => onEventMouseDown(e, 'move', evt)}>
+                                  <div className="absolute top-0 left-0 right-0 h-3 cursor-n-resize hover:bg-black/10 z-10"
+                                    onMouseDown={e => onEventMouseDown(e, 'resize-top', evt)}
+                                    onTouchStart={e => onEventTouchStart(e, 'resize-top', evt)} />
+                                  <div className="p-1.5 cursor-move h-full" onMouseDown={e => onEventMouseDown(e, 'move', evt)} onTouchStart={e => onEventTouchStart(e, 'move', evt)}>
                                     <div className="flex items-start justify-between">
                                       <div className="min-w-0 flex-1">
                                         <div className="font-semibold truncate">{evt.title}</div>
@@ -282,8 +317,9 @@ export function DispatchPage() {
                                       {!isGhost && <button className="shrink-0 text-muted-foreground hover:text-destructive p-0.5" onClick={e => { e.stopPropagation(); removeEvent(evt.id); }}><X className="h-3 w-3" /></button>}
                                     </div>
                                   </div>
-                                  <div className="absolute bottom-0 left-0 right-0 h-2 cursor-s-resize hover:bg-black/10 z-10"
-                                    onMouseDown={e => onEventMouseDown(e, 'resize-bottom', evt)} />
+                                  <div className="absolute bottom-0 left-0 right-0 h-3 cursor-s-resize hover:bg-black/10 z-10"
+                                    onMouseDown={e => onEventMouseDown(e, 'resize-bottom', evt)}
+                                    onTouchStart={e => onEventTouchStart(e, 'resize-bottom', evt)} />
                                 </div>
                               );
                             });
@@ -352,6 +388,7 @@ export function DispatchPage() {
           <CardContent className="p-2 flex-1 overflow-y-auto space-y-1.5">
             {unassigned.map(t => (
               <div key={t.id} draggable onDragStart={e => { e.dataTransfer.setData('ticketId', t.id); e.dataTransfer.effectAllowed = 'move'; }}
+                onClick={() => { setSchedForm(f => ({ ...f, ticketId: t.id, date: fmtDate(selectedDay) })); setShowSchedule(true); }}
                 className="p-2 rounded-md border bg-card hover:bg-muted/50 cursor-grab active:cursor-grabbing text-xs space-y-1 select-none">
                 <div className="flex items-center gap-1">
                   <GripVertical className="h-3 w-3 text-muted-foreground shrink-0" />

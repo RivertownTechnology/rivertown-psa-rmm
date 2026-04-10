@@ -125,6 +125,10 @@ function AppRouter() {
     // Google email OAuth callback — catches the redirect from Google login
     title = 'Settings'; currentNav = '/settings';
     content = <SettingsPage initialTab="email" />;
+  } else if (pathname === '/settings/calendar/callback') {
+    // Google Calendar OAuth callback
+    title = 'Settings'; currentNav = '/settings';
+    content = <SettingsPage initialTab="general" />;
   } else if (pathname === '/settings/security') {
     title = 'Settings'; currentNav = '/settings';
     content = <SettingsPage initialTab="security" />;
