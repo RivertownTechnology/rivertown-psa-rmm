@@ -367,18 +367,31 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     throw new Error('convertTo must be "contract" or "invoice"');
   });
 
-  // Printable HTML quote (uses ?token= for window.open())
+  // Generate a short-lived preview token for HTML export
+  fastify.post('/api/v1/quotes/:id/preview-token', {
+    preHandler: [fastify.authenticate, requirePermission('quotes:read')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const token = fastify.jwt.sign(
+      { sub: request.user.sub, tid: request.tenantId, role: request.user.role, type: 'preview' as const, resource: `quote:${id}` },
+      { expiresIn: '60s' },
+    );
+    return { token };
+  });
+
+  // Printable HTML quote — uses short-lived preview token
   fastify.get('/api/v1/quotes/:id/html', {
     config: { public: true } as any,
   }, async (request, reply) => {
     const token = (request.query as Record<string, string>).token;
     if (!token) { reply.code(401).send({ error: 'Token required' }); return; }
     try {
-      const payload = fastify.jwt.verify<{ sub: string; tid: string; type: string }>(token);
-      if (payload.type !== 'access') { reply.code(401).send({ error: 'Invalid token' }); return; }
+      const { id } = request.params as { id: string };
+      const payload = fastify.jwt.verify<{ sub: string; tid: string; type: string; resource?: string }>(token);
+      if (payload.type !== 'preview' || payload.resource !== `quote:${id}`) { reply.code(401).send({ error: 'Invalid token' }); return; }
       (request as any).tenantId = payload.tid;
       (request as any).user = payload;
-    } catch { reply.code(401).send({ error: 'Invalid token' }); return; }
+    } catch { reply.code(401).send({ error: 'Invalid or expired token' }); return; }
     const { id } = request.params as { id: string };
     const [quote] = await fastify.db.select().from(quotes)
       .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);

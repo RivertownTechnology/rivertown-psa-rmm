@@ -9,15 +9,17 @@ declare module '@fastify/jwt' {
       sub: string;
       tid: string;
       role: string;
-      type: 'access' | 'refresh' | 'mfa_challenge';
+      type: 'access' | 'refresh' | 'mfa_challenge' | 'preview';
       cid?: string; // customerId — used by portal tokens
+      resource?: string; // scoped resource — used by preview tokens
     };
     user: {
       sub: string;
       tid: string;
       role: string;
-      type: 'access' | 'refresh' | 'mfa_challenge';
+      type: 'access' | 'refresh' | 'mfa_challenge' | 'preview';
       cid?: string;
+      resource?: string;
     };
   }
 }
@@ -37,10 +39,10 @@ export const jwtPlugin = fp(async (fastify: FastifyInstance, opts: { config: Con
     try {
       await request.jwtVerify();
       if (request.user.type !== 'access') {
-        reply.code(401).send({ error: 'Invalid token type' });
+        return reply.code(401).send({ error: 'Invalid token type' });
       }
     } catch (err) {
-      reply.code(401).send({ error: 'Unauthorized' });
+      return reply.code(401).send({ error: 'Unauthorized' });
     }
   });
 });

@@ -85,8 +85,8 @@ export async function googleEmailRoutes(fastify: FastifyInstance) {
   }, async (request) => {
     const { code } = request.body as { code: string };
     const { clientId, clientSecret, redirectUri: storedRedirectUri } = await getGoogleApp(fastify, request.tenantId);
-    const origin = request.headers.origin || request.headers.referer?.replace(/\/[^/]*$/, '') || '';
-    const redirectUri = origin ? `${origin}/settings/email/callback` : storedRedirectUri;
+    // Use stored redirect URI only — never trust Origin/Referer headers
+    const redirectUri = storedRedirectUri;
 
     if (!clientId || !clientSecret) {
       throw new Error('Google email has not been configured.');

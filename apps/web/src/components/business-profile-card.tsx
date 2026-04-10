@@ -22,7 +22,7 @@ const emptyProfile: Profile = {
 export function BusinessProfileCard() {
   const [profile, setProfile] = useState<Profile>({ ...emptyProfile });
   const [saving, setSaving] = useState(false);
-  const [success, setSuccess] = useState('');
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     api<Profile>('/settings/business-profile')
@@ -31,13 +31,14 @@ export function BusinessProfileCard() {
   }, []);
 
   async function save() {
-    setSaving(true); setSuccess('');
+    setSaving(true); setMessage(null);
     try {
       await api('/settings/business-profile', { method: 'PUT', body: JSON.stringify(profile) });
-      setSuccess('Business profile saved');
-      setTimeout(() => setSuccess(''), 3000);
-    } catch { /* */ }
-    finally { setSaving(false); }
+      setMessage({ type: 'success', text: 'Business profile saved' });
+      setTimeout(() => setMessage(null), 5000);
+    } catch (e: unknown) {
+      setMessage({ type: 'error', text: e instanceof Error ? e.message : 'Failed to save business profile' });
+    } finally { setSaving(false); }
   }
 
   function handleLogo(e: React.ChangeEvent<HTMLInputElement>) {
@@ -55,7 +56,11 @@ export function BusinessProfileCard() {
         <CardDescription>Your company details — used on invoices, quotes, and emails</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {success && <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800">{success}</div>}
+        {message && (
+          <div className={`text-sm p-3 rounded-md border ${message.type === 'success' ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 border-green-200 dark:border-green-800' : 'bg-destructive/10 text-destructive border-destructive/20'}`}>
+            {message.text}
+          </div>
+        )}
 
         {/* Logo */}
         <div className="space-y-2">

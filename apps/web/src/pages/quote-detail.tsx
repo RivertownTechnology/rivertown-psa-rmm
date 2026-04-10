@@ -358,8 +358,8 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
             Converted to Invoice
           </Badge>
         )}
-        <Button variant="outline" size="sm" onClick={() => {
-          const token = localStorage.getItem('accessToken');
+        <Button variant="outline" size="sm" onClick={async () => {
+          const { token } = await api<{ token: string }>(`/quotes/${quoteId}/preview-token`, { method: 'POST' });
           window.open(`/api/v1/quotes/${quoteId}/html?token=${token}`, '_blank');
         }}>
           Export PDF

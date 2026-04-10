@@ -53,10 +53,8 @@ export async function googleCalendarRoutes(fastify: FastifyInstance) {
     const { code } = request.body as { code: string };
     const clientId = process.env.GOOGLE_CLIENT_ID || '';
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
-    const origin = request.headers.origin || request.headers.referer?.replace(/\/[^/]*$/, '') || '';
-    const redirectUri = origin
-      ? `${origin}/settings/calendar/callback`
-      : process.env.GOOGLE_CALENDAR_REDIRECT_URI || 'http://localhost:5173/settings/calendar/callback';
+    // Use configured redirect URI only — never trust Origin/Referer headers
+    const redirectUri = process.env.GOOGLE_CALENDAR_REDIRECT_URI || 'http://localhost:5173/settings/calendar/callback';
 
     if (!clientId || !clientSecret) {
       throw new Error('Google OAuth not configured.');

@@ -166,7 +166,7 @@ export async function contactRoutes(fastify: FastifyInstance) {
 
       const passwordHash = await hash(password, 12);
       await fastify.db.update(contacts).set({ portalPasswordHash: passwordHash, updatedAt: new Date() })
-        .where(eq(contacts.id, id));
+        .where(and(eq(contacts.id, id), eq(contacts.tenantId, request.tenantId)));
 
       return { success: true, message: 'Portal password updated' };
     },

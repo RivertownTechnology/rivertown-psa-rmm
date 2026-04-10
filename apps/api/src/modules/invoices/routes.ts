@@ -485,19 +485,32 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     return { credited: creditAmount, newBalance, invoiceStatus: 'cancelled' };
   });
 
+  // Generate a short-lived preview token for HTML export
+  fastify.post('/api/v1/invoices/:id/preview-token', {
+    preHandler: [fastify.authenticate, requirePermission('invoices:read')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const token = fastify.jwt.sign(
+      { sub: request.user.sub, tid: request.tenantId, role: request.user.role, type: 'preview' as const, resource: `invoice:${id}` },
+      { expiresIn: '60s' },
+    );
+    return { token };
+  });
+
   // Printable HTML invoice (for PDF export)
-  // Uses ?token= query param since window.open() can't send Bearer headers
+  // Uses short-lived preview token in query param
   fastify.get('/api/v1/invoices/:id/html', {
     config: { public: true } as any,
   }, async (request, reply) => {
     const token = (request.query as Record<string, string>).token;
     if (!token) { reply.code(401).send({ error: 'Token required' }); return; }
     try {
-      const payload = fastify.jwt.verify<{ sub: string; tid: string; type: string }>(token);
-      if (payload.type !== 'access') { reply.code(401).send({ error: 'Invalid token' }); return; }
+      const { id } = request.params as { id: string };
+      const payload = fastify.jwt.verify<{ sub: string; tid: string; type: string; resource?: string }>(token);
+      if (payload.type !== 'preview' || payload.resource !== `invoice:${id}`) { reply.code(401).send({ error: 'Invalid token' }); return; }
       (request as any).tenantId = payload.tid;
       (request as any).user = payload;
-    } catch { reply.code(401).send({ error: 'Invalid token' }); return; }
+    } catch { reply.code(401).send({ error: 'Invalid or expired token' }); return; }
     const { id } = request.params as { id: string };
     const [invoice] = await fastify.db.select().from(invoices)
       .where(and(eq(invoices.id, id), eq(invoices.tenantId, request.tenantId))).limit(1);

@@ -205,8 +205,8 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
               setShowPayment(true);
             }}><CreditCard className="h-4 w-4 mr-1" />Record Payment</Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => {
-            const token = localStorage.getItem('accessToken');
+          <Button variant="outline" size="sm" onClick={async () => {
+            const { token } = await api<{ token: string }>(`/invoices/${invoiceId}/preview-token`, { method: 'POST' });
             window.open(`/api/v1/invoices/${invoiceId}/html?token=${token}`, '_blank');
           }}><FileText className="h-4 w-4 mr-1" />Export PDF</Button>
         </div>
