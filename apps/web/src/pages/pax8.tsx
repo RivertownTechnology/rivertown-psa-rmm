@@ -120,6 +120,13 @@ function CompaniesTab() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState('');
 
+  // Qty management
+  const [editQtySub, setEditQtySub] = useState<Pax8Sub | null>(null);
+  const [newQty, setNewQty] = useState('');
+  const [qtyUpdating, setQtyUpdating] = useState(false);
+  const [qtyResult, setQtyResult] = useState('');
+  const [cancelling, setCancelling] = useState<string | null>(null);
+
   // Sync
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState('');
@@ -206,6 +213,42 @@ function CompaniesTab() {
     } catch (e: unknown) {
       setImportResult(e instanceof Error ? e.message : 'Import failed');
     } finally { setImporting(false); }
+  }
+
+  async function updateQuantity() {
+    if (!editQtySub) return;
+    const qty = parseInt(newQty, 10);
+    if (isNaN(qty) || qty < 0) { setQtyResult('Enter a valid quantity'); return; }
+    setQtyUpdating(true); setQtyResult('');
+    try {
+      const res = await api<{ oldQuantity: number; newQuantity: number }>(`/pax8/subscriptions/${editQtySub.pax8SubscriptionId}/quantity`, {
+        method: 'PATCH',
+        body: JSON.stringify({ quantity: qty }),
+      });
+      setQtyResult(`Updated: ${res.oldQuantity} → ${res.newQuantity}`);
+      // Refresh subscriptions
+      if (subsDialog) {
+        const subData = await api<{ subscriptions: Pax8Sub[] }>(`/pax8/companies/${subsDialog.id}/subscriptions`);
+        setSubscriptions(subData.subscriptions);
+      }
+      setTimeout(() => { setEditQtySub(null); setQtyResult(''); }, 1500);
+    } catch (e: unknown) {
+      setQtyResult(e instanceof Error ? e.message : 'Update failed');
+    } finally { setQtyUpdating(false); }
+  }
+
+  async function cancelSubscription(subId: string) {
+    if (!confirm('Are you sure you want to cancel this subscription on Pax8? This cannot be undone.')) return;
+    setCancelling(subId);
+    try {
+      await api(`/pax8/subscriptions/${subId}`, { method: 'DELETE' });
+      if (subsDialog) {
+        const subData = await api<{ subscriptions: Pax8Sub[] }>(`/pax8/companies/${subsDialog.id}/subscriptions`);
+        setSubscriptions(subData.subscriptions);
+      }
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Cancel failed');
+    } finally { setCancelling(null); }
   }
 
   async function runFullSync() {
@@ -371,16 +414,17 @@ function CompaniesTab() {
                     <th className="text-left p-2 font-medium">Term</th>
                     <th className="text-left p-2 font-medium">Status</th>
                     <th className="text-left p-2 font-medium">Linked To</th>
+                    <th className="text-right p-2 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {subscriptions.length === 0 && (
-                    <tr><td colSpan={8} className="p-6 text-center text-muted-foreground">No subscriptions found</td></tr>
+                    <tr><td colSpan={9} className="p-6 text-center text-muted-foreground">No subscriptions found</td></tr>
                   )}
                   {subscriptions.map(sub => (
                     <tr key={sub.id} className="border-b hover:bg-muted/30">
                       <td className="p-2">
-                        {!sub.contractLineItemId && (
+                        {!sub.contractLineItemId && sub.status === 'Active' && (
                           <input
                             type="checkbox"
                             checked={selectedSubs.has(sub.pax8SubscriptionId)}
@@ -407,6 +451,18 @@ function CompaniesTab() {
                           <span className="text-green-700 text-xs">{sub.linkedContract.contractName}</span>
                         ) : (
                           <span className="text-muted-foreground text-xs">Not imported</span>
+                        )}
+                      </td>
+                      <td className="p-2 text-right space-x-1">
+                        {sub.status === 'Active' && (
+                          <>
+                            <Button size="sm" variant="outline" onClick={() => { setEditQtySub(sub); setNewQty(sub.quantity ?? '0'); setQtyResult(''); }}>
+                              Qty
+                            </Button>
+                            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => cancelSubscription(sub.pax8SubscriptionId)} disabled={cancelling === sub.pax8SubscriptionId}>
+                              {cancelling === sub.pax8SubscriptionId ? '...' : 'Cancel'}
+                            </Button>
+                          </>
                         )}
                       </td>
                     </tr>
@@ -447,6 +503,34 @@ function CompaniesTab() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Quantity Dialog */}
+      <Dialog open={!!editQtySub} onOpenChange={() => setEditQtySub(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Change Quantity</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm font-medium">{editQtySub?.productName}</p>
+            <p className="text-xs text-muted-foreground">Current quantity: {editQtySub?.quantity ?? '0'}</p>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => setNewQty(String(Math.max(0, parseInt(newQty || '0', 10) - 1)))}>-</Button>
+              <Input type="number" className="w-24 text-center" value={newQty} onChange={e => setNewQty(e.target.value)} min={0} />
+              <Button size="sm" variant="outline" onClick={() => setNewQty(String(parseInt(newQty || '0', 10) + 1))}>+</Button>
+            </div>
+            {parseInt(newQty || '0', 10) > parseInt(editQtySub?.quantity ?? '0', 10) && (
+              <p className="text-xs text-muted-foreground">Increasing quantity will create a partial month proration on the linked contract.</p>
+            )}
+            {qtyResult && <p className="text-sm text-green-600">{qtyResult}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditQtySub(null)}>Cancel</Button>
+            <Button onClick={updateQuantity} disabled={qtyUpdating || newQty === (editQtySub?.quantity ?? '0')}>
+              {qtyUpdating ? 'Updating Pax8...' : 'Update Quantity'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

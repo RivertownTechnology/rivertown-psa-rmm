@@ -137,6 +137,27 @@ function extractMsrp(data: unknown): number | null {
   return rate.suggestedRetailPrice ?? null;
 }
 
+/** Extract partner buy rate (your cost) from Pax8 pricing response. */
+function extractPartnerCost(data: unknown): number | null {
+  if (data == null) return null;
+  const obj = data as Record<string, unknown>;
+
+  let tiers: Pax8PricingTier[];
+  if (Array.isArray(obj.content)) {
+    tiers = obj.content;
+  } else if (Array.isArray(data)) {
+    tiers = data as Pax8PricingTier[];
+  } else {
+    tiers = [data as Pax8PricingTier];
+  }
+
+  const monthly = tiers.find((t) => t.billingTerm === 'Monthly');
+  const tier = monthly ?? tiers[0];
+  if (!tier?.rates?.length) return null;
+
+  return tier.rates[0].partnerBuyRate ?? null;
+}
+
 interface Pax8Subscription {
   id: string;
   companyId: string;
@@ -428,19 +449,20 @@ export async function pax8Routes(fastify: FastifyInstance) {
       `/subscriptions?companyId=${pax8CompanyId}&size=200`,
     );
 
-    // Resolve product names + MSRP — Pax8 subscriptions only have productId, not the name
+    // Resolve product names + partner cost — Pax8 subscriptions only have productId, not the name
+    // NOTE: subscription.price = MSRP (what customer pays). partnerBuyRate from pricing endpoint = your cost.
     const productIds = [...new Set(pax8Data.content.map((s) => s.productId).filter(Boolean))];
     const productNameMap = new Map<string, string>();
-    const productMsrpMap = new Map<string, number>();
+    const partnerCostMap = new Map<string, number>(); // partnerBuyRate in cents
     for (const pid of productIds) {
       try {
         const product = await pax8Fetch<Pax8Product>(token, `/products/${pid}`);
         productNameMap.set(pid, product.name);
-        // Fetch MSRP
+        // Fetch partner cost
         try {
           const pricingData = await pax8Fetch<unknown>(token, `/products/${pid}/pricing?companyId=${pax8CompanyId}`);
-          const srp = extractMsrp(pricingData);
-          if (srp != null) productMsrpMap.set(pid, Math.round(srp * 100));
+          const cost = extractPartnerCost(pricingData);
+          if (cost != null) partnerCostMap.set(pid, Math.round(cost * 100));
         } catch { /* pricing not available for all products */ }
       } catch {
         // Product may be delisted — fall back gracefully
@@ -467,12 +489,18 @@ export async function pax8Routes(fastify: FastifyInstance) {
         ))
         .limit(1);
 
+      // sub.price = MSRP (what customer pays). partnerCostMap has your actual cost.
+      const rawProductId = sub.productId;
+      const partnerCostCents = rawProductId ? partnerCostMap.get(rawProductId) : null;
+      // Store partner cost as unitPriceCents (your cost from Pax8)
+      const costCents = partnerCostCents ?? (sub.price != null ? Math.round(sub.price * 100) : null);
+
       const values = {
         pax8CompanyId: sub.companyId,
         customerId: customer?.id ?? null,
         productName: resolvedName,
         quantity: String(sub.quantity ?? 0),
-        unitPriceCents: sub.price != null ? String(Math.round(sub.price * 100)) : null,
+        unitPriceCents: costCents != null ? String(costCents) : null,
         billingTerm: sub.billingTerm ?? null,
         startDate: sub.startDate ?? null,
         status: sub.status ?? null,
@@ -496,7 +524,7 @@ export async function pax8Routes(fastify: FastifyInstance) {
               .limit(1);
 
             if (linkedLi) {
-              const costPerUnit = sub.price != null ? Math.round(sub.price * 100) : 0;
+              const costPerUnit = costCents ?? 0;
               await createProrationLineItem(fastify.db, {
                 tenantId: request.tenantId,
                 contractId: linkedLi.contractId,
@@ -510,9 +538,9 @@ export async function pax8Routes(fastify: FastifyInstance) {
             }
           }
 
-          // Update the recurring line item to the new quantity
+          // Update the recurring line item to the new quantity and cost
           await fastify.db.update(contractLineItems).set({
-            unitCostCents: sub.price != null ? Math.round(sub.price * 100) : undefined,
+            unitCostCents: costCents ?? undefined,
             quantity: String(sub.quantity ?? 1),
             updatedAt: new Date(),
           }).where(eq(contractLineItems.id, existing.contractLineItemId));
@@ -548,11 +576,11 @@ export async function pax8Routes(fastify: FastifyInstance) {
     const enriched = await Promise.all(
       localSubs.map(async (sub) => {
         let linkedContract: { contractId: string; contractName: string } | null = null;
-        // Sell price: catalog price > MSRP from Pax8 > null
+        // Sell price: catalog price > MSRP from Pax8 subscription price > null
+        // sub.rawData.price = MSRP (what customer pays), sub.unitPriceCents = partner cost
         const rawData = (sub.rawData ?? {}) as Record<string, unknown>;
-        const pid = rawData.productId as string | undefined;
-        const msrp = pid ? productMsrpMap.get(pid) ?? null : null;
-        const sellPriceCents = catalogPriceMap.get(sub.productName) ?? msrp;
+        const subPrice = typeof rawData.price === 'number' ? Math.round(rawData.price * 100) : null;
+        const sellPriceCents = catalogPriceMap.get(sub.productName) ?? subPrice;
         if (sub.contractLineItemId) {
           const [li] = await fastify.db
             .select({ contractId: contractLineItems.contractId })
@@ -619,13 +647,13 @@ export async function pax8Routes(fastify: FastifyInstance) {
         ))
         .limit(1);
 
+      // sub.unitPriceCents = partner cost (partnerBuyRate). rawData.price = MSRP.
       const unitCostCents = sub.unitPriceCents ? parseInt(sub.unitPriceCents, 10) : 0;
-
-      // Resolve product details + MSRP from Pax8
       const rawData = (sub.rawData ?? {}) as Record<string, unknown>;
       const productId = rawData.productId as string | undefined;
+      // MSRP from the subscription's price field (what customer pays)
+      let msrpCents = typeof rawData.price === 'number' ? Math.round(rawData.price * 100) : unitCostCents;
       let vendorName: string | undefined;
-      let msrpCents = unitCostCents; // fallback to cost if MSRP unavailable
 
       if (productId) {
         try {
@@ -633,7 +661,7 @@ export async function pax8Routes(fastify: FastifyInstance) {
           const product = await pax8Fetch<Pax8Product>(token, `/products/${productId}`);
           vendorName = product.vendorName;
 
-          // Fetch MSRP from the pricing endpoint
+          // Also try the pricing endpoint for more accurate MSRP
           try {
             const pricingData = await pax8Fetch<unknown>(token, `/products/${productId}/pricing?companyId=${sub.pax8CompanyId}`);
             const srp = extractMsrp(pricingData);
@@ -815,5 +843,130 @@ export async function pax8Routes(fastify: FastifyInstance) {
       }).where(eq(integrationConfigs.id, config.id));
       throw err;
     }
+  });
+
+  // ─── Subscription Management ──────────────────────────────────────
+
+  // Update subscription quantity on Pax8
+  fastify.patch('/api/v1/pax8/subscriptions/:subscriptionId/quantity', {
+    preHandler: [fastify.authenticate, requirePermission('contracts:write')],
+  }, async (request) => {
+    const { subscriptionId } = request.params as { subscriptionId: string };
+    const { quantity } = request.body as { quantity: number };
+
+    if (!Number.isInteger(quantity) || quantity < 0) {
+      throw new Error('Quantity must be a non-negative integer');
+    }
+
+    const { token } = await getAuthenticatedPax8(fastify.db, request.tenantId);
+
+    // Find local subscription record
+    const [localSub] = await fastify.db
+      .select()
+      .from(pax8Subscriptions)
+      .where(and(
+        eq(pax8Subscriptions.tenantId, request.tenantId),
+        eq(pax8Subscriptions.pax8SubscriptionId, subscriptionId),
+      ))
+      .limit(1);
+    if (!localSub) throw new Error('Subscription not found');
+
+    const oldQty = parseFloat(localSub.quantity ?? '0');
+
+    // Update on Pax8 via PUT /v1/subscriptions/{id}
+    const pax8Res = await fetch(`https://api.pax8.com/v1/subscriptions/${subscriptionId}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quantity }),
+    });
+    if (!pax8Res.ok) {
+      const body = await pax8Res.text();
+      throw new Error(`Pax8 API error (${pax8Res.status}): ${body}`);
+    }
+
+    // Update local cache
+    await fastify.db.update(pax8Subscriptions).set({
+      quantity: String(quantity),
+      syncedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(pax8Subscriptions.id, localSub.id));
+
+    // If linked to a contract line item, update qty + create proration for increases
+    if (localSub.contractLineItemId) {
+      const qtyDelta = quantity - oldQty;
+
+      if (qtyDelta > 0) {
+        const [linkedLi] = await fastify.db
+          .select({ contractId: contractLineItems.contractId, unitPriceCents: contractLineItems.unitPriceCents, unitCostCents: contractLineItems.unitCostCents, category: contractLineItems.category })
+          .from(contractLineItems)
+          .where(eq(contractLineItems.id, localSub.contractLineItemId))
+          .limit(1);
+
+        if (linkedLi) {
+          await createProrationLineItem(fastify.db, {
+            tenantId: request.tenantId,
+            contractId: linkedLi.contractId,
+            productName: localSub.productName,
+            quantityDelta: qtyDelta,
+            unitPriceCents: linkedLi.unitPriceCents,
+            unitCostCents: linkedLi.unitCostCents ?? 0,
+            category: linkedLi.category || 'license',
+            changeDate: new Date(),
+          });
+        }
+      }
+
+      await fastify.db.update(contractLineItems).set({
+        quantity: String(quantity),
+        updatedAt: new Date(),
+      }).where(eq(contractLineItems.id, localSub.contractLineItemId));
+    }
+
+    return { success: true, oldQuantity: oldQty, newQuantity: quantity };
+  });
+
+  // Cancel a subscription on Pax8
+  fastify.delete('/api/v1/pax8/subscriptions/:subscriptionId', {
+    preHandler: [fastify.authenticate, requirePermission('contracts:write')],
+  }, async (request, reply) => {
+    const { subscriptionId } = request.params as { subscriptionId: string };
+    const { token } = await getAuthenticatedPax8(fastify.db, request.tenantId);
+
+    // Find local subscription record
+    const [localSub] = await fastify.db
+      .select()
+      .from(pax8Subscriptions)
+      .where(and(
+        eq(pax8Subscriptions.tenantId, request.tenantId),
+        eq(pax8Subscriptions.pax8SubscriptionId, subscriptionId),
+      ))
+      .limit(1);
+    if (!localSub) throw new Error('Subscription not found');
+
+    // Cancel on Pax8
+    const pax8Res = await fetch(`https://api.pax8.com/v1/subscriptions/${subscriptionId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!pax8Res.ok) {
+      const body = await pax8Res.text();
+      throw new Error(`Pax8 API error (${pax8Res.status}): ${body}`);
+    }
+
+    // Update local status
+    await fastify.db.update(pax8Subscriptions).set({
+      status: 'Cancelled',
+      updatedAt: new Date(),
+    }).where(eq(pax8Subscriptions.id, localSub.id));
+
+    // If linked to a contract line item, set quantity to 0
+    if (localSub.contractLineItemId) {
+      await fastify.db.update(contractLineItems).set({
+        quantity: '0',
+        updatedAt: new Date(),
+      }).where(eq(contractLineItems.id, localSub.contractLineItemId));
+    }
+
+    return { success: true, message: 'Subscription cancelled' };
   });
 }
