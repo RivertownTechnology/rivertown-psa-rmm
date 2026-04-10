@@ -26,28 +26,34 @@ interface Widget {
   icon: typeof Building2;
   color: string;
   category: 'general' | 'billing' | 'financial';
+  link?: string;
+}
+
+function pushPath(path: string) {
+  window.history.pushState(null, '', path);
+  window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
 const ALL_WIDGETS: Widget[] = [
   // General
-  { id: 'customers', title: 'Customers', getValue: s => s.customers.total, icon: Building2, color: 'text-blue-600', category: 'general' },
-  { id: 'open_tickets', title: 'Open Tickets', getValue: s => s.tickets.open, icon: Ticket, color: 'text-green-600', category: 'general' },
-  { id: 'new_tickets', title: 'New Tickets', getValue: s => s.tickets.new, icon: Ticket, color: 'text-blue-500', category: 'general' },
-  { id: 'critical_tickets', title: 'Critical Tickets', getValue: s => s.tickets.critical, icon: AlertTriangle, color: 'text-red-600', category: 'general' },
-  { id: 'sla_breached', title: 'SLA Breached', getValue: s => s.tickets.slaBreached, icon: ShieldAlert, color: 'text-red-500', category: 'general' },
-  { id: 'unbilled_hours', title: 'Unbilled Hours', getValue: s => s.labor.unbilledHours, icon: Clock, color: 'text-orange-600', category: 'general' },
-  { id: 'total_labor_hours', title: 'Total Labor Hours', getValue: s => s.labor.totalHours, icon: Clock, color: 'text-purple-600', category: 'general' },
+  { id: 'customers', title: 'Customers', getValue: s => s.customers.total, icon: Building2, color: 'text-blue-600', category: 'general', link: '/customers' },
+  { id: 'open_tickets', title: 'Open Tickets', getValue: s => s.tickets.open, icon: Ticket, color: 'text-green-600', category: 'general', link: '/tickets' },
+  { id: 'new_tickets', title: 'New Tickets', getValue: s => s.tickets.new, icon: Ticket, color: 'text-blue-500', category: 'general', link: '/tickets' },
+  { id: 'critical_tickets', title: 'Critical Tickets', getValue: s => s.tickets.critical, icon: AlertTriangle, color: 'text-red-600', category: 'general', link: '/tickets' },
+  { id: 'sla_breached', title: 'SLA Breached', getValue: s => s.tickets.slaBreached, icon: ShieldAlert, color: 'text-red-500', category: 'general', link: '/tickets' },
+  { id: 'unbilled_hours', title: 'Unbilled Hours', getValue: s => s.labor.unbilledHours, icon: Clock, color: 'text-orange-600', category: 'general', link: '/billing/time-entries' },
+  { id: 'total_labor_hours', title: 'Total Labor Hours', getValue: s => s.labor.totalHours, icon: Clock, color: 'text-purple-600', category: 'general', link: '/billing/time-entries' },
   // Billing
-  { id: 'open_invoices', title: 'Open Invoices', getValue: s => s.invoices.open, icon: Receipt, color: 'text-blue-600', category: 'billing' },
-  { id: 'overdue_invoices', title: 'Overdue Invoices', getValue: s => s.invoices.overdue, icon: Receipt, color: 'text-red-600', category: 'billing' },
-  { id: 'outstanding', title: 'Outstanding', getValue: s => formatCentsShort(s.invoices.outstandingCents), icon: DollarSign, color: 'text-orange-600', category: 'billing' },
-  { id: 'paid_this_month', title: 'Paid This Month', getValue: s => formatCentsShort(s.invoices.paidThisMonthCents), icon: DollarSign, color: 'text-green-600', category: 'billing' },
+  { id: 'open_invoices', title: 'Open Invoices', getValue: s => s.invoices.open, icon: Receipt, color: 'text-blue-600', category: 'billing', link: '/billing/invoices' },
+  { id: 'overdue_invoices', title: 'Overdue Invoices', getValue: s => s.invoices.overdue, icon: Receipt, color: 'text-red-600', category: 'billing', link: '/billing/invoices' },
+  { id: 'outstanding', title: 'Outstanding', getValue: s => formatCentsShort(s.invoices.outstandingCents), icon: DollarSign, color: 'text-orange-600', category: 'billing', link: '/billing/invoices' },
+  { id: 'paid_this_month', title: 'Paid This Month', getValue: s => formatCentsShort(s.invoices.paidThisMonthCents), icon: DollarSign, color: 'text-green-600', category: 'billing', link: '/billing/invoices' },
   // Financial (company-wide P&L)
-  { id: 'monthly_revenue', title: 'Monthly Revenue', getValue: s => formatCentsShort(s.contracts.monthlyRevenueCents), icon: DollarSign, color: 'text-green-600', category: 'financial' },
-  { id: 'product_cost', title: 'Product Cost', getValue: s => formatCentsShort(s.contracts.productCostCents), icon: DollarSign, color: 'text-red-500', category: 'financial' },
-  { id: 'labor_cost', title: 'Labor Cost', getValue: s => formatCentsShort(s.contracts.laborCostCents), icon: Clock, color: 'text-orange-500', category: 'financial' },
-  { id: 'true_profit', title: 'True Profit', getValue: s => formatCentsShort(s.contracts.trueProfitCents), icon: TrendingUp, color: 'text-green-600', category: 'financial' },
-  { id: 'true_margin', title: 'True Margin', getValue: s => `${s.contracts.trueMarginPercent}%`, icon: PieChart, color: 'text-purple-600', category: 'financial' },
+  { id: 'monthly_revenue', title: 'Monthly Revenue', getValue: s => formatCentsShort(s.contracts.monthlyRevenueCents), icon: DollarSign, color: 'text-green-600', category: 'financial', link: '/billing/contracts' },
+  { id: 'product_cost', title: 'Product Cost', getValue: s => formatCentsShort(s.contracts.productCostCents), icon: DollarSign, color: 'text-red-500', category: 'financial', link: '/billing/contracts' },
+  { id: 'labor_cost', title: 'Labor Cost', getValue: s => formatCentsShort(s.contracts.laborCostCents), icon: Clock, color: 'text-orange-500', category: 'financial', link: '/billing/contracts' },
+  { id: 'true_profit', title: 'True Profit', getValue: s => formatCentsShort(s.contracts.trueProfitCents), icon: TrendingUp, color: 'text-green-600', category: 'financial', link: '/billing/contracts' },
+  { id: 'true_margin', title: 'True Margin', getValue: s => `${s.contracts.trueMarginPercent}%`, icon: PieChart, color: 'text-purple-600', category: 'financial', link: '/billing/contracts' },
 ];
 
 const DEFAULT_VISIBLE = ['customers', 'open_tickets', 'critical_tickets', 'unbilled_hours', 'open_invoices', 'overdue_invoices', 'monthly_revenue', 'true_profit'];
@@ -151,7 +157,7 @@ export function DashboardPage() {
               colorClass = stats.contracts.trueMarginPercent >= 30 ? 'text-purple-600' : stats.contracts.trueMarginPercent >= 0 ? 'text-yellow-600' : 'text-red-600';
             }
             return (
-              <Card key={widget.id}>
+              <Card key={widget.id} className={widget.link ? 'cursor-pointer transition-shadow hover:shadow-md' : ''} onClick={() => widget.link && pushPath(widget.link)}>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
                     {widget.title}

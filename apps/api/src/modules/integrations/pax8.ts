@@ -637,16 +637,6 @@ export async function pax8Routes(fastify: FastifyInstance) {
       // Skip if already linked to a line item
       if (sub.contractLineItemId) continue;
 
-      // Try to match a catalog item by pax8 product name
-      let [catalogMatch] = await fastify.db
-        .select()
-        .from(serviceCatalogItems)
-        .where(and(
-          eq(serviceCatalogItems.tenantId, request.tenantId),
-          eq(serviceCatalogItems.pax8ProductName, sub.productName),
-        ))
-        .limit(1);
-
       // sub.unitPriceCents = partner cost (partnerBuyRate). rawData.price = MSRP.
       const unitCostCents = sub.unitPriceCents ? parseInt(sub.unitPriceCents, 10) : 0;
       const rawData = (sub.rawData ?? {}) as Record<string, unknown>;
@@ -670,8 +660,32 @@ export async function pax8Routes(fastify: FastifyInstance) {
         } catch { /* use what we have */ }
       }
 
+      // Try to match a catalog item by pax8 product ID first, then by name
+      let [catalogMatch] = productId
+        ? await fastify.db
+            .select()
+            .from(serviceCatalogItems)
+            .where(and(
+              eq(serviceCatalogItems.tenantId, request.tenantId),
+              eq(serviceCatalogItems.pax8ProductId, productId),
+            ))
+            .limit(1)
+        : [];
+
+      if (!catalogMatch) {
+        [catalogMatch] = await fastify.db
+          .select()
+          .from(serviceCatalogItems)
+          .where(and(
+            eq(serviceCatalogItems.tenantId, request.tenantId),
+            eq(serviceCatalogItems.pax8ProductName, sub.productName),
+          ))
+          .limit(1);
+      }
+
       // Auto-create catalog item if it doesn't exist
       if (!catalogMatch) {
+        console.log(`[PAX8-IMPORT] Creating catalog item: "${sub.productName}" cost=${unitCostCents} msrp=${msrpCents} vendor=${vendorName}`);
         [catalogMatch] = await fastify.db.insert(serviceCatalogItems).values({
           tenantId: request.tenantId,
           name: sub.productName,
@@ -685,6 +699,9 @@ export async function pax8Routes(fastify: FastifyInstance) {
           pax8ProductName: sub.productName,
           pax8VendorName: vendorName,
         }).returning();
+        console.log(`[PAX8-IMPORT] Created catalog item: ${catalogMatch.id}`);
+      } else {
+        console.log(`[PAX8-IMPORT] Found existing catalog item: "${catalogMatch.name}" (${catalogMatch.id})`);
       }
 
       const category = catalogMatch.category;
