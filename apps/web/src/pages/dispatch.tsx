@@ -181,9 +181,9 @@ export function DispatchPage() {
     }
 
     function onTouchMove(e: globalThis.TouchEvent) {
-      if (!e.touches[0]) return;
+      if (!interaction || !e.touches[0]) return;
       const t = e.touches[0];
-      if (!moved && interaction && Math.abs(t.clientY - interaction.startY) > 3) moved = true;
+      if (!moved && Math.abs(t.clientY - interaction.startY) > 3) moved = true;
       if (moved) e.preventDefault(); // prevent scroll while dragging
       const delta = (t.clientY - interaction.startY) / PX_PER_HOUR;
       let sh = interaction.origStartHour; let eh = interaction.origEndHour;
