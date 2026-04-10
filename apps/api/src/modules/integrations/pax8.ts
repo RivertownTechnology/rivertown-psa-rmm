@@ -317,6 +317,18 @@ export async function pax8Routes(fastify: FastifyInstance) {
       `/subscriptions?companyId=${pax8CompanyId}&size=200`,
     );
 
+    // Resolve product names — Pax8 subscriptions only have productId, not the name
+    const productIds = [...new Set(pax8Data.content.map((s) => s.productId).filter(Boolean))];
+    const productNameMap = new Map<string, string>();
+    for (const pid of productIds) {
+      try {
+        const product = await pax8Fetch<Pax8Product>(token, `/products/${pid}`);
+        productNameMap.set(pid, product.name);
+      } catch {
+        // Product may be delisted — fall back gracefully
+      }
+    }
+
     // Find the mapped customer
     const [customer] = await fastify.db
       .select({ id: customers.id, name: customers.name })
@@ -326,6 +338,8 @@ export async function pax8Routes(fastify: FastifyInstance) {
 
     // Upsert into local pax8_subscriptions cache
     for (const sub of pax8Data.content) {
+      const resolvedName = productNameMap.get(sub.productId) || sub.productName || 'Unknown Product';
+
       const [existing] = await fastify.db
         .select()
         .from(pax8Subscriptions)
@@ -338,7 +352,7 @@ export async function pax8Routes(fastify: FastifyInstance) {
       const values = {
         pax8CompanyId: sub.companyId,
         customerId: customer?.id ?? null,
-        productName: sub.productName || 'Unknown Product',
+        productName: resolvedName,
         quantity: String(sub.quantity ?? 0),
         unitPriceCents: sub.price != null ? String(Math.round(sub.price * 100)) : null,
         billingTerm: sub.billingTerm ?? null,
@@ -360,16 +374,27 @@ export async function pax8Routes(fastify: FastifyInstance) {
       }
     }
 
-    // Return the freshly cached data with contract link info
+    // Return the freshly cached data with contract link info + catalog sell price
     const localSubs = await fastify.db
       .select()
       .from(pax8Subscriptions)
       .where(and(eq(pax8Subscriptions.tenantId, request.tenantId), eq(pax8Subscriptions.pax8CompanyId, pax8CompanyId)));
 
-    // Enrich with contract line item link status
+    // Load catalog items to match sell prices
+    const catalogItems = await fastify.db
+      .select({
+        pax8ProductName: serviceCatalogItems.pax8ProductName,
+        defaultUnitPriceCents: serviceCatalogItems.defaultUnitPriceCents,
+      })
+      .from(serviceCatalogItems)
+      .where(and(eq(serviceCatalogItems.tenantId, request.tenantId), isNotNull(serviceCatalogItems.pax8ProductName)));
+    const catalogPriceMap = new Map(catalogItems.map((ci) => [ci.pax8ProductName, ci.defaultUnitPriceCents]));
+
+    // Enrich with contract line item link status and sell price
     const enriched = await Promise.all(
       localSubs.map(async (sub) => {
         let linkedContract: { contractId: string; contractName: string } | null = null;
+        const sellPriceCents = catalogPriceMap.get(sub.productName) ?? null;
         if (sub.contractLineItemId) {
           const [li] = await fastify.db
             .select({ contractId: contractLineItems.contractId })
@@ -385,7 +410,7 @@ export async function pax8Routes(fastify: FastifyInstance) {
             linkedContract = { contractId: li.contractId, contractName: c?.name ?? '' };
           }
         }
-        return { ...sub, linkedContract };
+        return { ...sub, linkedContract, sellPriceCents };
       }),
     );
 
@@ -498,7 +523,19 @@ export async function pax8Routes(fastify: FastifyInstance) {
           `/subscriptions?companyId=${cust.pax8CompanyId}&size=200`,
         );
 
+        // Resolve product names for this batch
+        const pids = [...new Set(pax8Data.content.map((s) => s.productId).filter(Boolean))];
+        const nameMap = new Map<string, string>();
+        for (const pid of pids) {
+          try {
+            const prod = await pax8Fetch<Pax8Product>(token, `/products/${pid}`);
+            nameMap.set(pid, prod.name);
+          } catch { /* delisted product */ }
+        }
+
         for (const sub of pax8Data.content) {
+          const resolvedName = nameMap.get(sub.productId) || sub.productName || 'Unknown Product';
+
           const [existing] = await fastify.db
             .select()
             .from(pax8Subscriptions)
@@ -511,7 +548,7 @@ export async function pax8Routes(fastify: FastifyInstance) {
           const values = {
             pax8CompanyId: sub.companyId,
             customerId: cust.id,
-            productName: sub.productName || 'Unknown Product',
+            productName: resolvedName,
             quantity: String(sub.quantity ?? 0),
             unitPriceCents: sub.price != null ? String(Math.round(sub.price * 100)) : null,
             billingTerm: sub.billingTerm ?? null,

@@ -45,6 +45,7 @@ interface Pax8Sub {
   status: string | null;
   contractLineItemId: string | null;
   linkedContract: { contractId: string; contractName: string } | null;
+  sellPriceCents: number | null;
 }
 
 interface LocalCustomer {
@@ -365,7 +366,8 @@ function CompaniesTab() {
                     </th>
                     <th className="text-left p-2 font-medium">Product</th>
                     <th className="text-left p-2 font-medium">Qty</th>
-                    <th className="text-left p-2 font-medium">Cost</th>
+                    <th className="text-left p-2 font-medium">Cost (Pax8)</th>
+                    <th className="text-left p-2 font-medium">Sell Price</th>
                     <th className="text-left p-2 font-medium">Term</th>
                     <th className="text-left p-2 font-medium">Status</th>
                     <th className="text-left p-2 font-medium">Linked To</th>
@@ -373,7 +375,7 @@ function CompaniesTab() {
                 </thead>
                 <tbody>
                   {subscriptions.length === 0 && (
-                    <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">No subscriptions found</td></tr>
+                    <tr><td colSpan={8} className="p-6 text-center text-muted-foreground">No subscriptions found</td></tr>
                   )}
                   {subscriptions.map(sub => (
                     <tr key={sub.id} className="border-b hover:bg-muted/30">
@@ -389,6 +391,13 @@ function CompaniesTab() {
                       <td className="p-2 font-medium">{sub.productName}</td>
                       <td className="p-2">{sub.quantity ?? '-'}</td>
                       <td className="p-2">{sub.unitPriceCents ? formatCents(parseInt(sub.unitPriceCents, 10)) : '-'}</td>
+                      <td className="p-2">
+                        {sub.sellPriceCents != null ? (
+                          <span className="text-green-700">{formatCents(sub.sellPriceCents)}</span>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">Set in catalog</span>
+                        )}
+                      </td>
                       <td className="p-2">{sub.billingTerm ?? '-'}</td>
                       <td className="p-2">
                         <Badge variant={sub.status === 'Active' ? 'default' : 'secondary'}>{sub.status || '-'}</Badge>
@@ -453,6 +462,7 @@ function ProductsTab() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
+  const [appliedVendor, setAppliedVendor] = useState('');
 
   // Import dialog
   const [importDialog, setImportDialog] = useState<Pax8Product | null>(null);
@@ -460,20 +470,26 @@ function ProductsTab() {
   const [importSaving, setImportSaving] = useState(false);
   const [importResult, setImportResult] = useState('');
 
-  const loadProducts = useCallback(async (pageNum = 0) => {
+  const loadProducts = useCallback(async (pageNum = 0, vendor?: string) => {
+    const v = vendor ?? appliedVendor;
     setLoading(true); setError('');
     try {
       let url = `/pax8/products?page=${pageNum}&size=50`;
-      if (vendorFilter) url += `&vendorName=${encodeURIComponent(vendorFilter)}`;
+      if (v) url += `&vendorName=${encodeURIComponent(v)}`;
       const data = await api<{ products: Pax8Product[]; page: PageInfo }>(url);
       setProducts(data.products);
       setPage(data.page);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load products');
     } finally { setLoading(false); }
-  }, [vendorFilter]);
+  }, [appliedVendor]);
 
   useEffect(() => { loadProducts(); }, [loadProducts]);
+
+  function applyVendorFilter() {
+    setAppliedVendor(vendorFilter);
+    loadProducts(0, vendorFilter);
+  }
 
   function openImportDialog(product: Pax8Product) {
     setImportDialog(product);
@@ -518,7 +534,12 @@ function ProductsTab() {
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input className="pl-9 w-64" placeholder="Filter products..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <Input className="w-48" placeholder="Vendor filter..." value={vendorFilter} onChange={e => setVendorFilter(e.target.value)} onKeyDown={e => e.key === 'Enter' && loadProducts()} />
+        <Input className="w-48" placeholder="Vendor name (press Enter)..." value={vendorFilter} onChange={e => setVendorFilter(e.target.value)} onKeyDown={e => e.key === 'Enter' && applyVendorFilter()} />
+        {appliedVendor && (
+          <Badge variant="secondary" className="cursor-pointer" onClick={() => { setVendorFilter(''); setAppliedVendor(''); loadProducts(0, ''); }}>
+            Vendor: {appliedVendor} &times;
+          </Badge>
+        )}
         <Button variant="outline" onClick={() => loadProducts()} disabled={loading}>
           <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
           Refresh
