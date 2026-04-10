@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
 
@@ -10,12 +10,37 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ children, title, currentPath, onNavigate }: DashboardLayoutProps) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  function handleNavigate(path: string) {
+    onNavigate(path);
+    setSidebarOpen(false);
+  }
+
   return (
     <div className="flex min-h-screen bg-muted/30">
-      <Sidebar currentPath={currentPath} onNavigate={onNavigate} />
-      <div className="flex-1 flex flex-col">
-        <Header title={title} onNavigate={onNavigate} />
-        <main className="flex-1 p-6">{children}</main>
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <Sidebar
+        currentPath={currentPath}
+        onNavigate={handleNavigate}
+        mobileOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
+
+      <div className="flex-1 flex flex-col min-w-0">
+        <Header
+          title={title}
+          onNavigate={onNavigate}
+          onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
+        />
+        <main className="flex-1 p-3 sm:p-4 lg:p-6">{children}</main>
       </div>
     </div>
   );

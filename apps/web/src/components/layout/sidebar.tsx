@@ -4,11 +4,11 @@ import {
   Ticket,
   Calendar,
   Building2,
-  Monitor,
   FileText,
   Receipt,
   Clock,
   Settings,
+  X,
 } from 'lucide-react';
 
 interface NavItem {
@@ -50,12 +50,21 @@ const bottomNavItems: NavItem[] = [
 interface SidebarProps {
   currentPath: string;
   onNavigate: (path: string) => void;
+  mobileOpen: boolean;
+  onClose: () => void;
 }
 
-export function Sidebar({ currentPath, onNavigate }: SidebarProps) {
+export function Sidebar({ currentPath, onNavigate, mobileOpen, onClose }: SidebarProps) {
   return (
-    <aside className="w-64 border-r bg-card flex flex-col h-screen sticky top-0">
-      <div className="p-4 border-b">
+    <aside
+      className={cn(
+        'w-64 border-r bg-card flex flex-col h-screen sticky top-0 shrink-0',
+        // Mobile: fixed overlay, hidden by default
+        'fixed z-50 lg:static lg:translate-x-0 transition-transform duration-200',
+        mobileOpen ? 'translate-x-0' : '-translate-x-full',
+      )}
+    >
+      <div className="p-4 border-b flex items-center justify-between">
         <div className="flex items-center gap-3">
           <img src="/logo.png" alt="Rivertown Technology" className="h-8 w-8 rounded-lg object-contain" />
           <div>
@@ -63,6 +72,9 @@ export function Sidebar({ currentPath, onNavigate }: SidebarProps) {
             <p className="text-xs text-muted-foreground">v0.1.0</p>
           </div>
         </div>
+        <button onClick={onClose} className="lg:hidden p-1 rounded-md hover:bg-accent">
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       <nav className="flex-1 p-3 overflow-y-auto">

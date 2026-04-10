@@ -396,7 +396,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
       </div>
 
       {/* Two-column layout */}
-      <div className="flex gap-4 items-start">
+      <div className="flex flex-col lg:flex-row gap-4 items-start">
         {/* ================================================================ */}
         {/* LEFT COLUMN — Conversation                                       */}
         {/* ================================================================ */}
@@ -554,7 +554,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
         {/* ================================================================ */}
         {/* RIGHT COLUMN — Properties Sidebar                                */}
         {/* ================================================================ */}
-        <div className="w-80 shrink-0 space-y-4">
+        <div className="w-full lg:w-80 shrink-0 space-y-4 order-first lg:order-last">
           {/* Properties card */}
           <Card>
             <CardHeader className="pb-3">
