@@ -193,6 +193,107 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== BILLING EMAIL (Mailjet) =====
+
+  fastify.get(
+    '/api/v1/settings/billing-email',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'billing-email')))
+        .limit(1);
+
+      if (!config) {
+        return {
+          isEnabled: false,
+          smtpHost: 'in-v3.mailjet.com',
+          smtpPort: 587,
+          apiKey: '',
+          secretKey: '',
+          fromAddress: '',
+          fromName: '',
+          replyTo: '',
+        };
+      }
+
+      const creds = config.credentials as Record<string, unknown>;
+      return {
+        isEnabled: config.isEnabled,
+        smtpHost: creds.smtpHost ?? 'in-v3.mailjet.com',
+        smtpPort: creds.smtpPort ?? 587,
+        apiKey: creds.apiKey ? '••••••••' + String(creds.apiKey).slice(-4) : '',
+        secretKey: creds.secretKey ? '••••••••' : '',
+        fromAddress: creds.fromAddress ?? '',
+        fromName: creds.fromName ?? '',
+        replyTo: creds.replyTo ?? '',
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/billing-email',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const body = request.body as {
+        isEnabled: boolean;
+        smtpHost?: string;
+        smtpPort?: number;
+        apiKey?: string;
+        secretKey?: string;
+        fromAddress: string;
+        fromName: string;
+        replyTo?: string;
+      };
+
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'billing-email')))
+        .limit(1);
+
+      const prevCreds = (existing?.credentials ?? {}) as Record<string, unknown>;
+      const credentials: Record<string, unknown> = {
+        smtpHost: body.smtpHost || prevCreds.smtpHost || 'in-v3.mailjet.com',
+        smtpPort: body.smtpPort ?? prevCreds.smtpPort ?? 587,
+        apiKey: body.apiKey?.startsWith('••') ? prevCreds.apiKey : (body.apiKey || prevCreds.apiKey || ''),
+        secretKey: body.secretKey?.startsWith('••') ? prevCreds.secretKey : (body.secretKey || prevCreds.secretKey || ''),
+        fromAddress: body.fromAddress,
+        fromName: body.fromName,
+        replyTo: body.replyTo || '',
+      };
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, credentials, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'billing-email',
+          isEnabled: body.isEnabled, credentials,
+        });
+      }
+
+      return { success: true };
+    },
+  );
+
+  fastify.post(
+    '/api/v1/settings/billing-email/test',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { sendBillingEmail } = await import('../../services/email.js');
+      const { email } = request.body as { email?: string };
+      const targetEmail = email ?? 'test@test.com';
+
+      const sent = await sendBillingEmail(fastify.db, request.tenantId, {
+        to: targetEmail,
+        subject: 'Rivertown PSA - Billing Email Test',
+        html: '<h2>Billing Email Test</h2><p>Your billing email (Mailjet) configuration is working correctly.</p>',
+      });
+
+      if (!sent) throw new ValidationError('Billing email sending failed. Check your Mailjet configuration.');
+      return { success: true, message: `Test email sent to ${targetEmail}` };
+    },
+  );
+
   // ===== EMAIL-TO-TICKET =====
 
   fastify.post(

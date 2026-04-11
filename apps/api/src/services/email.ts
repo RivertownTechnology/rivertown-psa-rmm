@@ -245,6 +245,59 @@ export async function sendEmail(db: Database, tenantId: string, options: EmailOp
   }
 }
 
+/**
+ * Send email using the billing-specific email config (Mailjet or other SMTP).
+ * Falls back to the general sendEmail if billing email is not configured.
+ */
+export async function sendBillingEmail(db: Database, tenantId: string, options: EmailOptions): Promise<boolean> {
+  const [config] = await db.select().from(integrationConfigs)
+    .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'billing-email')))
+    .limit(1);
+
+  if (!config?.isEnabled) {
+    // Fall back to general email
+    return sendEmail(db, tenantId, options);
+  }
+
+  const creds = (config.credentials as Record<string, unknown>) ?? {};
+  const fromAddress = (creds.fromAddress as string) ?? 'billing@localhost';
+  const fromName = (creds.fromName as string) ?? 'Billing';
+  const replyTo = (creds.replyTo as string) || undefined;
+
+  console.log(`[BILLING-EMAIL] Sending to=${options.to} subject="${options.subject}" via Mailjet SMTP`);
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: (creds.smtpHost as string) || 'in-v3.mailjet.com',
+      port: (creds.smtpPort as number) ?? 587,
+      secure: (creds.smtpPort as number) === 465,
+      auth: {
+        user: creds.apiKey as string,
+        pass: creds.secretKey as string,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"${fromName}" <${fromAddress}>`,
+      to: options.to,
+      subject: options.subject,
+      html: options.html,
+      text: options.text ?? options.html?.replace(/<[^>]*>/g, ''),
+      replyTo: options.replyTo || replyTo,
+      attachments: options.attachments?.map(a => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType,
+      })),
+    });
+    console.log(`[BILLING-EMAIL] Sent successfully to=${options.to}`);
+    return true;
+  } catch (err) {
+    console.error(`[BILLING-EMAIL] Failed to=${options.to}:`, err);
+    return false;
+  }
+}
+
 // Convenience functions for common emails
 export async function sendTicketNotification(db: Database, tenantId: string, to: string, ticketNumber: number, subject: string, body: string) {
   return sendEmail(db, tenantId, {

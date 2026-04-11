@@ -1262,6 +1262,8 @@ function BillingSettingsTab() {
     <div className="space-y-6 mt-4">
       {message && <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800">{message}</div>}
 
+      <BillingEmailCard />
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -1371,5 +1373,115 @@ function BillingSettingsTab() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// ===== BILLING EMAIL CARD (Mailjet) =====
+
+function BillingEmailCard() {
+  const [config, setConfig] = useState({
+    isEnabled: false, smtpHost: 'in-v3.mailjet.com', smtpPort: 587,
+    apiKey: '', secretKey: '', fromAddress: '', fromName: '', replyTo: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [message, setMessage] = useState('');
+  const [testEmail, setTestEmail] = useState('');
+
+  useEffect(() => {
+    api<typeof config>('/settings/billing-email').then(setConfig).catch(() => {});
+  }, []);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true); setMessage('');
+    try {
+      await api('/settings/billing-email', { method: 'PUT', body: JSON.stringify(config) });
+      setMessage('Billing email settings saved');
+      const updated = await api<typeof config>('/settings/billing-email');
+      setConfig(updated);
+    } catch (err: unknown) { setMessage(err instanceof Error ? err.message : 'Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function handleTest() {
+    setTesting(true); setMessage('');
+    try {
+      const res = await api<{ message: string }>('/settings/billing-email/test', {
+        method: 'POST', body: JSON.stringify({ email: testEmail || undefined }),
+      });
+      setMessage(res.message);
+    } catch (err: unknown) { setMessage(err instanceof Error ? err.message : 'Test failed'); }
+    finally { setTesting(false); }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Mail className="h-5 w-5" />Billing Email (Mailjet)</CardTitle>
+        <CardDescription>Configure the email used for invoices, payment receipts, and quotes. Customer replies will go to the Reply-To address.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input type="checkbox" checked={config.isEnabled} onChange={e => setConfig(c => ({ ...c, isEnabled: e.target.checked }))} className="rounded" />
+              Enable billing email
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>From Address</Label>
+              <Input value={config.fromAddress} onChange={e => setConfig(c => ({ ...c, fromAddress: e.target.value }))} placeholder="invoices@rivertowntechnology.com" />
+            </div>
+            <div>
+              <Label>From Name</Label>
+              <Input value={config.fromName} onChange={e => setConfig(c => ({ ...c, fromName: e.target.value }))} placeholder="Rivertown Technology" />
+            </div>
+          </div>
+
+          <div>
+            <Label>Reply-To Address</Label>
+            <Input value={config.replyTo} onChange={e => setConfig(c => ({ ...c, replyTo: e.target.value }))} placeholder="invoices@rivertowntechnology.com (shared mailbox)" />
+            <p className="text-xs text-muted-foreground mt-1">Customer replies will go to this address</p>
+          </div>
+
+          <Separator />
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Mailjet API Key</Label>
+              <Input value={config.apiKey} onChange={e => setConfig(c => ({ ...c, apiKey: e.target.value }))} placeholder="Mailjet API Key" />
+            </div>
+            <div>
+              <Label>Mailjet Secret Key</Label>
+              <Input type="password" value={config.secretKey} onChange={e => setConfig(c => ({ ...c, secretKey: e.target.value }))} placeholder="Mailjet Secret Key" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>SMTP Host</Label>
+              <Input value={config.smtpHost} onChange={e => setConfig(c => ({ ...c, smtpHost: e.target.value }))} placeholder="in-v3.mailjet.com" />
+            </div>
+            <div>
+              <Label>SMTP Port</Label>
+              <Input type="number" value={config.smtpPort} onChange={e => setConfig(c => ({ ...c, smtpPort: Number(e.target.value) }))} />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save Billing Email Settings'}</Button>
+            <div className="flex items-center gap-2">
+              <Input value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="test@example.com" className="w-48" />
+              <Button type="button" variant="outline" onClick={handleTest} disabled={testing}>
+                <Send className="h-4 w-4 mr-1" />{testing ? 'Sending...' : 'Send Test'}
+              </Button>
+            </div>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

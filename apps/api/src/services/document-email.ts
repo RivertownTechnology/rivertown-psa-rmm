@@ -9,7 +9,7 @@ import {
 } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import Stripe from 'stripe';
-import { sendEmail } from './email.js';
+import { sendEmail, sendBillingEmail } from './email.js';
 import { renderTemplate, generateInvoiceHtml, generateQuoteHtml } from './template-renderer.js';
 import { htmlToPdf } from './pdf-generator.js';
 
@@ -190,7 +190,7 @@ export async function sendInvoiceEmailWithTemplate(db: Database, tenantId: strin
     console.error('[PDF] Invoice PDF generation failed, sending without attachment:', err);
   }
 
-  return sendEmail(db, tenantId, { to: customer.billingEmail, subject, html, attachments });
+  return sendBillingEmail(db, tenantId, { to: customer.billingEmail, subject, html, attachments });
 }
 
 // --- Quote Email ---
@@ -268,7 +268,7 @@ export async function sendQuoteEmailWithTemplate(db: Database, tenantId: string,
     console.error('[PDF] Quote PDF generation failed, sending without attachment:', err);
   }
 
-  return sendEmail(db, tenantId, { to: customer.billingEmail, subject, html, attachments });
+  return sendBillingEmail(db, tenantId, { to: customer.billingEmail, subject, html, attachments });
 }
 
 // --- Payment Receipt Email ---
@@ -300,5 +300,5 @@ export async function sendPaymentReceiptEmail(db: Database, tenantId: string, in
     html = `<p>Thank you! Payment of $${formatCents(paymentAmountCents)} received for Invoice #${invoice.invoiceNumber}.</p>`;
   }
 
-  return sendEmail(db, tenantId, { to: customer.billingEmail, subject, html });
+  return sendBillingEmail(db, tenantId, { to: customer.billingEmail, subject, html });
 }

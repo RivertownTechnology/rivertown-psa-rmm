@@ -89,6 +89,17 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
     } finally { setSaving(false); }
   }
 
+  async function resendInvoice() {
+    setSaving(true); setMessage('');
+    try {
+      await api(`/invoices/${invoiceId}/send-email`, { method: 'POST' });
+      setMessage('Invoice resent to customer');
+      await loadInvoice();
+    } catch {
+      setMessage('Failed to resend invoice email');
+    } finally { setSaving(false); }
+  }
+
   async function cancelInvoice() {
     if (!cancelReason.trim()) return;
     setSaving(true); setMessage('');
@@ -171,6 +182,9 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
               await api(`/invoices/${invoiceId}`, { method: 'PATCH', body: JSON.stringify({ status: 'sent' }) });
               loadInvoice();
             }}>Mark Sent</Button>
+          )}
+          {['sent', 'overdue', 'partial', 'viewed'].includes(invoice.status) && (
+            <Button size="sm" variant="outline" onClick={resendInvoice} disabled={saving}><Send className="h-4 w-4 mr-1" />Resend</Button>
           )}
           {isCancellable && (
             <Button size="sm" variant="destructive" onClick={() => setShowCancel(true)}><XCircle className="h-4 w-4 mr-1" />Cancel Invoice</Button>
