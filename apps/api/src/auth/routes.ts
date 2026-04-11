@@ -4,11 +4,12 @@ import { compare } from 'bcryptjs';
 import { users, tenants } from '@rivertown/db';
 import { loginSchema } from '@rivertown/shared';
 import { UnauthorizedError } from '../common/errors.js';
+import { logAudit } from '../common/audit.js';
 
 export async function authRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/api/v1/auth/login',
-    { config: { public: true } as any },
+    { config: { public: true, rateLimit: { max: 5, timeWindow: '5 minutes' } } as any },
     async (request, reply) => {
       const body = loginSchema.parse(request.body);
 
@@ -18,21 +19,21 @@ export async function authRoutes(fastify: FastifyInstance) {
         .where(eq(users.email, body.email))
         .limit(1);
 
-      if (!user) {
+      if (!user || !user.passwordHash) {
         throw new UnauthorizedError('Invalid email or password');
-      }
-
-      if (!user.passwordHash) {
-        throw new UnauthorizedError('SSO login required for this account');
       }
 
       const validPassword = await compare(body.password, user.passwordHash);
       if (!validPassword) {
+        await logAudit(fastify.db, {
+          tenantId: user.tenantId, actorType: 'user', actorId: user.id,
+          action: 'auth.login.failed', entityType: 'user', entityId: user.id, ipAddress: request.ip,
+        });
         throw new UnauthorizedError('Invalid email or password');
       }
 
       if (!user.isActive) {
-        throw new UnauthorizedError('Account is disabled');
+        throw new UnauthorizedError('Invalid email or password');
       }
 
       // Check if MFA is required (user-level or tenant-level)
@@ -69,6 +70,11 @@ export async function authRoutes(fastify: FastifyInstance) {
         { expiresIn: fastify.config.REFRESH_TOKEN_EXPIRES_IN },
       );
 
+      await logAudit(fastify.db, {
+        tenantId: user.tenantId, actorType: 'user', actorId: user.id,
+        action: 'auth.login.success', entityType: 'user', entityId: user.id, ipAddress: request.ip,
+      });
+
       return {
         accessToken,
         refreshToken,
@@ -86,7 +92,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     },
   );
 
-  fastify.post('/api/v1/auth/refresh', { config: { public: true } as any }, async (request) => {
+  fastify.post('/api/v1/auth/refresh', { config: { public: true, rateLimit: { max: 10, timeWindow: '1 minute' } } as any }, async (request) => {
     try {
       const token = (request.body as { refreshToken?: string })?.refreshToken;
       if (!token) throw new UnauthorizedError('Refresh token required');
@@ -117,7 +123,13 @@ export async function authRoutes(fastify: FastifyInstance) {
         { expiresIn: fastify.config.JWT_EXPIRES_IN },
       );
 
-      return { accessToken };
+      // Rotate refresh token
+      const newRefreshToken = fastify.jwt.sign(
+        { sub: user.id, tid: user.tenantId, role: user.role, type: 'refresh' as const },
+        { expiresIn: fastify.config.REFRESH_TOKEN_EXPIRES_IN },
+      );
+
+      return { accessToken, refreshToken: newRefreshToken };
     } catch {
       throw new UnauthorizedError('Invalid refresh token');
     }
@@ -136,7 +148,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         mfaProvider: users.mfaProvider,
       })
       .from(users)
-      .where(eq(users.id, payload.sub))
+      .where(and(eq(users.id, payload.sub), eq(users.tenantId, payload.tid)))
       .limit(1);
 
     if (!user) throw new UnauthorizedError('User not found');

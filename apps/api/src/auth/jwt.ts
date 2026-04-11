@@ -37,6 +37,8 @@ declare module 'fastify' {
 export const jwtPlugin = fp(async (fastify: FastifyInstance, opts: { config: Config }) => {
   await fastify.register(fjwt, {
     secret: opts.config.JWT_SECRET,
+    sign: { algorithm: 'HS256' },
+    verify: { algorithms: ['HS256'] },
   });
 
   fastify.decorate('authenticate', async (request: FastifyRequest, reply: FastifyReply) => {

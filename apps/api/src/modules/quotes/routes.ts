@@ -99,6 +99,12 @@ export async function quoteRoutes(fastify: FastifyInstance) {
   // Create quote
   fastify.post('/api/v1/quotes', { preHandler: [fastify.authenticate, requirePermission('quotes:write')] }, async (request, reply) => {
     const body = createQuoteSchema.parse(request.body);
+
+    // Validate customer belongs to this tenant
+    const [cust] = await fastify.db.select({ id: customers.id }).from(customers)
+      .where(and(eq(customers.id, body.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
+    if (!cust) throw new NotFoundError('Customer', body.customerId);
+
     const quoteNumber = await getNextQuoteNumber(fastify.db, request.tenantId);
     const [quote] = await fastify.db.insert(quotes).values({
       tenantId: request.tenantId,
@@ -198,7 +204,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
       .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);
     if (!existing) throw new NotFoundError('Quote', id);
     const [updated] = await fastify.db.update(quotes).set({ status: 'sent', updatedAt: new Date() })
-      .where(eq(quotes.id, id)).returning();
+      .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).returning();
 
     // Send email to customer with template + PDF attachment
     const { sendQuoteEmailWithTemplate } = await import('../../services/document-email.js');
@@ -217,11 +223,12 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     const [existing] = await fastify.db.select().from(quotes)
       .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);
     if (!existing) throw new NotFoundError('Quote', id);
+    if (!['sent', 'viewed'].includes(existing.status)) throw new Error(`Cannot approve a quote with status "${existing.status}"`);
     const [updated] = await fastify.db.update(quotes).set({
       status: 'approved',
       approvedAt: new Date(),
       updatedAt: new Date(),
-    }).where(eq(quotes.id, id)).returning();
+    }).where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).returning();
     await logAudit(fastify.db, {
       tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,
       action: 'quote.approved', entityType: 'quote', entityId: id, ipAddress: request.ip,
@@ -235,8 +242,9 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     const [existing] = await fastify.db.select().from(quotes)
       .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);
     if (!existing) throw new NotFoundError('Quote', id);
+    if (!['sent', 'viewed'].includes(existing.status)) throw new Error(`Cannot reject a quote with status "${existing.status}"`);
     const [updated] = await fastify.db.update(quotes).set({ status: 'rejected', updatedAt: new Date() })
-      .where(eq(quotes.id, id)).returning();
+      .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).returning();
     await logAudit(fastify.db, {
       tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,
       action: 'quote.rejected', entityType: 'quote', entityId: id, ipAddress: request.ip,
@@ -289,7 +297,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
         status: 'converted',
         convertedContractId: contract.id,
         updatedAt: new Date(),
-      }).where(eq(quotes.id, id));
+      }).where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId)));
 
       await logAudit(fastify.db, {
         tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,
@@ -353,7 +361,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
         status: 'converted',
         convertedInvoiceId: invoice.id,
         updatedAt: new Date(),
-      }).where(eq(quotes.id, id));
+      }).where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId)));
 
       await logAudit(fastify.db, {
         tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,

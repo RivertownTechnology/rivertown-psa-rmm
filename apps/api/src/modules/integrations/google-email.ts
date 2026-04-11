@@ -15,10 +15,10 @@ async function getGoogleApp(fastify: FastifyInstance, tenantId: string) {
 
   const creds = (config?.credentials ?? {}) as Record<string, unknown>;
 
-  // Use env vars — same Google OAuth app as SSO, just with Gmail scopes
+  // Use env vars only for redirect URI (prevent DB-stored override for security)
   const clientId = (creds.clientId as string) || process.env.GOOGLE_CLIENT_ID || '';
   const clientSecret = (creds.clientSecret as string) || process.env.GOOGLE_CLIENT_SECRET || '';
-  const redirectUri = (creds.redirectUri as string) || process.env.GOOGLE_EMAIL_REDIRECT_URI || 'http://localhost:5173/settings/email/callback';
+  const redirectUri = process.env.GOOGLE_EMAIL_REDIRECT_URI || 'http://localhost:5173/settings/email/callback';
 
   return { clientId, clientSecret, redirectUri, config, creds };
 }

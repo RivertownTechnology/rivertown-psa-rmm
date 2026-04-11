@@ -26,14 +26,19 @@ export const paginationSchema = z.object({
 });
 
 // Auth
+const passwordSchema = z.string().min(12, 'Password must be at least 12 characters')
+  .regex(/[A-Z]/, 'Password must contain an uppercase letter')
+  .regex(/[a-z]/, 'Password must contain a lowercase letter')
+  .regex(/\d/, 'Password must contain a number');
+
 export const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string().min(1),
 });
 
 export const registerSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
+  password: passwordSchema,
   displayName: z.string().min(1).max(100),
   tenantName: z.string().min(1).max(100),
   tenantSlug: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/),

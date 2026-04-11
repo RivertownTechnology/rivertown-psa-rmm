@@ -6,6 +6,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { timingSafeEqual } from 'crypto';
 import { eq, and, sql, ilike } from 'drizzle-orm';
 import { z } from 'zod';
 import {
@@ -74,7 +75,10 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
       throw new AppError(503, 'Public API not configured', 'NOT_CONFIGURED');
     }
 
-    if (apiKey !== expectedKey) {
+    // Constant-time comparison to prevent timing attacks
+    const keyBuffer = Buffer.from(apiKey);
+    const expectedBuffer = Buffer.from(expectedKey);
+    if (keyBuffer.length !== expectedBuffer.length || !timingSafeEqual(keyBuffer, expectedBuffer)) {
       throw new AppError(401, 'Invalid API key', 'UNAUTHORIZED');
     }
 

@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { timingSafeEqual } from 'crypto';
 import Stripe from 'stripe';
 import { eq, and } from 'drizzle-orm';
 import { invoices, payments, customers, integrationConfigs } from '@rivertown/db';
@@ -15,14 +16,23 @@ async function getStripeFromDb(db: any, tenantId: string): Promise<{ stripe: Str
   return { stripe: new Stripe(creds.secretKey), webhookSecret: creds.webhookSecret || '' };
 }
 
-// For webhook — need to check all tenants since webhook doesn't have auth
-async function getStripeForWebhook(db: any): Promise<{ stripe: Stripe; webhookSecret: string; tenantId: string } | null> {
+// For webhook — try each tenant's webhook secret to find the correct one via signature verification
+async function verifyWebhookForTenant(
+  db: any, rawBody: string, sig: string,
+): Promise<{ stripe: Stripe; event: Stripe.Event; tenantId: string } | null> {
   const configs = await db.select().from(integrationConfigs)
     .where(and(eq(integrationConfigs.provider, 'stripe'), eq(integrationConfigs.isEnabled, true)));
+
   for (const config of configs) {
     const creds = (config.credentials ?? {}) as Record<string, string>;
-    if (creds.secretKey) {
-      return { stripe: new Stripe(creds.secretKey), webhookSecret: creds.webhookSecret || '', tenantId: config.tenantId };
+    if (!creds.secretKey || !creds.webhookSecret) continue;
+
+    const stripe = new Stripe(creds.secretKey);
+    try {
+      const event = stripe.webhooks.constructEvent(rawBody, sig, creds.webhookSecret);
+      return { stripe, event, tenantId: config.tenantId };
+    } catch {
+      // Signature didn't match this tenant's secret — try next
     }
   }
   return null;
@@ -90,7 +100,7 @@ export async function stripeRoutes(fastify: FastifyInstance) {
     if (balanceCents <= 0) return { url: null, message: 'Invoice is already paid' };
 
     const [customer] = await fastify.db.select().from(customers)
-      .where(eq(customers.id, invoice.customerId)).limit(1);
+      .where(and(eq(customers.id, invoice.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
 
     // Get or create Stripe customer
     let stripeCustomerId = customer?.stripeCustomerId;
@@ -105,8 +115,10 @@ export async function stripeRoutes(fastify: FastifyInstance) {
       await fastify.db.update(customers).set({ stripeCustomerId }).where(eq(customers.id, customer.id));
     }
 
-    // Build the success/cancel URLs
-    const origin = request.headers.origin || 'https://psa.rivertowntechnology.com';
+    // Build the success/cancel URLs from allowed origins only (prevent open redirect)
+    const allowedOrigins = ['https://psa.rivertowntechnology.com', 'http://localhost:5173'];
+    const requestOrigin = request.headers.origin || '';
+    const origin = allowedOrigins.includes(requestOrigin) ? requestOrigin : 'https://psa.rivertowntechnology.com';
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -147,29 +159,22 @@ export async function stripeRoutes(fastify: FastifyInstance) {
   fastify.post('/api/v1/webhooks/stripe', {
     config: { public: true } as any,
   }, async (request, reply) => {
-    const stripeData = await getStripeForWebhook(fastify.db);
-    if (!stripeData) { reply.code(400).send({ error: 'Stripe not configured' }); return; }
-    const { stripe, webhookSecret } = stripeData;
-
     const sig = request.headers['stripe-signature'] as string;
-
-    let event: Stripe.Event;
-
-    if (webhookSecret && sig) {
-      try {
-        // Use raw body for signature verification
-        const rawBody = (request as any).rawBody || JSON.stringify(request.body);
-        event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
-      } catch (err) {
-        console.error('[STRIPE] Webhook signature verification failed:', err);
-        reply.code(400).send({ error: 'Invalid signature' });
-        return;
-      }
-    } else {
-      // No webhook secret configured — accept unverified (dev mode)
-      event = request.body as Stripe.Event;
+    if (!sig) {
+      reply.code(400).send({ error: 'Missing stripe-signature header' });
+      return;
     }
 
+    const rawBody = (request as any).rawBody || JSON.stringify(request.body);
+
+    // Verify signature against all tenant configs — returns the matching tenant
+    const verified = await verifyWebhookForTenant(fastify.db, rawBody, sig);
+    if (!verified) {
+      reply.code(400).send({ error: 'Invalid webhook signature' });
+      return;
+    }
+
+    const { event } = verified;
     console.log(`[STRIPE] Webhook event: ${event.type}`);
 
     if (event.type === 'checkout.session.completed') {
@@ -191,14 +196,14 @@ export async function stripeRoutes(fastify: FastifyInstance) {
         .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId))).limit(1);
 
       if (invoice) {
-        await fastify.db.insert(payments).values({
+        const [payment] = await fastify.db.insert(payments).values({
           tenantId,
           invoiceId,
           amountCents,
           paymentMethod: 'stripe',
           stripePaymentIntentId: session.payment_intent as string || session.id,
           paidAt: new Date(),
-        });
+        }).returning();
 
         const newPaid = invoice.amountPaidCents + amountCents;
         const newStatus = newPaid >= invoice.totalCents ? 'paid' : invoice.status;
@@ -213,6 +218,12 @@ export async function stripeRoutes(fastify: FastifyInstance) {
         const { sendPaymentReceiptEmail } = await import('../../services/document-email.js');
         sendPaymentReceiptEmail(fastify.db, tenantId, invoiceId, amountCents)
           .catch(e => console.error('[STRIPE] Receipt email failed:', e));
+
+        // Sync payment to QuickBooks (fire and forget)
+        import('../../services/qbo-sync.js').then(({ syncPaymentToQBO }) => {
+          syncPaymentToQBO(fastify.db, tenantId, payment.id)
+            .catch((e: any) => console.error('[QBO] Stripe payment sync failed:', e));
+        });
       }
     }
 

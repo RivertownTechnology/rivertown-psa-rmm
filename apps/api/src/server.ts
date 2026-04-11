@@ -1,5 +1,6 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
 import multipart from '@fastify/multipart';
 import { createDb, Database } from '@rivertown/db';
@@ -13,6 +14,7 @@ import { googleEmailRoutes } from './modules/integrations/google-email.js';
 import { googleCalendarRoutes } from './modules/integrations/google-calendar.js';
 import { stripeRoutes } from './modules/integrations/stripe.js';
 import { pax8Routes } from './modules/integrations/pax8.js';
+import { quickbooksRoutes } from './modules/integrations/quickbooks.js';
 import { loadModules } from './modules/registry.js';
 import { AppError } from './common/errors.js';
 import { ZodError } from 'zod';
@@ -77,6 +79,24 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
     credentials: true,
+  });
+
+  // Global rate limiting
+  await fastify.register(rateLimit, {
+    global: false, // Don't apply globally — apply per-route via config
+    max: 100,
+    timeWindow: '1 minute',
+  });
+
+  // Security headers
+  fastify.addHook('onSend', async (_request, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('X-XSS-Protection', '0');
+    reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    if (config.NODE_ENV === 'production') {
+      reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
   });
 
   // WebSocket support
@@ -147,6 +167,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   await fastify.register(googleCalendarRoutes);
   await fastify.register(stripeRoutes);
   await fastify.register(pax8Routes);
+  await fastify.register(quickbooksRoutes);
 
   // Load feature modules
   await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, portalModule, publicApiModule]);
@@ -154,6 +175,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   // Start Pax8 auto-sync scheduler
   const { startPax8SyncScheduler } = await import('./services/pax8-sync.js');
   startPax8SyncScheduler(db);
+
+  // Start QuickBooks auto-sync scheduler
+  const { startQBOSyncScheduler } = await import('./services/qbo-sync.js');
+  startQBOSyncScheduler(db);
 
   // Start email inbox polling (check all tenant inboxes every 30 seconds)
   const { processInboundEmails } = await import('./services/email-to-ticket.js');

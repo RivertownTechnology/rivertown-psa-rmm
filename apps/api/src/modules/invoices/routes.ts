@@ -67,11 +67,11 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     if (!invoice) throw new NotFoundError('Invoice', id);
 
     const lineItems = await fastify.db.select().from(invoiceLineItems)
-      .where(eq(invoiceLineItems.invoiceId, id))
+      .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.tenantId, request.tenantId)))
       .orderBy(invoiceLineItems.sortOrder, invoiceLineItems.createdAt);
 
     const invoicePayments = await fastify.db.select().from(payments)
-      .where(eq(payments.invoiceId, id))
+      .where(and(eq(payments.invoiceId, id), eq(payments.tenantId, request.tenantId)))
       .orderBy(desc(payments.paidAt));
 
     return { ...invoice, lineItems, payments: invoicePayments };
@@ -80,6 +80,12 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   // Create invoice
   fastify.post('/api/v1/invoices', { preHandler: [fastify.authenticate, requirePermission('invoices:write')] }, async (request, reply) => {
     const body = createInvoiceSchema.parse(request.body);
+
+    // Validate customer belongs to this tenant
+    const [cust] = await fastify.db.select({ id: customers.id }).from(customers)
+      .where(and(eq(customers.id, body.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
+    if (!cust) throw new NotFoundError('Customer', body.customerId);
+
     const invoiceNumber = await getNextInvoiceNumber(fastify.db, request.tenantId);
     const [invoice] = await fastify.db.insert(invoices).values({
       tenantId: request.tenantId,
@@ -130,8 +136,8 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     if (existing.status === 'paid') throw new ValidationError('Cannot delete a paid invoice. Credit the invoice instead.');
     if (existing.status === 'cancelled') throw new ValidationError('Cannot delete a cancelled invoice.');
     if (existing.amountPaidCents > 0) throw new ValidationError('Cannot delete an invoice with payments recorded. Credit the invoice instead.');
-    await fastify.db.delete(payments).where(eq(payments.invoiceId, id));
-    await fastify.db.delete(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, id));
+    await fastify.db.delete(payments).where(and(eq(payments.invoiceId, id), eq(payments.tenantId, request.tenantId)));
+    await fastify.db.delete(invoiceLineItems).where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.tenantId, request.tenantId)));
     await fastify.db.delete(invoices).where(and(eq(invoices.id, id), eq(invoices.tenantId, request.tenantId)));
     await logAudit(fastify.db, {
       tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,
@@ -184,6 +190,12 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
     const { sendInvoiceEmailWithTemplate } = await import('../../services/document-email.js');
     const sent = await sendInvoiceEmailWithTemplate(fastify.db, request.tenantId, id);
+
+    // Sync invoice to QuickBooks (fire and forget)
+    import('../../services/qbo-sync.js').then(({ syncInvoiceToQBO }) => {
+      syncInvoiceToQBO(fastify.db, request.tenantId, id).catch(e => console.error('[QBO] Invoice sync failed:', e));
+    });
+
     return { sent };
   });
 
@@ -192,9 +204,16 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const body = request.body as { amountCents: number; paymentMethod: string; reference?: string };
 
+    if (!body.amountCents || body.amountCents <= 0) throw new ValidationError('Payment amount must be positive');
+
     const [existing] = await fastify.db.select().from(invoices)
       .where(and(eq(invoices.id, id), eq(invoices.tenantId, request.tenantId))).limit(1);
     if (!existing) throw new NotFoundError('Invoice', id);
+
+    const remainingBalance = existing.totalCents - existing.amountPaidCents;
+    if (body.amountCents > remainingBalance && remainingBalance > 0) {
+      throw new ValidationError(`Payment amount ($${(body.amountCents / 100).toFixed(2)}) exceeds remaining balance ($${(remainingBalance / 100).toFixed(2)})`);
+    }
 
     const [payment] = await fastify.db.insert(payments).values({
       tenantId: request.tenantId,
@@ -223,6 +242,11 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     // Send payment receipt email (fire and forget)
     import('../../services/document-email.js').then(({ sendPaymentReceiptEmail }) => {
       sendPaymentReceiptEmail(fastify.db, request.tenantId, id, body.amountCents).catch(e => console.error('Payment receipt email failed:', e));
+    });
+
+    // Sync payment to QuickBooks (fire and forget)
+    import('../../services/qbo-sync.js').then(({ syncPaymentToQBO }) => {
+      syncPaymentToQBO(fastify.db, request.tenantId, payment.id).catch(e => console.error('[QBO] Payment sync failed:', e));
     });
 
     reply.code(201);
@@ -310,7 +334,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       }
 
       // Auto-apply account credits if customer has a balance
-      const [cust] = await fastify.db.select().from(customers).where(eq(customers.id, contract.customerId)).limit(1);
+      const [cust] = await fastify.db.select().from(customers).where(and(eq(customers.id, contract.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
       if (cust && cust.creditBalanceCents > 0) {
         const invBalance = invoice.totalCents;
         const toApply = Math.min(cust.creditBalanceCents, invBalance);
@@ -349,6 +373,8 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     const { customerId } = request.params as { customerId: string };
     const body = request.body as { amountCents: number; reason: string; invoiceId?: string };
+
+    if (!body.amountCents || body.amountCents <= 0) throw new ValidationError('Credit amount must be positive');
 
     const [customer] = await fastify.db.select().from(customers)
       .where(and(eq(customers.id, customerId), eq(customers.tenantId, request.tenantId))).limit(1);
@@ -399,7 +425,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     if (!invoice) throw new NotFoundError('Invoice', id);
 
     const [customer] = await fastify.db.select().from(customers)
-      .where(eq(customers.id, invoice.customerId)).limit(1);
+      .where(and(eq(customers.id, invoice.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
     if (!customer) throw new NotFoundError('Customer', invoice.customerId);
 
     const balance = invoice.totalCents - invoice.amountPaidCents - invoice.creditsAppliedCents;
@@ -454,7 +480,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     if (!invoice) throw new NotFoundError('Invoice', id);
 
     const [customer] = await fastify.db.select().from(customers)
-      .where(eq(customers.id, invoice.customerId)).limit(1);
+      .where(and(eq(customers.id, invoice.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
     if (!customer) throw new NotFoundError('Customer', invoice.customerId);
 
     // Credit the full invoice amount
@@ -517,10 +543,10 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     if (!invoice) throw new NotFoundError('Invoice', id);
 
     const lineItemRows = await fastify.db.select().from(invoiceLineItems)
-      .where(eq(invoiceLineItems.invoiceId, id)).orderBy(invoiceLineItems.sortOrder);
+      .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.tenantId, request.tenantId))).orderBy(invoiceLineItems.sortOrder);
 
     const [customer] = await fastify.db.select().from(customers)
-      .where(eq(customers.id, invoice.customerId)).limit(1);
+      .where(and(eq(customers.id, invoice.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
 
     const [tenant] = await fastify.db.select().from(tenants)
       .where(eq(tenants.id, request.tenantId)).limit(1);
@@ -574,7 +600,7 @@ async function recalcInvoiceTotals(db: any, invoiceId: string, tenantId: string)
   const { ilike } = await import('drizzle-orm');
 
   const items = await db.select().from(invoiceLineItems)
-    .where(eq(invoiceLineItems.invoiceId, invoiceId));
+    .where(and(eq(invoiceLineItems.invoiceId, invoiceId), eq(invoiceLineItems.tenantId, tenantId)));
 
   let subtotalCents = 0;
   let taxableSubtotalCents = 0;
@@ -586,10 +612,10 @@ async function recalcInvoiceTotals(db: any, invoiceId: string, tenantId: string)
   // Look up tax rate from customer's billing address
   let taxRate = 0;
   const [invoice] = await db.select({ customerId: invoices.customerId }).from(invoices)
-    .where(eq(invoices.id, invoiceId)).limit(1);
+    .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId))).limit(1);
   if (invoice) {
     const [customer] = await db.select({ state: customers.state, city: customers.city, county: customers.county }).from(customers)
-      .where(eq(customers.id, invoice.customerId)).limit(1);
+      .where(and(eq(customers.id, invoice.customerId), eq(customers.tenantId, tenantId))).limit(1);
     if (customer?.state) {
       const stateCode = normalizeStateCode(customer.state);
 

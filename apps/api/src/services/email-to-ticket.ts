@@ -118,12 +118,14 @@ function getHeader(msg: GmailMessageDetail, name: string): string {
 }
 
 function parseEmailAddress(headerValue: string): { address: string; name: string } {
+  // Strip CRLF to prevent header injection
+  const sanitized = headerValue.replace(/[\r\n]/g, '');
   // "Display Name <email@example.com>" or just "email@example.com"
-  const match = headerValue.match(/^"?([^"<]*)"?\s*<?([^>]+@[^>]+)>?$/);
+  const match = sanitized.match(/^"?([^"<]*)"?\s*<?([^>]+@[^>]+)>?$/);
   if (match) {
     return { name: match[1].trim(), address: match[2].trim().toLowerCase() };
   }
-  return { name: '', address: headerValue.trim().toLowerCase() };
+  return { name: '', address: sanitized.trim().toLowerCase() };
 }
 
 function decodeBase64Url(data: string): string {

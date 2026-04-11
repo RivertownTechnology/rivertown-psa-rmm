@@ -71,6 +71,7 @@ export const payments = pgTable(
     amountCents: integer('amount_cents').notNull(),
     paymentMethod: text('payment_method').notNull(),
     stripePaymentIntentId: text('stripe_payment_intent_id'),
+    qboPaymentId: text('qbo_payment_id'),
     reference: text('reference'),
     paidAt: timestamp('paid_at', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

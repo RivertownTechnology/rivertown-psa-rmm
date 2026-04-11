@@ -21,7 +21,7 @@ function requirePerm(user: PortalUser, perm: string) {
 export async function portalRoutes(fastify: FastifyInstance) {
   // ===== AUTH =====
 
-  fastify.post('/api/v1/portal/auth/login', { config: { public: true } as any }, async (request, reply) => {
+  fastify.post('/api/v1/portal/auth/login', { config: { public: true, rateLimit: { max: 5, timeWindow: '5 minutes' } } as any }, async (request, reply) => {
     const { email, password } = request.body as { email: string; password: string };
 
     const [contact] = await fastify.db.select().from(contacts)

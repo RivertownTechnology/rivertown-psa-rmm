@@ -12,6 +12,10 @@ function generateBackupCodes(): string[] {
   );
 }
 
+function hashBackupCode(code: string): string {
+  return crypto.createHash('sha256').update(code.toUpperCase()).digest('hex');
+}
+
 function createTOTP(secret: string, email: string): OTPAuth.TOTP {
   return new OTPAuth.TOTP({
     issuer: 'Rivertown PSA',
@@ -51,12 +55,13 @@ export async function mfaRoutes(fastify: FastifyInstance) {
     const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
     const backupCodes = generateBackupCodes();
 
-    // Store secret + backup codes (not yet enabled — user must verify first)
+    // Store secret + hashed backup codes (not yet enabled — user must verify first)
+    const hashedCodes = backupCodes.map(hashBackupCode);
     await fastify.db
       .update(users)
       .set({
         mfaSecret: secret.base32,
-        mfaBackupCodes: backupCodes,
+        mfaBackupCodes: hashedCodes,
         updatedAt: new Date(),
       })
       .where(eq(users.id, user.id));
@@ -174,10 +179,15 @@ export async function mfaRoutes(fastify: FastifyInstance) {
   // Verify MFA during login (called with mfaToken, not regular JWT)
   fastify.post(
     '/api/v1/auth/mfa/verify',
-    { config: { public: true } as any },
+    { config: { public: true, rateLimit: { max: 5, timeWindow: '5 minutes' } } as any },
     async (request) => {
       const { mfaToken, code } = request.body as { mfaToken: string; code: string };
       if (!mfaToken || !code) throw new ValidationError('mfaToken and code are required');
+
+      // Validate code format: 6 digits (TOTP) or XXXX-XXXX (backup code)
+      if (!/^\d{6}$/.test(code) && !/^[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}$/.test(code)) {
+        throw new ValidationError('Invalid code format');
+      }
 
       let payload: { sub: string; tid: string; role: string; type: string };
       try {
@@ -203,9 +213,10 @@ export async function mfaRoutes(fastify: FastifyInstance) {
       const delta = totp.validate({ token: code, window: 1 });
 
       if (delta === null) {
-        // Try backup codes
+        // Try backup codes (stored as SHA-256 hashes)
         const backupCodes = (user.mfaBackupCodes as string[] | null) ?? [];
-        const codeIndex = backupCodes.indexOf(code.toUpperCase());
+        const hashedInput = hashBackupCode(code);
+        const codeIndex = backupCodes.indexOf(hashedInput);
 
         if (codeIndex === -1) {
           throw new UnauthorizedError('Invalid MFA code');
