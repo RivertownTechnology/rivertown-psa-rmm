@@ -246,7 +246,8 @@ export async function sendEmail(db: Database, tenantId: string, options: EmailOp
 }
 
 /**
- * Send email using the billing-specific email config (Mailjet or other SMTP).
+ * Send email using the billing-specific email config via Mailjet Send API v3.1.
+ * Uses HTTP API (not SMTP) to avoid port blocking on Railway/cloud hosts.
  * Falls back to the general sendEmail if billing email is not configured.
  */
 export async function sendBillingEmail(db: Database, tenantId: string, options: EmailOptions): Promise<boolean> {
@@ -255,43 +256,70 @@ export async function sendBillingEmail(db: Database, tenantId: string, options: 
     .limit(1);
 
   if (!config?.isEnabled) {
-    // Fall back to general email
     return sendEmail(db, tenantId, options);
   }
 
   const creds = (config.credentials as Record<string, unknown>) ?? {};
+  const apiKey = creds.apiKey as string;
+  const secretKey = creds.secretKey as string;
   const fromAddress = (creds.fromAddress as string) ?? 'billing@localhost';
   const fromName = (creds.fromName as string) ?? 'Billing';
-  const replyTo = (creds.replyTo as string) || undefined;
+  const replyTo = options.replyTo || (creds.replyTo as string) || undefined;
 
-  console.log(`[BILLING-EMAIL] Sending to=${options.to} subject="${options.subject}" via Mailjet SMTP`);
+  if (!apiKey || !secretKey) {
+    console.error('[BILLING-EMAIL] Missing Mailjet API key or secret key');
+    return sendEmail(db, tenantId, options);
+  }
+
+  console.log(`[BILLING-EMAIL] Sending to=${options.to} subject="${options.subject}" via Mailjet API`);
 
   try {
-    const transporter = nodemailer.createTransport({
-      host: (creds.smtpHost as string) || 'in-v3.mailjet.com',
-      port: (creds.smtpPort as number) ?? 587,
-      secure: (creds.smtpPort as number) === 465,
-      auth: {
-        user: creds.apiKey as string,
-        pass: creds.secretKey as string,
+    const message: Record<string, unknown> = {
+      From: { Email: fromAddress, Name: fromName },
+      To: [{ Email: options.to }],
+      Subject: options.subject,
+      HTMLPart: options.html || undefined,
+      TextPart: options.text ?? (options.html?.replace(/<[^>]*>/g, '') || undefined),
+    };
+
+    if (replyTo) {
+      message.ReplyTo = { Email: replyTo };
+    }
+
+    if (options.attachments?.length) {
+      message.Attachments = options.attachments.map(a => ({
+        ContentType: a.contentType || 'application/octet-stream',
+        Filename: a.filename,
+        Base64Content: typeof a.content === 'string'
+          ? Buffer.from(a.content).toString('base64')
+          : (a.content as Buffer).toString('base64'),
+      }));
+    }
+
+    const res = await fetch('https://api.mailjet.com/v3.1/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${Buffer.from(`${apiKey}:${secretKey}`).toString('base64')}`,
       },
+      body: JSON.stringify({ Messages: [message] }),
     });
 
-    await transporter.sendMail({
-      from: `"${fromName}" <${fromAddress}>`,
-      to: options.to,
-      subject: options.subject,
-      html: options.html,
-      text: options.text ?? options.html?.replace(/<[^>]*>/g, ''),
-      replyTo: options.replyTo || replyTo,
-      attachments: options.attachments?.map(a => ({
-        filename: a.filename,
-        content: a.content,
-        contentType: a.contentType,
-      })),
-    });
-    console.log(`[BILLING-EMAIL] Sent successfully to=${options.to}`);
-    return true;
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`[BILLING-EMAIL] Mailjet API error (${res.status}):`, errText.substring(0, 500));
+      return false;
+    }
+
+    const result = await res.json() as { Messages: Array<{ Status: string }> };
+    const status = result.Messages?.[0]?.Status;
+    if (status === 'success') {
+      console.log(`[BILLING-EMAIL] Sent successfully to=${options.to}`);
+      return true;
+    }
+
+    console.error(`[BILLING-EMAIL] Mailjet returned status: ${status}`);
+    return false;
   } catch (err) {
     console.error(`[BILLING-EMAIL] Failed to=${options.to}:`, err);
     return false;
