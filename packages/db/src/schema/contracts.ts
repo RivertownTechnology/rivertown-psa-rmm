@@ -3,6 +3,7 @@ import { tenants } from './tenants.js';
 import { customers } from './customers.js';
 import { assets } from './assets.js';
 import { contacts } from './contacts.js';
+import { serviceCatalogItems } from './service-catalog.js';
 
 export const contracts = pgTable(
   'contracts',
@@ -51,6 +52,7 @@ export const contractLineItems = pgTable(
     blockHoursUsed: numeric('block_hours_used').default('0'),
     taxable: boolean('taxable').default(true).notNull(),
     pax8SubscriptionId: text('pax8_subscription_id'),
+    catalogItemId: uuid('catalog_item_id').references(() => serviceCatalogItems.id),
     sortOrder: integer('sort_order').default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

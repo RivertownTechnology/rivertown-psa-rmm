@@ -14,8 +14,11 @@ interface CatalogItem {
   vendor: string | null; category: string; itemType: string;
   defaultUnitCostCents: number | null; defaultUnitPriceCents: number;
   pax8ProductName: string | null; pax8ProductId: string | null; pax8VendorName: string | null;
+  qboItemId: string | null; qboIncomeAccountId: string | null; qboCogAccountId: string | null;
   taxable: boolean; isActive: boolean;
 }
+
+interface QBOAccount { id: string; name: string; type: string; }
 
 const categoryLabels: Record<string, string> = {
   license: 'License', rmm: 'RMM', edr_av: 'EDR/AV', backup: 'Backup',
@@ -26,6 +29,7 @@ const emptyForm = {
   name: '', description: '', sku: '', vendor: '', category: 'license', itemType: 'recurring',
   defaultUnitCostCents: '', defaultUnitPriceCents: '', taxable: true,
   pax8ProductName: '', pax8ProductId: '', pax8VendorName: '',
+  qboIncomeAccountId: '', qboCogAccountId: '',
 };
 
 export function ProductCatalogPage() {
@@ -36,6 +40,8 @@ export function ProductCatalogPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...emptyForm });
   const [saving, setSaving] = useState(false);
+  const [qboAccounts, setQboAccounts] = useState<QBOAccount[]>([]);
+  const [qboConnected, setQboConnected] = useState(false);
 
   const load = useCallback(async () => {
     const params = new URLSearchParams();
@@ -45,6 +51,18 @@ export function ProductCatalogPage() {
   }, [categoryFilter]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load QBO accounts if connected
+  useEffect(() => {
+    api<{ connected: boolean }>('/settings/quickbooks/status')
+      .then(s => {
+        setQboConnected(s.connected);
+        if (s.connected) {
+          api<QBOAccount[]>('/integrations/quickbooks/accounts').then(setQboAccounts).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const filtered = items.filter(i => {
     if (!search) return true;
@@ -74,6 +92,8 @@ export function ProductCatalogPage() {
       pax8ProductName: item.pax8ProductName ?? '',
       pax8ProductId: item.pax8ProductId ?? '',
       pax8VendorName: item.pax8VendorName ?? '',
+      qboIncomeAccountId: item.qboIncomeAccountId ?? '',
+      qboCogAccountId: item.qboCogAccountId ?? '',
     });
     setShowForm(true);
   }
@@ -94,6 +114,8 @@ export function ProductCatalogPage() {
         pax8ProductName: form.pax8ProductName || undefined,
         pax8ProductId: form.pax8ProductId || undefined,
         pax8VendorName: form.pax8VendorName || undefined,
+        qboIncomeAccountId: form.qboIncomeAccountId || undefined,
+        qboCogAccountId: form.qboCogAccountId || undefined,
       };
 
       if (editingId) {
@@ -156,6 +178,7 @@ export function ProductCatalogPage() {
                   <th className="text-right p-3 font-medium">Price</th>
                   <th className="text-right p-3 font-medium">Margin</th>
                   <th className="text-left p-3 font-medium">Pax8</th>
+                  <th className="text-center p-3 font-medium">QB</th>
                   <th className="text-center p-3 font-medium">Tax</th>
                   <th className="w-20"></th>
                 </tr>
@@ -186,6 +209,13 @@ export function ProductCatalogPage() {
                       ) : <span className="text-muted-foreground">-</span>}
                     </td>
                     <td className="p-3 text-center">
+                      {item.qboItemId ? (
+                        <Badge variant="secondary" className="text-xs text-green-600">Synced</Badge>
+                      ) : item.qboIncomeAccountId ? (
+                        <Badge variant="outline" className="text-xs">Mapped</Badge>
+                      ) : <span className="text-xs text-muted-foreground">-</span>}
+                    </td>
+                    <td className="p-3 text-center">
                       {item.taxable ? <Badge variant="outline" className="text-xs text-green-600 border-green-300">Tax</Badge> : <span className="text-xs text-muted-foreground">No</span>}
                     </td>
                     <td className="p-3">
@@ -197,7 +227,7 @@ export function ProductCatalogPage() {
                   </tr>
                 ))}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">
+                  <tr><td colSpan={11} className="p-8 text-center text-muted-foreground">
                     {items.length === 0 ? 'No products in catalog yet' : 'No products match your search'}
                   </td></tr>
                 )}
@@ -294,6 +324,36 @@ export function ProductCatalogPage() {
                 <Input value={form.pax8VendorName} onChange={e => setForm({ ...form, pax8VendorName: e.target.value })} placeholder="Microsoft" />
               </div>
             </div>
+
+            {/* QuickBooks Mapping */}
+            {qboConnected && (
+              <div className="border-t pt-4">
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">QuickBooks Mapping</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Income Account (Revenue)</Label>
+                    <select value={form.qboIncomeAccountId} onChange={e => setForm({ ...form, qboIncomeAccountId: e.target.value })}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
+                      <option value="">Not mapped</option>
+                      {qboAccounts.filter(a => a.type === 'Income' || a.type === 'Other Income').map(a => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>COGS Account (Cost)</Label>
+                    <select value={form.qboCogAccountId} onChange={e => setForm({ ...form, qboCogAccountId: e.target.value })}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
+                      <option value="">Not mapped</option>
+                      {qboAccounts.filter(a => a.type === 'Cost of Goods Sold' || a.type === 'Expense').map(a => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">Map this item to QBO accounts. Revenue goes to the income account, cost goes to the COGS account. The item will auto-sync to QuickBooks when an invoice is sent.</p>
+              </div>
+            )}
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>

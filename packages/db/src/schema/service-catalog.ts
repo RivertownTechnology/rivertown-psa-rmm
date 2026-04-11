@@ -23,6 +23,11 @@ export const serviceCatalogItems = pgTable(
     pax8ProductId: text('pax8_product_id'),
     pax8VendorName: text('pax8_vendor_name'),
 
+    // QuickBooks Online mapping
+    qboItemId: text('qbo_item_id'),
+    qboIncomeAccountId: text('qbo_income_account_id'),
+    qboCogAccountId: text('qbo_cog_account_id'),
+
     taxable: boolean('taxable').default(true).notNull(),
     isActive: boolean('is_active').default(true).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

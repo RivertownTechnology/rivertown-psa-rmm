@@ -2,6 +2,7 @@ import { pgTable, uuid, text, integer, boolean, numeric, date, timestamp, index,
 import { tenants } from './tenants.js';
 import { customers } from './customers.js';
 import { contractLineItems } from './contracts.js';
+import { serviceCatalogItems } from './service-catalog.js';
 
 export const invoices = pgTable(
   'invoices',
@@ -48,8 +49,10 @@ export const invoiceLineItems = pgTable(
     quantity: numeric('quantity').default('1'),
     unitPriceCents: integer('unit_price_cents').notNull(),
     totalCents: integer('total_cents').notNull(),
+    unitCostCents: integer('unit_cost_cents'),
     taxable: boolean('taxable').default(true).notNull(),
     contractLineItemId: uuid('contract_line_item_id').references(() => contractLineItems.id),
+    catalogItemId: uuid('catalog_item_id').references(() => serviceCatalogItems.id),
     sortOrder: integer('sort_order').default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },

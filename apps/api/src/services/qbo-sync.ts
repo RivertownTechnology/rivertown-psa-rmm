@@ -1,5 +1,5 @@
 import { eq, and, isNull, inArray } from 'drizzle-orm';
-import { integrationConfigs, customers, invoices, invoiceLineItems, payments } from '@rivertown/db';
+import { integrationConfigs, customers, invoices, invoiceLineItems, payments, serviceCatalogItems } from '@rivertown/db';
 import { getQBOAuth, qboFetch } from '../modules/integrations/quickbooks.js';
 
 const SYNC_INTERVALS_MS: Record<string, number> = {
@@ -61,6 +61,52 @@ async function ensureDefaultItem(
   }).where(eq(integrationConfigs.id, auth.configId));
 
   return itemId;
+}
+
+// ── Catalog Item → QBO Item Sync ──────────────────────────────
+
+export async function syncCatalogItemToQBO(
+  db: any,
+  tenantId: string,
+  catalogItemId: string,
+  env: { clientId: string; clientSecret: string; sandbox: boolean },
+): Promise<string | null> {
+  const auth = await getQBOAuth(db, tenantId, env);
+  if (!auth) return null;
+
+  const [item] = await db.select().from(serviceCatalogItems)
+    .where(and(eq(serviceCatalogItems.id, catalogItemId), eq(serviceCatalogItems.tenantId, tenantId)))
+    .limit(1);
+
+  if (!item) return null;
+
+  // Already mapped
+  if (item.qboItemId) return item.qboItemId;
+
+  const qboItemPayload: Record<string, unknown> = {
+    Name: item.name.substring(0, 100), // QBO max 100 chars
+    Type: 'Service',
+    ...(item.qboIncomeAccountId ? { IncomeAccountRef: { value: item.qboIncomeAccountId } } : {}),
+    ...(item.qboCogAccountId ? { ExpenseAccountRef: { value: item.qboCogAccountId } } : {}),
+    ...(item.description ? { Description: item.description.substring(0, 4000) } : {}),
+    UnitPrice: item.defaultUnitPriceCents / 100,
+    ...(item.defaultUnitCostCents ? { PurchaseCost: item.defaultUnitCostCents / 100 } : {}),
+  };
+
+  const created = await qboFetch<{ Item: { Id: string } }>(
+    auth.accessToken, auth.apiBase, auth.realmId, 'POST',
+    '/item',
+    qboItemPayload,
+  );
+
+  const qboItemId = created.Item.Id;
+
+  await db.update(serviceCatalogItems).set({
+    qboItemId,
+    updatedAt: new Date(),
+  }).where(eq(serviceCatalogItems.id, catalogItemId));
+
+  return qboItemId;
 }
 
 // ── Customer Sync ─────────────────────────────────────────────
@@ -182,7 +228,7 @@ export async function syncInvoiceToQBO(
     if (!qboCustomerId) return null;
   }
 
-  // Get default item
+  // Get default item as fallback
   const defaultItemId = await ensureDefaultItem(db, auth);
 
   // Fetch line items
@@ -190,17 +236,38 @@ export async function syncInvoiceToQBO(
     .where(and(eq(invoiceLineItems.invoiceId, invoiceId), eq(invoiceLineItems.tenantId, tenantId)))
     .orderBy(invoiceLineItems.sortOrder);
 
-  // Build QBO invoice lines
-  const qboLines = lineItems.map((li: any) => ({
-    DetailType: 'SalesItemLineDetail',
-    Amount: li.totalCents / 100,
-    Description: li.description,
-    SalesItemLineDetail: {
-      Qty: parseFloat(li.quantity ?? '1'),
-      UnitPrice: li.unitPriceCents / 100,
-      ItemRef: { value: defaultItemId },
-    },
-  }));
+  // Build QBO invoice lines with per-item mapping
+  const qboLines = [];
+  for (const li of lineItems) {
+    let itemRefId = defaultItemId;
+
+    // If line item has a catalog item, use its QBO Item ID (or sync it first)
+    if (li.catalogItemId) {
+      const [catItem] = await db.select({ qboItemId: serviceCatalogItems.qboItemId })
+        .from(serviceCatalogItems)
+        .where(eq(serviceCatalogItems.id, li.catalogItemId))
+        .limit(1);
+
+      if (catItem?.qboItemId) {
+        itemRefId = catItem.qboItemId;
+      } else {
+        // Auto-sync the catalog item to QBO
+        const synced = await syncCatalogItemToQBO(db, tenantId, li.catalogItemId, resolvedEnv);
+        if (synced) itemRefId = synced;
+      }
+    }
+
+    qboLines.push({
+      DetailType: 'SalesItemLineDetail',
+      Amount: li.totalCents / 100,
+      Description: li.description,
+      SalesItemLineDetail: {
+        Qty: parseFloat(li.quantity ?? '1'),
+        UnitPrice: li.unitPriceCents / 100,
+        ItemRef: { value: itemRefId },
+      },
+    });
+  }
 
   // Build QBO invoice
   const qboInvoice: Record<string, unknown> = {
@@ -327,13 +394,34 @@ export async function runQBOSyncForTenant(
   db: any,
   tenantId: string,
   env: { clientId: string; clientSecret: string; sandbox: boolean },
-): Promise<{ customers: number; invoices: number; payments: number }> {
+): Promise<{ customers: number; invoices: number; payments: number; catalogItems: number }> {
   const auth = await getQBOAuth(db, tenantId, env);
   if (!auth) throw new Error('QuickBooks is not connected.');
 
   let customerCount = 0;
   let invoiceCount = 0;
   let paymentCount = 0;
+  let catalogItemCount = 0;
+
+  // 0. Sync all catalog items that have QBO account mappings but no qboItemId
+  const unsyncedCatalogItems = await db.select().from(serviceCatalogItems)
+    .where(and(
+      eq(serviceCatalogItems.tenantId, tenantId),
+      isNull(serviceCatalogItems.qboItemId),
+      eq(serviceCatalogItems.isActive, true),
+    ));
+
+  for (const item of unsyncedCatalogItems) {
+    // Only sync items that have at least an income account mapped
+    if (item.qboIncomeAccountId) {
+      try {
+        await syncCatalogItemToQBO(db, tenantId, item.id, env);
+        catalogItemCount++;
+      } catch (err) {
+        console.error(`[QBO-SYNC] Catalog item ${item.id} failed:`, err);
+      }
+    }
+  }
 
   // 1. Sync all customers that don't have a qboCustomerId
   const unsyncedCustomers = await db.select().from(customers)
@@ -385,7 +473,7 @@ export async function runQBOSyncForTenant(
     }
   }
 
-  return { customers: customerCount, invoices: invoiceCount, payments: paymentCount };
+  return { customers: customerCount, invoices: invoiceCount, payments: paymentCount, catalogItems: catalogItemCount };
 }
 
 // ── Background Scheduler ──────────────────────────────────────

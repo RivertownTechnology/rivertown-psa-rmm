@@ -151,9 +151,20 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   // Add line item to invoice
   fastify.post('/api/v1/invoices/:id/line-items', { preHandler: [fastify.authenticate, requirePermission('invoices:write')] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = request.body as { description: string; quantity?: string; unitPriceCents: number };
+    const body = request.body as { description: string; quantity?: string; unitPriceCents: number; catalogItemId?: string };
     const qty = parseFloat(body.quantity ?? '1');
     const totalCents = Math.round(body.unitPriceCents * qty);
+
+    // If catalogItemId provided, look up cost from catalog
+    let unitCostCents: number | null = null;
+    if (body.catalogItemId) {
+      const { serviceCatalogItems } = await import('@rivertown/db');
+      const [catItem] = await fastify.db.select({ cost: serviceCatalogItems.defaultUnitCostCents })
+        .from(serviceCatalogItems)
+        .where(and(eq(serviceCatalogItems.id, body.catalogItemId), eq(serviceCatalogItems.tenantId, request.tenantId)))
+        .limit(1);
+      if (catItem?.cost) unitCostCents = catItem.cost;
+    }
 
     const [item] = await fastify.db.insert(invoiceLineItems).values({
       tenantId: request.tenantId,
@@ -162,6 +173,8 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       quantity: body.quantity ?? '1',
       unitPriceCents: body.unitPriceCents,
       totalCents,
+      unitCostCents,
+      catalogItemId: body.catalogItemId ?? null,
     }).returning();
 
     // Recalculate invoice totals
@@ -291,7 +304,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
       // Calculate subtotal from line items
       let subtotalCents = 0;
-      const invoiceLines: { description: string; quantity: string; unitPriceCents: number; totalCents: number }[] = [];
+      const invoiceLines: { description: string; quantity: string; unitPriceCents: number; totalCents: number; unitCostCents: number | null; catalogItemId: string | null }[] = [];
 
       for (const li of lineItems) {
         const qty = parseFloat(li.quantity ?? '1');
@@ -302,6 +315,8 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
           quantity: li.quantity ?? '1',
           unitPriceCents: li.unitPriceCents,
           totalCents: lineTotal,
+          unitCostCents: li.unitCostCents ?? null,
+          catalogItemId: li.catalogItemId ?? null,
         });
       }
 
@@ -332,6 +347,8 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
           quantity: line.quantity,
           unitPriceCents: line.unitPriceCents,
           totalCents: line.totalCents,
+          unitCostCents: line.unitCostCents,
+          catalogItemId: line.catalogItemId,
         });
       }
 

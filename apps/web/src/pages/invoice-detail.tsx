@@ -42,7 +42,9 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
 
   // Add line item
   const [showAddItem, setShowAddItem] = useState(false);
-  const [itemForm, setItemForm] = useState({ description: '', unitPriceCents: '', quantity: '1' });
+  const [itemForm, setItemForm] = useState({ description: '', unitPriceCents: '', quantity: '1', catalogItemId: '' });
+  const [catalogItems, setCatalogItems] = useState<Array<{ id: string; name: string; description: string | null; defaultUnitPriceCents: number; category: string }>>([]);
+  const [showCatalog, setShowCatalog] = useState(false);
 
   // Record payment
   const [showPayment, setShowPayment] = useState(false);
@@ -125,10 +127,15 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
     try {
       await api(`/invoices/${invoiceId}/line-items`, {
         method: 'POST',
-        body: JSON.stringify({ description: itemForm.description, unitPriceCents: Math.round(parseFloat(itemForm.unitPriceCents) * 100), quantity: itemForm.quantity }),
+        body: JSON.stringify({
+          description: itemForm.description,
+          unitPriceCents: Math.round(parseFloat(itemForm.unitPriceCents) * 100),
+          quantity: itemForm.quantity,
+          ...(itemForm.catalogItemId ? { catalogItemId: itemForm.catalogItemId } : {}),
+        }),
       });
       setShowAddItem(false);
-      setItemForm({ description: '', unitPriceCents: '', quantity: '1' });
+      setItemForm({ description: '', unitPriceCents: '', quantity: '1', catalogItemId: '' });
       await loadInvoice();
     } finally { setSaving(false); }
   }
@@ -353,23 +360,63 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
       </Tabs>
 
       {/* Add Line Item Dialog */}
-      <Dialog open={showAddItem} onOpenChange={setShowAddItem}>
+      <Dialog open={showAddItem} onOpenChange={(open) => { setShowAddItem(open); if (open) { setShowCatalog(false); api<typeof catalogItems>('/service-catalog').then(setCatalogItems).catch(() => {}); } }}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Add Line Item</DialogTitle></DialogHeader>
-          <form onSubmit={addLineItem} className="space-y-4">
-            <div className="space-y-2"><Label>Description</Label><Input required value={itemForm.description} onChange={e => setItemForm({ ...itemForm, description: e.target.value })} placeholder="Managed IT Services" /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>Quantity</Label><Input type="number" min="1" step="0.01" value={itemForm.quantity} onChange={e => setItemForm({ ...itemForm, quantity: e.target.value })} /></div>
-              <div className="space-y-2"><Label>Unit Price ($)</Label><Input type="number" step="0.01" min="0" required placeholder="100.00" value={itemForm.unitPriceCents} onChange={e => setItemForm({ ...itemForm, unitPriceCents: e.target.value })} /></div>
+
+          {showCatalog ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">Select an item from the product catalog</p>
+                <Button size="sm" variant="ghost" onClick={() => setShowCatalog(false)}>Back to manual</Button>
+              </div>
+              <div className="max-h-64 overflow-y-auto border rounded-md divide-y">
+                {catalogItems.length === 0 ? (
+                  <div className="p-4 text-center text-sm text-muted-foreground">No catalog items found</div>
+                ) : catalogItems.map(item => (
+                  <button
+                    key={item.id}
+                    className="w-full text-left px-3 py-2 hover:bg-muted/50 flex items-center justify-between"
+                    onClick={() => {
+                      setItemForm({
+                        description: item.description || item.name,
+                        unitPriceCents: (item.defaultUnitPriceCents / 100).toFixed(2),
+                        quantity: '1',
+                        catalogItemId: item.id,
+                      });
+                      setShowCatalog(false);
+                    }}
+                  >
+                    <div>
+                      <div className="font-medium text-sm">{item.name}</div>
+                      {item.description && item.description !== item.name && <div className="text-xs text-muted-foreground">{item.description}</div>}
+                    </div>
+                    <span className="text-sm font-medium">${(item.defaultUnitPriceCents / 100).toFixed(2)}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-            {itemForm.unitPriceCents && itemForm.quantity && (
-              <div className="bg-muted p-3 rounded-md text-sm flex justify-between"><span>Line total:</span><span className="font-medium">${(parseFloat(itemForm.unitPriceCents) * parseFloat(itemForm.quantity)).toFixed(2)}</span></div>
-            )}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setShowAddItem(false)}>Cancel</Button>
-              <Button type="submit" disabled={saving}>{saving ? 'Adding...' : 'Add Line Item'}</Button>
-            </DialogFooter>
-          </form>
+          ) : (
+            <form onSubmit={addLineItem} className="space-y-4">
+              <div className="flex justify-end">
+                <Button type="button" size="sm" variant="outline" onClick={() => setShowCatalog(true)}>
+                  <Plus className="h-3 w-3 mr-1" />From Catalog
+                </Button>
+              </div>
+              <div className="space-y-2"><Label>Description</Label><Input required value={itemForm.description} onChange={e => setItemForm({ ...itemForm, description: e.target.value })} placeholder="Managed IT Services" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2"><Label>Quantity</Label><Input type="number" min="1" step="0.01" value={itemForm.quantity} onChange={e => setItemForm({ ...itemForm, quantity: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Unit Price ($)</Label><Input type="number" step="0.01" min="0" required placeholder="100.00" value={itemForm.unitPriceCents} onChange={e => setItemForm({ ...itemForm, unitPriceCents: e.target.value })} /></div>
+              </div>
+              {itemForm.unitPriceCents && itemForm.quantity && (
+                <div className="bg-muted p-3 rounded-md text-sm flex justify-between"><span>Line total:</span><span className="font-medium">${(parseFloat(itemForm.unitPriceCents) * parseFloat(itemForm.quantity)).toFixed(2)}</span></div>
+              )}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setShowAddItem(false)}>Cancel</Button>
+                <Button type="submit" disabled={saving}>{saving ? 'Adding...' : 'Add Line Item'}</Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
 

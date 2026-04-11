@@ -492,4 +492,48 @@ export async function quickbooksRoutes(fastify: FastifyInstance) {
       throw new Error('QuickBooks sync failed. Check the sync status for details.');
     }
   });
+
+  // ─── List QBO Chart of Accounts (for mapping dropdowns) ───
+  fastify.get('/api/v1/integrations/quickbooks/accounts', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const env = getQBOEnv(fastify);
+    const auth = await getQBOAuth(fastify.db, request.tenantId, env);
+    if (!auth) throw new Error('QuickBooks is not connected.');
+
+    const query = encodeURIComponent("SELECT * FROM Account WHERE AccountType IN ('Income', 'Cost of Goods Sold', 'Expense', 'Other Income') MAXRESULTS 200");
+    const result = await qboFetch<{ QueryResponse: { Account?: Array<{ Id: string; Name: string; AccountType: string; FullyQualifiedName: string }> } }>(
+      auth.accessToken, auth.apiBase, auth.realmId, 'GET',
+      `/query?query=${query}`,
+    );
+
+    const accounts = result.QueryResponse?.Account ?? [];
+    return accounts.map(a => ({
+      id: a.Id,
+      name: a.FullyQualifiedName || a.Name,
+      type: a.AccountType,
+    }));
+  });
+
+  // ─── List QBO Items (for reference) ───
+  fastify.get('/api/v1/integrations/quickbooks/items', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const env = getQBOEnv(fastify);
+    const auth = await getQBOAuth(fastify.db, request.tenantId, env);
+    if (!auth) throw new Error('QuickBooks is not connected.');
+
+    const query = encodeURIComponent("SELECT * FROM Item MAXRESULTS 200");
+    const result = await qboFetch<{ QueryResponse: { Item?: Array<{ Id: string; Name: string; Type: string }> } }>(
+      auth.accessToken, auth.apiBase, auth.realmId, 'GET',
+      `/query?query=${query}`,
+    );
+
+    const items = result.QueryResponse?.Item ?? [];
+    return items.map(i => ({
+      id: i.Id,
+      name: i.Name,
+      type: i.Type,
+    }));
+  });
 }

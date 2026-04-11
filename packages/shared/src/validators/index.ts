@@ -226,6 +226,9 @@ export const createCatalogItemSchema = z.object({
   pax8ProductName: z.string().optional(),
   pax8ProductId: z.string().optional(),
   pax8VendorName: z.string().optional(),
+  qboItemId: z.string().optional(),
+  qboIncomeAccountId: z.string().optional(),
+  qboCogAccountId: z.string().optional(),
   taxable: z.boolean().default(true),
   isActive: z.boolean().default(true),
 });
