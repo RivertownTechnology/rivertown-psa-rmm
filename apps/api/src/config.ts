@@ -6,7 +6,7 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().default('15m'),
   REFRESH_TOKEN_EXPIRES_IN: z.string().default('7d'),
-  ENCRYPTION_KEY: z.string().min(16).optional(),
+  ENCRYPTION_KEY: z.string().length(64, 'ENCRYPTION_KEY must be 64 hex characters (32 bytes)').optional(),
   PORT: z.coerce.number().default(3000),
   HOST: z.string().default('0.0.0.0'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -21,6 +21,11 @@ const envSchema = z.object({
   // Stripe
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_WEBHOOK_PATH: z.string().default('stripe'),
+
+  // Passkeys (WebAuthn)
+  PASSKEY_RP_ID: z.string().default('portal.rivertowntechnology.com'),
+  PASSKEY_ORIGIN: z.string().default('https://portal.rivertowntechnology.com'),
 
   // QuickBooks Online
   QBO_CLIENT_ID: z.string().optional(),

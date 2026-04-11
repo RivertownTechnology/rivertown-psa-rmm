@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { randomUUID } from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { compare } from 'bcryptjs';
 import { users, tenants } from '@rivertown/db';
@@ -11,84 +12,8 @@ export async function authRoutes(fastify: FastifyInstance) {
     '/api/v1/auth/login',
     { config: { public: true, rateLimit: { max: 5, timeWindow: '5 minutes' } } as any },
     async (request, reply) => {
-      const body = loginSchema.parse(request.body);
-
-      const [user] = await fastify.db
-        .select()
-        .from(users)
-        .where(eq(users.email, body.email))
-        .limit(1);
-
-      if (!user || !user.passwordHash) {
-        throw new UnauthorizedError('Invalid email or password');
-      }
-
-      const validPassword = await compare(body.password, user.passwordHash);
-      if (!validPassword) {
-        await logAudit(fastify.db, {
-          tenantId: user.tenantId, actorType: 'user', actorId: user.id,
-          action: 'auth.login.failed', entityType: 'user', entityId: user.id, ipAddress: request.ip,
-        });
-        throw new UnauthorizedError('Invalid email or password');
-      }
-
-      if (!user.isActive) {
-        throw new UnauthorizedError('Invalid email or password');
-      }
-
-      // Check if MFA is required (user-level or tenant-level)
-      const [tenant] = await fastify.db
-        .select({ mfaRequired: tenants.mfaRequired })
-        .from(tenants)
-        .where(eq(tenants.id, user.tenantId))
-        .limit(1);
-
-      if (user.mfaEnabled) {
-        // Issue a short-lived MFA challenge token (not a real access token)
-        const mfaToken = fastify.jwt.sign(
-          { sub: user.id, tid: user.tenantId, role: user.role, type: 'mfa_challenge' as const },
-          { expiresIn: '5m' },
-        );
-
-        return {
-          mfaRequired: true,
-          mfaToken,
-          mfaProvider: user.mfaProvider,
-        };
-      }
-
-      // If tenant requires MFA but user hasn't set it up, let them in but flag it
-      const mfaSetupRequired = (tenant?.mfaRequired && !user.mfaEnabled) || false;
-
-      const accessToken = fastify.jwt.sign(
-        { sub: user.id, tid: user.tenantId, role: user.role, type: 'access' as const },
-        { expiresIn: fastify.config.JWT_EXPIRES_IN },
-      );
-
-      const refreshToken = fastify.jwt.sign(
-        { sub: user.id, tid: user.tenantId, role: user.role, type: 'refresh' as const },
-        { expiresIn: fastify.config.REFRESH_TOKEN_EXPIRES_IN },
-      );
-
-      await logAudit(fastify.db, {
-        tenantId: user.tenantId, actorType: 'user', actorId: user.id,
-        action: 'auth.login.success', entityType: 'user', entityId: user.id, ipAddress: request.ip,
-      });
-
-      return {
-        accessToken,
-        refreshToken,
-        mfaRequired: false,
-        mfaSetupRequired,
-        user: {
-          id: user.id,
-          email: user.email,
-          displayName: user.displayName,
-          role: user.role,
-          tenantId: user.tenantId,
-          mfaEnabled: user.mfaEnabled,
-        },
-      };
+      // Password login disabled — use Google SSO
+      throw new UnauthorizedError('Password login is disabled. Please sign in with Google SSO.');
     },
   );
 
@@ -119,13 +44,13 @@ export async function authRoutes(fastify: FastifyInstance) {
       }
 
       const accessToken = fastify.jwt.sign(
-        { sub: user.id, tid: user.tenantId, role: user.role, type: 'access' as const },
+        { jti: randomUUID(), sub: user.id, tid: user.tenantId, role: user.role, type: 'access' as const },
         { expiresIn: fastify.config.JWT_EXPIRES_IN },
       );
 
       // Rotate refresh token
       const newRefreshToken = fastify.jwt.sign(
-        { sub: user.id, tid: user.tenantId, role: user.role, type: 'refresh' as const },
+        { jti: randomUUID(), sub: user.id, tid: user.tenantId, role: user.role, type: 'refresh' as const },
         { expiresIn: fastify.config.REFRESH_TOKEN_EXPIRES_IN },
       );
 
@@ -153,5 +78,15 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     if (!user) throw new UnauthorizedError('User not found');
     return user;
+  });
+
+  // Logout — blacklist current token
+  fastify.post('/api/v1/auth/logout', async (request) => {
+    const { blacklistToken } = await import('../common/token-blacklist.js');
+    const payload = request.user;
+    if (payload.jti && payload.exp) {
+      await blacklistToken(payload.jti, payload.exp);
+    }
+    return { success: true };
   });
 }

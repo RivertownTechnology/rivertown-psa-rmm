@@ -3,6 +3,7 @@ import type { Transporter } from 'nodemailer';
 import { eq, and } from 'drizzle-orm';
 import { integrationConfigs } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
+import { readCredentials } from '../common/credentials.js';
 
 interface EmailAttachment {
   filename: string;
@@ -28,7 +29,7 @@ async function getFreshGmailToken(db: Database, tenantId: string): Promise<{ acc
     .limit(1);
   if (!gmailConfig?.isEnabled) return null;
 
-  const creds = gmailConfig.credentials as Record<string, unknown>;
+  const creds = readCredentials(gmailConfig.credentials);
   const clientId = (creds.clientId as string) || process.env.GOOGLE_CLIENT_ID || '';
   const clientSecret = (creds.clientSecret as string) || process.env.GOOGLE_CLIENT_SECRET || '';
 
@@ -91,7 +92,7 @@ export async function getEmailTransporter(db: Database, tenantId: string): Promi
 
   if (!config || !config.isEnabled) return null;
 
-  const creds = config.credentials as Record<string, unknown>;
+  const creds = readCredentials(config.credentials);
   const provider = (creds.provider as string) ?? 'smtp';
 
   // Gmail OAuth2
@@ -202,7 +203,7 @@ export async function sendEmail(db: Database, tenantId: string, options: EmailOp
 
   if (!config || !config.isEnabled) return false;
 
-  const creds = (config?.credentials as Record<string, unknown>) ?? {};
+  const creds = readCredentials(config?.credentials);
   const provider = (creds.provider as string) ?? 'smtp';
 
   console.log(`[EMAIL-SEND] Sending to=${options.to} subject="${options.subject}" via ${provider}`);
@@ -259,7 +260,7 @@ export async function sendBillingEmail(db: Database, tenantId: string, options: 
     return sendEmail(db, tenantId, options);
   }
 
-  const creds = (config.credentials as Record<string, unknown>) ?? {};
+  const creds = readCredentials(config.credentials);
   const apiKey = creds.apiKey as string;
   const secretKey = creds.secretKey as string;
   const fromAddress = (creds.fromAddress as string) ?? 'billing@localhost';

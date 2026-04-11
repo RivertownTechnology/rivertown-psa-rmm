@@ -1,3 +1,7 @@
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 export function renderTemplate(template: string, variables: Record<string, string>): string {
   // 1. Process conditional blocks: {{#var}}...{{/var}} — show block if var is truthy
   let result = template.replace(/\{\{#(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}/g, (_match, key, content) => {
@@ -205,10 +209,10 @@ export function generateInvoiceHtml(data: {
 
   const rows = d.lineItems.map(li => `
     <tr>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">${li.description}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${li.quantity}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${li.unitPrice}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:600">${li.total}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">${escapeHtml(li.description)}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${escapeHtml(li.quantity)}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${escapeHtml(li.unitPrice)}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:600">${escapeHtml(li.total)}</td>
     </tr>`).join('');
 
   return `<!DOCTYPE html>
@@ -268,9 +272,9 @@ export function generateInvoiceHtml(data: {
     </div>
   </div>
 
-  ${d.notes ? `<div style="background:#f9fafb;padding:16px;border-radius:8px;margin-bottom:16px"><div style="font-size:11px;text-transform:uppercase;color:#9ca3af;margin-bottom:4px">Notes</div><div>${d.notes}</div></div>` : ''}
-  ${d.paymentTerms ? `<div style="font-size:12px;color:#9ca3af;margin-bottom:8px">${d.paymentTerms}</div>` : ''}
-  ${d.footer ? `<div style="font-size:12px;color:#9ca3af;text-align:center;margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb">${d.footer}</div>` : ''}
+  ${d.notes ? `<div style="background:#f9fafb;padding:16px;border-radius:8px;margin-bottom:16px"><div style="font-size:11px;text-transform:uppercase;color:#9ca3af;margin-bottom:4px">Notes</div><div>${escapeHtml(d.notes)}</div></div>` : ''}
+  ${d.paymentTerms ? `<div style="font-size:12px;color:#9ca3af;margin-bottom:8px">${escapeHtml(d.paymentTerms)}</div>` : ''}
+  ${d.footer ? `<div style="font-size:12px;color:#9ca3af;text-align:center;margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb">${escapeHtml(d.footer)}</div>` : ''}
 </div></body></html>`;
 }
 

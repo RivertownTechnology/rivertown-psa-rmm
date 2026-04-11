@@ -5,13 +5,14 @@ import { eq, and } from 'drizzle-orm';
 import { invoices, payments, customers, integrationConfigs } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError } from '../../common/errors.js';
+import { readCredentials, writeCredentials } from '../../common/credentials.js';
 
 async function getStripeFromDb(db: any, tenantId: string): Promise<{ stripe: Stripe; webhookSecret: string } | null> {
   const [config] = await db.select().from(integrationConfigs)
     .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'stripe')))
     .limit(1);
   if (!config?.isEnabled) return null;
-  const creds = (config.credentials ?? {}) as Record<string, string>;
+  const creds = readCredentials(config.credentials) as Record<string, string>;
   if (!creds.secretKey) return null;
   return { stripe: new Stripe(creds.secretKey), webhookSecret: creds.webhookSecret || '' };
 }
@@ -24,7 +25,7 @@ async function verifyWebhookForTenant(
     .where(and(eq(integrationConfigs.provider, 'stripe'), eq(integrationConfigs.isEnabled, true)));
 
   for (const config of configs) {
-    const creds = (config.credentials ?? {}) as Record<string, string>;
+    const creds = readCredentials(config.credentials) as Record<string, string>;
     if (!creds.secretKey || !creds.webhookSecret) continue;
 
     const stripe = new Stripe(creds.secretKey);
@@ -46,7 +47,7 @@ export async function stripeRoutes(fastify: FastifyInstance) {
     const [config] = await fastify.db.select().from(integrationConfigs)
       .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'stripe')))
       .limit(1);
-    const creds = (config?.credentials ?? {}) as Record<string, string>;
+    const creds = readCredentials(config?.credentials) as Record<string, string>;
     return {
       isEnabled: config?.isEnabled ?? false,
       secretKey: creds.secretKey ? '••••••••' + creds.secretKey.slice(-4) : '',
@@ -63,12 +64,12 @@ export async function stripeRoutes(fastify: FastifyInstance) {
       .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'stripe')))
       .limit(1);
 
-    const prevCreds = (existing?.credentials ?? {}) as Record<string, string>;
-    const credentials: Record<string, string> = {
+    const prevCreds = readCredentials(existing?.credentials) as Record<string, string>;
+    const credentials = writeCredentials({
       secretKey: body.secretKey?.startsWith('sk_') ? body.secretKey : prevCreds.secretKey || '',
       webhookSecret: body.webhookSecret?.startsWith('whsec_') ? body.webhookSecret : prevCreds.webhookSecret || '',
       publishableKey: body.publishableKey || prevCreds.publishableKey || '',
-    };
+    });
 
     if (existing) {
       await fastify.db.update(integrationConfigs).set({
@@ -156,7 +157,8 @@ export async function stripeRoutes(fastify: FastifyInstance) {
   });
 
   // Stripe webhook handler — processes payment confirmations
-  fastify.post('/api/v1/webhooks/stripe', {
+  const webhookPath = (fastify.config as any).STRIPE_WEBHOOK_PATH || 'stripe';
+  fastify.post(`/api/v1/webhooks/${webhookPath}`, {
     config: { public: true } as any,
   }, async (request, reply) => {
     const sig = request.headers['stripe-signature'] as string;

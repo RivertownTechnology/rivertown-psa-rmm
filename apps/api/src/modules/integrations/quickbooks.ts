@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { integrationConfigs } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
+import { readCredentials, writeCredentials } from '../../common/credentials.js';
 
 // Intuit OAuth endpoints
 const INTUIT_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2';
@@ -103,7 +104,7 @@ export async function getQBOAuth(
 
   if (!config?.isEnabled) return null;
 
-  const creds = config.credentials as QBOCredentials | null;
+  const creds = readCredentials(config.credentials) as unknown as QBOCredentials | null;
   if (!creds?.accessToken || !creds?.refreshToken || !creds?.realmId) return null;
 
   // Auto-refresh if within 60 seconds of expiry
@@ -130,7 +131,7 @@ export async function getQBOAuth(
       };
 
       await db.update(integrationConfigs).set({
-        credentials: updatedCreds,
+        credentials: writeCredentials(updatedCreds as unknown as Record<string, unknown>),
         updatedAt: new Date(),
       }).where(eq(integrationConfigs.id, config.id));
 
@@ -215,7 +216,7 @@ export async function quickbooksRoutes(fastify: FastifyInstance) {
       };
     }
 
-    const creds = (config.credentials ?? {}) as Partial<QBOCredentials>;
+    const creds = readCredentials(config.credentials) as Partial<QBOCredentials>;
     const settings = (config.settings ?? {}) as QBOSettings;
 
     return {
@@ -357,7 +358,7 @@ export async function quickbooksRoutes(fastify: FastifyInstance) {
       // Non-critical — we can proceed without the name
     }
 
-    const credentials: QBOCredentials = {
+    const credentialsRaw: QBOCredentials = {
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       realmId,
@@ -366,6 +367,8 @@ export async function quickbooksRoutes(fastify: FastifyInstance) {
     };
 
     // Upsert integration config
+    const credentials = writeCredentials(credentialsRaw as unknown as Record<string, unknown>);
+
     const [existing] = await fastify.db.select().from(integrationConfigs)
       .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'quickbooks')))
       .limit(1);
@@ -401,7 +404,7 @@ export async function quickbooksRoutes(fastify: FastifyInstance) {
       .limit(1);
 
     if (config) {
-      const creds = (config.credentials ?? {}) as Partial<QBOCredentials>;
+      const creds = readCredentials(config.credentials) as Partial<QBOCredentials>;
       const env = getQBOEnv(fastify);
 
       // Best-effort token revocation
@@ -442,7 +445,7 @@ export async function quickbooksRoutes(fastify: FastifyInstance) {
       .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'quickbooks')))
       .limit(1);
 
-    const creds = (config?.credentials ?? {}) as Partial<QBOCredentials>;
+    const creds = readCredentials(config?.credentials) as Partial<QBOCredentials>;
 
     return {
       configured: !!(env.clientId && env.clientSecret),

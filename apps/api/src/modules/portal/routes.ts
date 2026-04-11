@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { randomUUID } from 'crypto';
 import { eq, and, desc, sql, count } from 'drizzle-orm';
 import { compare, hash } from 'bcryptjs';
 import { contacts, tickets, ticketComments, quotes, invoices, assets, tenantSequences } from '@rivertown/db';
@@ -40,12 +41,12 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const portalPerms = (contact.portalPermissions as string[]) ?? ['tickets'];
 
     const accessToken = fastify.jwt.sign(
-      { sub: contact.id, tid: contact.tenantId, cid: contact.customerId, role: 'portal_user', portalRole, perms: portalPerms, type: 'access' as const },
+      { jti: randomUUID(), sub: contact.id, tid: contact.tenantId, cid: contact.customerId, role: 'portal_user', portalRole, perms: portalPerms, type: 'access' as const },
       { expiresIn: '4h' },
     );
 
     const refreshToken = fastify.jwt.sign(
-      { sub: contact.id, tid: contact.tenantId, cid: contact.customerId, role: 'portal_user', portalRole, perms: portalPerms, type: 'refresh' as const },
+      { jti: randomUUID(), sub: contact.id, tid: contact.tenantId, cid: contact.customerId, role: 'portal_user', portalRole, perms: portalPerms, type: 'refresh' as const },
       { expiresIn: '7d' },
     );
 
@@ -84,6 +85,16 @@ export async function portalRoutes(fastify: FastifyInstance) {
       updatedAt: new Date(),
     }).where(eq(contacts.id, user.sub));
 
+    return { success: true };
+  });
+
+  // Portal logout — blacklist current token
+  fastify.post('/api/v1/portal/auth/logout', async (request) => {
+    const { blacklistToken } = await import('../../common/token-blacklist.js');
+    const payload = request.user as any;
+    if (payload.jti && payload.exp) {
+      await blacklistToken(payload.jti, payload.exp);
+    }
     return { success: true };
   });
 
@@ -309,7 +320,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const { contactId } = request.params as { contactId: string };
     const { password, permissions } = request.body as { password: string; permissions?: string[] };
 
-    if (!password || password.length < 8) throw new ValidationError('Password must be at least 8 characters');
+    if (!password || password.length < 12) throw new ValidationError('Password must be at least 12 characters');
 
     const [contact] = await fastify.db.select().from(contacts)
       .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, user.tid), eq(contacts.customerId, user.cid)))
@@ -379,5 +390,185 @@ export async function portalRoutes(fastify: FastifyInstance) {
     }).where(eq(contacts.id, contactId));
 
     return { success: true };
+  });
+
+  // ===== PASSKEY (WebAuthn) AUTHENTICATION =====
+
+  const RP_NAME = 'Rivertown Customer Portal';
+  const RP_ID = process.env.PASSKEY_RP_ID || 'portal.rivertowntechnology.com';
+  const ORIGIN = process.env.PASSKEY_ORIGIN || `https://${RP_ID}`;
+
+  // In-memory challenge store (short-lived, 5 min TTL)
+  const challengeStore = new Map<string, { challenge: string; expiresAt: number }>();
+  function storeChallenge(key: string, challenge: string) {
+    challengeStore.set(key, { challenge, expiresAt: Date.now() + 5 * 60 * 1000 });
+    // Cleanup expired
+    for (const [k, v] of challengeStore) { if (v.expiresAt < Date.now()) challengeStore.delete(k); }
+  }
+  function getChallenge(key: string): string | null {
+    const entry = challengeStore.get(key);
+    challengeStore.delete(key);
+    if (!entry || entry.expiresAt < Date.now()) return null;
+    return entry.challenge;
+  }
+
+  // Generate registration options (must be logged in)
+  fastify.post('/api/v1/portal/auth/passkey/register-options', async (request) => {
+    const { passkeyCredentials } = await import('@rivertown/db');
+    const { generateRegistrationOptions } = await import('@simplewebauthn/server');
+    const user = request.user as any;
+
+    const existing = await fastify.db.select({ credentialId: passkeyCredentials.credentialId })
+      .from(passkeyCredentials).where(eq(passkeyCredentials.contactId, user.sub));
+
+    const options = await generateRegistrationOptions({
+      rpName: RP_NAME,
+      rpID: RP_ID,
+      userName: user.sub,
+      attestationType: 'none',
+      excludeCredentials: existing.map(c => ({ id: c.credentialId })),
+      authenticatorSelection: {
+        residentKey: 'preferred',
+        userVerification: 'preferred',
+      },
+    });
+
+    storeChallenge(`reg:${user.sub}`, options.challenge);
+    return options;
+  });
+
+  // Verify registration
+  fastify.post('/api/v1/portal/auth/passkey/register', async (request) => {
+    const { passkeyCredentials } = await import('@rivertown/db');
+    const { verifyRegistrationResponse } = await import('@simplewebauthn/server');
+    const user = request.user as any;
+    const body = request.body as any;
+
+    const expectedChallenge = getChallenge(`reg:${user.sub}`);
+    if (!expectedChallenge) throw new ValidationError('Registration challenge expired. Please try again.');
+
+    const verification = await verifyRegistrationResponse({
+      response: body,
+      expectedChallenge,
+      expectedOrigin: ORIGIN,
+      expectedRPID: RP_ID,
+    });
+
+    if (!verification.verified || !verification.registrationInfo) {
+      throw new ValidationError('Passkey verification failed');
+    }
+
+    const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
+
+    await fastify.db.insert(passkeyCredentials).values({
+      tenantId: user.tid,
+      contactId: user.sub,
+      credentialId: credential.id,
+      publicKey: Buffer.from(credential.publicKey).toString('base64'),
+      counter: credential.counter,
+      deviceType: credentialDeviceType,
+      backedUp: credentialBackedUp,
+      transports: body.response?.transports?.join(',') || null,
+    });
+
+    return { success: true, message: 'Passkey registered successfully' };
+  });
+
+  // Generate authentication options (public — takes email)
+  fastify.post('/api/v1/portal/auth/passkey/login-options', {
+    config: { public: true, rateLimit: { max: 10, timeWindow: '1 minute' } } as any,
+  }, async (request) => {
+    const { passkeyCredentials } = await import('@rivertown/db');
+    const { generateAuthenticationOptions } = await import('@simplewebauthn/server');
+    const { email } = request.body as { email: string };
+    if (!email) throw new ValidationError('Email required');
+
+    // Find contact by email
+    const [contact] = await fastify.db.select({ id: contacts.id })
+      .from(contacts).where(eq(contacts.email, email.toLowerCase().trim())).limit(1);
+
+    if (!contact) {
+      // Don't reveal if contact exists — return generic options
+      const options = await generateAuthenticationOptions({ rpID: RP_ID });
+      storeChallenge(`auth:unknown`, options.challenge);
+      return options;
+    }
+
+    const creds = await fastify.db.select({ credentialId: passkeyCredentials.credentialId, transports: passkeyCredentials.transports })
+      .from(passkeyCredentials).where(eq(passkeyCredentials.contactId, contact.id));
+
+    const options = await generateAuthenticationOptions({
+      rpID: RP_ID,
+      allowCredentials: creds.map(c => ({
+        id: c.credentialId,
+        transports: (c.transports?.split(',') || []) as any[],
+      })),
+    });
+
+    storeChallenge(`auth:${contact.id}`, options.challenge);
+    return options;
+  });
+
+  // Verify authentication (public)
+  fastify.post('/api/v1/portal/auth/passkey/login', {
+    config: { public: true, rateLimit: { max: 5, timeWindow: '5 minutes' } } as any,
+  }, async (request) => {
+    const { passkeyCredentials } = await import('@rivertown/db');
+    const { verifyAuthenticationResponse } = await import('@simplewebauthn/server');
+    const body = request.body as any;
+
+    // Find the credential
+    const [cred] = await fastify.db.select().from(passkeyCredentials)
+      .where(eq(passkeyCredentials.credentialId, body.id)).limit(1);
+
+    if (!cred) throw new ValidationError('Passkey not recognized');
+
+    const expectedChallenge = getChallenge(`auth:${cred.contactId}`);
+    if (!expectedChallenge) throw new ValidationError('Authentication challenge expired. Please try again.');
+
+    const verification = await verifyAuthenticationResponse({
+      response: body,
+      expectedChallenge,
+      expectedOrigin: ORIGIN,
+      expectedRPID: RP_ID,
+      credential: {
+        id: cred.credentialId,
+        publicKey: Buffer.from(cred.publicKey, 'base64'),
+        counter: cred.counter,
+        transports: (cred.transports?.split(',') || []) as any[],
+      },
+    });
+
+    if (!verification.verified) throw new ValidationError('Passkey verification failed');
+
+    // Update counter
+    await fastify.db.update(passkeyCredentials).set({
+      counter: verification.authenticationInfo.newCounter,
+    }).where(eq(passkeyCredentials.id, cred.id));
+
+    // Get contact and issue JWT
+    const [contact] = await fastify.db.select().from(contacts)
+      .where(and(eq(contacts.id, cred.contactId), eq(contacts.tenantId, cred.tenantId))).limit(1);
+
+    if (!contact || !contact.portalEnabled) throw new ValidationError('Portal access not enabled');
+
+    const portalRole = contact.portalRole || 'user';
+    const portalPerms = portalRole === 'admin' ? ['tickets', 'billing'] : ((contact.portalPermissions ?? ['tickets']) as string[]);
+
+    const accessToken = fastify.jwt.sign(
+      { jti: randomUUID(), sub: contact.id, tid: contact.tenantId, cid: contact.customerId, role: 'portal_user', portalRole, perms: portalPerms, type: 'access' as const },
+      { expiresIn: '4h' },
+    );
+
+    const refreshToken = fastify.jwt.sign(
+      { jti: randomUUID(), sub: contact.id, tid: contact.tenantId, cid: contact.customerId, role: 'portal_user', portalRole, perms: portalPerms, type: 'refresh' as const },
+      { expiresIn: '7d' },
+    );
+
+    return {
+      accessToken,
+      refreshToken,
+      user: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName, email: contact.email, portalRole },
+    };
   });
 }

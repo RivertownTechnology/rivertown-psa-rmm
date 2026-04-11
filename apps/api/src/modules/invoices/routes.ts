@@ -152,7 +152,15 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   fastify.post('/api/v1/invoices/:id/line-items', { preHandler: [fastify.authenticate, requirePermission('invoices:write')] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = request.body as { description: string; quantity?: string; unitPriceCents: number; catalogItemId?: string };
+
+    // Verify invoice belongs to this tenant
+    const [inv] = await fastify.db.select({ id: invoices.id }).from(invoices)
+      .where(and(eq(invoices.id, id), eq(invoices.tenantId, request.tenantId))).limit(1);
+    if (!inv) throw new NotFoundError('Invoice', id);
+
     const qty = parseFloat(body.quantity ?? '1');
+    if (!isFinite(qty) || qty <= 0) throw new ValidationError('Quantity must be a positive number');
+    if (!isFinite(body.unitPriceCents) || body.unitPriceCents < 0) throw new ValidationError('Unit price must be non-negative');
     const totalCents = Math.round(body.unitPriceCents * qty);
 
     // If catalogItemId provided, look up cost from catalog

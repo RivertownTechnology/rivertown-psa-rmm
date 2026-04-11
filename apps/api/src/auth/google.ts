@@ -11,7 +11,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { users } from '@rivertown/db';
 import { logAudit } from '../common/audit.js';
@@ -185,12 +185,12 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
       }
 
       const accessToken = fastify.jwt.sign(
-        { sub: entry.userId, tid: entry.tenantId, role: entry.role, type: 'access' as const },
+        { jti: randomUUID(), sub: entry.userId, tid: entry.tenantId, role: entry.role, type: 'access' as const },
         { expiresIn: fastify.config.JWT_EXPIRES_IN || '15m' },
       );
 
       const refreshToken = fastify.jwt.sign(
-        { sub: entry.userId, tid: entry.tenantId, role: entry.role, type: 'refresh' as const },
+        { jti: randomUUID(), sub: entry.userId, tid: entry.tenantId, role: entry.role, type: 'refresh' as const },
         { expiresIn: fastify.config.REFRESH_TOKEN_EXPIRES_IN || '7d' },
       );
 

@@ -56,6 +56,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   fastify.decorate('db', db);
   fastify.decorate('config', config);
 
+  // Redis (for token blacklist)
+  const { initRedis } = await import('./common/token-blacklist.js');
+  initRedis(config.REDIS_URL);
+
   // Raw body for Stripe webhooks
   fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
     try {
@@ -94,8 +98,48 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     reply.header('X-Frame-Options', 'DENY');
     reply.header('X-XSS-Protection', '0');
     reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.mailjet.com https://api.stripe.com https://*.intuit.com; frame-ancestors 'none'");
     if (config.NODE_ENV === 'production') {
       reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+  });
+
+  // API request logging with anomaly detection
+  const authFailures = new Map<string, { count: number; firstAt: number }>();
+  fastify.addHook('onResponse', async (request, reply) => {
+    const user = (request as any).user;
+    const log: Record<string, unknown> = {
+      ts: new Date().toISOString(),
+      method: request.method,
+      path: request.url.split('?')[0],
+      status: reply.statusCode,
+      ms: Math.round(reply.elapsedTime),
+      ip: request.ip,
+      uid: user?.sub,
+      tid: user?.tid,
+    };
+
+    // Track auth failures for anomaly detection
+    if (reply.statusCode === 401 && request.url.includes('/auth/')) {
+      const key = request.ip;
+      const entry = authFailures.get(key) || { count: 0, firstAt: Date.now() };
+      entry.count++;
+      authFailures.set(key, entry);
+
+      if (entry.count >= 5 && Date.now() - entry.firstAt < 5 * 60 * 1000) {
+        request.log.warn({ ip: request.ip, count: entry.count }, '[SECURITY] Repeated auth failures from IP');
+      }
+
+      // Clean old entries every 100 requests
+      if (authFailures.size > 100) {
+        const cutoff = Date.now() - 5 * 60 * 1000;
+        for (const [k, v] of authFailures) { if (v.firstAt < cutoff) authFailures.delete(k); }
+      }
+    }
+
+    // Log 4xx/5xx and slow requests
+    if (reply.statusCode >= 400 || reply.elapsedTime > 5000) {
+      request.log.warn(log, `[REQUEST] ${request.method} ${request.url.split('?')[0]} ${reply.statusCode} ${Math.round(reply.elapsedTime)}ms`);
     }
   });
 

@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { randomUUID } from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { users, tenants } from '@rivertown/db';
 import * as OTPAuth from 'otpauth';
@@ -233,12 +234,12 @@ export async function mfaRoutes(fastify: FastifyInstance) {
 
       // Issue real tokens
       const accessToken = fastify.jwt.sign(
-        { sub: user.id, tid: user.tenantId, role: user.role, type: 'access' as const },
+        { jti: randomUUID(), sub: user.id, tid: user.tenantId, role: user.role, type: 'access' as const },
         { expiresIn: fastify.config.JWT_EXPIRES_IN },
       );
 
       const refreshToken = fastify.jwt.sign(
-        { sub: user.id, tid: user.tenantId, role: user.role, type: 'refresh' as const },
+        { jti: randomUUID(), sub: user.id, tid: user.tenantId, role: user.role, type: 'refresh' as const },
         { expiresIn: fastify.config.REFRESH_TOKEN_EXPIRES_IN },
       );
 
