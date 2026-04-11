@@ -138,9 +138,13 @@ export function getDefaultTemplates(): Array<{
         {{lineItemsHtml}}
         {{#invoiceNotes}}<p style="margin:16px 0;color:#6b7280">{{invoiceNotes}}</p>{{/invoiceNotes}}
         {{#invoicePaymentTerms}}<p style="color:#6b7280;font-size:13px">{{invoicePaymentTerms}}</p>{{/invoicePaymentTerms}}
-        {{#paymentUrl}}<div style="text-align:center;margin:24px 0"><a href="{{paymentUrl}}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Pay Now</a></div>{{/paymentUrl}}
+        <div style="text-align:center;margin:28px 0">
+          {{#payInvoiceUrl}}<a href="{{payInvoiceUrl}}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px;margin:0 8px">Pay Now — \${{balanceFormatted}}</a>{{/payInvoiceUrl}}
+          {{#viewInvoiceUrl}}<a href="{{viewInvoiceUrl}}" style="display:inline-block;background:#ffffff;color:#2563eb;border:2px solid #2563eb;padding:12px 32px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px;margin:0 8px">View Invoice</a>{{/viewInvoiceUrl}}
+        </div>
+        {{#viewInvoiceUrl}}<p style="text-align:center;color:#9ca3af;font-size:12px;margin:8px 0 0">This link expires in 30 days. You can print or save as PDF from the online view.</p>{{/viewInvoiceUrl}}
       ${footer}`,
-      bodyText: 'Invoice #{{invoiceNumber}}\nAmount: ${{totalFormatted}}\nDue: {{dueDate}}\n\n{{invoiceNotes}}',
+      bodyText: 'Invoice #{{invoiceNumber}}\nAmount: ${{totalFormatted}}\nDue: {{dueDate}}\n\nView Invoice: {{viewInvoiceUrl}}\nPay Now: {{payInvoiceUrl}}\n\n{{invoiceNotes}}',
     },
     {
       templateType: 'invoice_paid',
@@ -270,6 +274,81 @@ export function generateInvoiceHtml(data: {
   ${d.paymentTerms ? `<div style="font-size:12px;color:#9ca3af;margin-bottom:8px">${d.paymentTerms}</div>` : ''}
   ${d.footer ? `<div style="font-size:12px;color:#9ca3af;text-align:center;margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb">${d.footer}</div>` : ''}
 </div></body></html>`;
+}
+
+// Public invoice view page — wraps invoice HTML with action buttons
+export function generateInvoiceViewPage(data: {
+  invoiceHtml: string;
+  invoiceNumber: number;
+  balanceCents: number;
+  isPaid: boolean;
+  payUrl: string;
+  expiresAt: string;
+  businessName: string;
+  paymentResult?: 'success' | 'cancelled' | null;
+}): string {
+  const d = data;
+  const balance = (d.balanceCents / 100).toFixed(2);
+
+  const successBanner = d.paymentResult === 'success' ? `
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:16px 24px;text-align:center;font-weight:600;font-size:16px">
+      Payment received — thank you!
+    </div>` : '';
+
+  const cancelledBanner = d.paymentResult === 'cancelled' ? `
+    <div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:16px 24px;text-align:center">
+      Payment was cancelled. You can try again using the button below.
+    </div>` : '';
+
+  const payButton = (!d.isPaid && d.balanceCents > 0 && d.payUrl) ? `
+    <a href="${d.payUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 32px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px">
+      Pay Now — $${balance}
+    </a>` : '';
+
+  const paidBadge = d.isPaid ? `
+    <span style="display:inline-block;background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;padding:8px 20px;border-radius:6px;font-weight:600;font-size:15px">
+      Paid in Full
+    </span>` : '';
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Invoice #${d.invoiceNumber} — ${d.businessName}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:system-ui,-apple-system,sans-serif; background:#f3f4f6; color:#374151; }
+  .action-bar { background:#ffffff; border-bottom:1px solid #e5e7eb; padding:16px 24px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; position:sticky; top:0; z-index:10; }
+  .action-bar .actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .print-btn { display:inline-block; background:#ffffff; color:#374151; border:1px solid #d1d5db; padding:12px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:15px; cursor:pointer; }
+  .print-btn:hover { background:#f9fafb; }
+  .invoice-container { max-width:880px; margin:24px auto; background:#ffffff; box-shadow:0 1px 3px rgba(0,0,0,0.1); border-radius:8px; overflow:hidden; }
+  .invoice-container .page { padding:40px; }
+  .footer-note { text-align:center; padding:24px; color:#9ca3af; font-size:13px; }
+  @media print {
+    .action-bar, .footer-note { display:none !important; }
+    body { background:#ffffff; }
+    .invoice-container { box-shadow:none; margin:0; border-radius:0; }
+  }
+  @media (max-width:640px) {
+    .action-bar { padding:12px 16px; }
+    .invoice-container .page { padding:20px; }
+  }
+</style></head>
+<body>
+  ${successBanner}${cancelledBanner}
+  <div class="action-bar">
+    <div style="font-weight:600;color:#111">Invoice #${d.invoiceNumber}</div>
+    <div class="actions">
+      ${payButton}${paidBadge}
+      <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+  </div>
+  <div class="invoice-container">
+    ${d.invoiceHtml}
+  </div>
+  <div class="footer-note">
+    This link expires on ${d.expiresAt}. For questions, contact ${d.businessName}.
+  </div>
+</body></html>`;
 }
 
 // Same for quotes

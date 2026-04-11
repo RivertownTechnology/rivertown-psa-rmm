@@ -11,7 +11,9 @@ import {
   tenantSequences,
   accountCredits,
 } from '@rivertown/db';
+import Stripe from 'stripe';
 import { createInvoiceSchema, paginationSchema } from '@rivertown/shared';
+import { integrationConfigs } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError, ValidationError } from '../../common/errors.js';
 import { paginationToOffset, paginate } from '../../common/pagination.js';
@@ -189,7 +191,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     if (!invoice) throw new NotFoundError('Invoice', id);
 
     const { sendInvoiceEmailWithTemplate } = await import('../../services/document-email.js');
-    const sent = await sendInvoiceEmailWithTemplate(fastify.db, request.tenantId, id);
+    const sent = await sendInvoiceEmailWithTemplate(fastify.db, request.tenantId, id, fastify.jwt.sign.bind(fastify.jwt));
 
     // Sync invoice to QuickBooks (fire and forget)
     import('../../services/qbo-sync.js').then(({ syncInvoiceToQBO }) => {
@@ -592,6 +594,258 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     });
 
     reply.type('text/html').send(html);
+  });
+
+  // ===== PUBLIC INVOICE VIEW (30-day token, no login) =====
+
+  fastify.get('/api/v1/invoices/:id/view', {
+    config: { public: true } as any,
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const token = (request.query as Record<string, string>).token;
+    if (!token) { reply.code(401).send({ error: 'Token required' }); return; }
+
+    let payload: { tid: string; type: string; invoiceId?: string };
+    try {
+      payload = fastify.jwt.verify(token);
+    } catch {
+      reply.type('text/html').send('<html><body style="font-family:system-ui;text-align:center;padding:80px"><h1>Link Expired</h1><p>This invoice link has expired. Please contact us for a new link.</p></body></html>');
+      return;
+    }
+
+    if (payload.type !== 'invoice_view' || payload.invoiceId !== id) {
+      reply.code(401).send({ error: 'Invalid token' }); return;
+    }
+
+    const tenantId = payload.tid;
+    const [invoice] = await fastify.db.select().from(invoices)
+      .where(and(eq(invoices.id, id), eq(invoices.tenantId, tenantId))).limit(1);
+    if (!invoice) throw new NotFoundError('Invoice', id);
+
+    const lineItemRows = await fastify.db.select().from(invoiceLineItems)
+      .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.tenantId, tenantId)))
+      .orderBy(invoiceLineItems.sortOrder);
+
+    const [customer] = await fastify.db.select().from(customers)
+      .where(and(eq(customers.id, invoice.customerId), eq(customers.tenantId, tenantId))).limit(1);
+
+    const [tenant] = await fastify.db.select().from(tenants)
+      .where(eq(tenants.id, tenantId)).limit(1);
+    const s = (tenant?.settings ?? {}) as Record<string, string>;
+
+    const { generateInvoiceHtml, generateInvoiceViewPage } = await import('../../services/template-renderer.js');
+
+    const balanceCents = invoice.totalCents - invoice.amountPaidCents - (invoice.creditsAppliedCents ?? 0);
+    const isPaid = invoice.status === 'paid' || balanceCents <= 0;
+
+    const invoiceHtml = generateInvoiceHtml({
+      businessName: s.businessName || tenant?.name || 'Company',
+      businessAddress: s.businessAddress || '', businessCity: s.businessCity || '',
+      businessState: s.businessState || '', businessZip: s.businessZip || '',
+      businessPhone: s.businessPhone || '', businessEmail: s.businessEmail || '',
+      businessLogo: s.businessLogo || '', businessWebsite: s.businessWebsite || '',
+      customerName: customer?.name ?? 'Customer',
+      customerAddress: customer?.address ?? undefined, customerCity: customer?.city ?? undefined,
+      customerState: customer?.state ?? undefined, customerZip: customer?.zip ?? undefined,
+      customerEmail: customer?.billingEmail ?? undefined, customerPhone: customer?.phone ?? undefined,
+      invoiceNumber: invoice.invoiceNumber, issueDate: invoice.issueDate, dueDate: invoice.dueDate,
+      notes: invoice.notes ?? '',
+      lineItems: lineItemRows.map(li => ({
+        description: li.description, quantity: li.quantity ?? '1',
+        unitPrice: (li.unitPriceCents / 100).toFixed(2), total: (li.totalCents / 100).toFixed(2),
+      })),
+      subtotal: (invoice.subtotalCents / 100).toFixed(2), tax: (invoice.taxCents / 100).toFixed(2),
+      total: (invoice.totalCents / 100).toFixed(2),
+      paid: ((invoice.amountPaidCents + (invoice.creditsAppliedCents ?? 0)) / 100).toFixed(2),
+      balance: (balanceCents / 100).toFixed(2),
+      style: s.invoiceStyle || 'modern', footer: s.invoiceFooter || '', paymentTerms: s.invoicePaymentTerms || '',
+    });
+
+    // Strip the wrapping <html>/<body> from the inner invoice — we'll wrap it in the view page
+    const innerHtml = invoiceHtml.replace(/<!DOCTYPE html>[\s\S]*?<div class="page">/, '<div class="page">')
+      .replace(/<\/body><\/html>/, '');
+
+    const payUrl = !isPaid ? `/api/v1/invoices/${id}/pay?token=${encodeURIComponent(token)}` : '';
+
+    // Calculate expiry date from JWT
+    const jwtPayload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+    const expiresAt = new Date(jwtPayload.exp * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    const paymentResult = (request.query as Record<string, string>).payment as 'success' | 'cancelled' | undefined;
+
+    const page = generateInvoiceViewPage({
+      invoiceHtml: innerHtml,
+      invoiceNumber: invoice.invoiceNumber,
+      balanceCents,
+      isPaid,
+      payUrl,
+      expiresAt,
+      businessName: s.businessName || tenant?.name || 'Company',
+      paymentResult: paymentResult || null,
+    });
+
+    reply.type('text/html').send(page);
+  });
+
+  // ===== PUBLIC PAY INVOICE (creates Stripe checkout on-demand) =====
+
+  fastify.post('/api/v1/invoices/:id/pay', {
+    config: { public: true } as any,
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const token = (request.query as Record<string, string>).token;
+    if (!token) { reply.code(401).send({ error: 'Token required' }); return; }
+
+    let payload: { tid: string; type: string; invoiceId?: string };
+    try {
+      payload = fastify.jwt.verify(token);
+    } catch {
+      reply.code(401).send({ error: 'Token expired or invalid' }); return;
+    }
+
+    if (payload.type !== 'invoice_view' || payload.invoiceId !== id) {
+      reply.code(401).send({ error: 'Invalid token' }); return;
+    }
+
+    const tenantId = payload.tid;
+    const [invoice] = await fastify.db.select().from(invoices)
+      .where(and(eq(invoices.id, id), eq(invoices.tenantId, tenantId))).limit(1);
+    if (!invoice) throw new NotFoundError('Invoice', id);
+
+    const balanceCents = invoice.totalCents - invoice.amountPaidCents - (invoice.creditsAppliedCents ?? 0);
+    if (balanceCents <= 0) {
+      reply.redirect(`/api/v1/invoices/${id}/view?token=${encodeURIComponent(token)}&payment=success`);
+      return;
+    }
+
+    // Get Stripe config
+    const [stripeConfig] = await fastify.db.select().from(integrationConfigs)
+      .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'stripe'), eq(integrationConfigs.isEnabled, true)))
+      .limit(1);
+    const stripeCreds = (stripeConfig?.credentials ?? {}) as Record<string, string>;
+
+    if (!stripeCreds.secretKey) {
+      reply.type('text/html').send('<html><body style="font-family:system-ui;text-align:center;padding:80px"><h1>Online Payment Unavailable</h1><p>Please contact us for payment options.</p></body></html>');
+      return;
+    }
+
+    const stripe = new Stripe(stripeCreds.secretKey);
+
+    // Get or create Stripe customer
+    const [customer] = await fastify.db.select().from(customers)
+      .where(and(eq(customers.id, invoice.customerId), eq(customers.tenantId, tenantId))).limit(1);
+
+    let stripeCustomerId = customer?.stripeCustomerId;
+    if (!stripeCustomerId && customer) {
+      const sc = await stripe.customers.create({
+        name: customer.name, email: customer.billingEmail || undefined,
+        metadata: { tenantId, customerId: customer.id },
+      });
+      stripeCustomerId = sc.id;
+      await fastify.db.update(customers).set({ stripeCustomerId }).where(eq(customers.id, customer.id));
+    }
+
+    const apiBaseUrl = fastify.config.API_BASE_URL || 'https://rivertownapi-production.up.railway.app';
+    const viewUrl = `${apiBaseUrl}/api/v1/invoices/${id}/view?token=${encodeURIComponent(token)}`;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer: stripeCustomerId || undefined,
+      customer_email: !stripeCustomerId ? (customer?.billingEmail || undefined) : undefined,
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          unit_amount: balanceCents,
+          product_data: { name: `Invoice #${invoice.invoiceNumber}` },
+        },
+        quantity: 1,
+      }],
+      metadata: { tenantId, invoiceId: invoice.id, invoiceNumber: String(invoice.invoiceNumber) },
+      success_url: `${viewUrl}&payment=success`,
+      cancel_url: `${viewUrl}&payment=cancelled`,
+    });
+
+    await fastify.db.update(invoices).set({ stripeInvoiceId: session.id, updatedAt: new Date() })
+      .where(eq(invoices.id, id));
+
+    reply.redirect(session.url!);
+  });
+
+  // Also support GET for the pay endpoint (for the link in the view page)
+  fastify.get('/api/v1/invoices/:id/pay', {
+    config: { public: true } as any,
+  }, async (request, reply) => {
+    // Forward to POST handler logic
+    const { id } = request.params as { id: string };
+    const token = (request.query as Record<string, string>).token;
+    if (!token) { reply.code(401).send({ error: 'Token required' }); return; }
+
+    let payload: { tid: string; type: string; invoiceId?: string };
+    try {
+      payload = fastify.jwt.verify(token);
+    } catch {
+      reply.code(401).send({ error: 'Token expired or invalid' }); return;
+    }
+
+    if (payload.type !== 'invoice_view' || payload.invoiceId !== id) {
+      reply.code(401).send({ error: 'Invalid token' }); return;
+    }
+
+    const tenantId = payload.tid;
+    const [invoice] = await fastify.db.select().from(invoices)
+      .where(and(eq(invoices.id, id), eq(invoices.tenantId, tenantId))).limit(1);
+    if (!invoice) throw new NotFoundError('Invoice', id);
+
+    const balanceCents = invoice.totalCents - invoice.amountPaidCents - (invoice.creditsAppliedCents ?? 0);
+    if (balanceCents <= 0) {
+      reply.redirect(`/api/v1/invoices/${id}/view?token=${encodeURIComponent(token)}&payment=success`);
+      return;
+    }
+
+    const [stripeConfig] = await fastify.db.select().from(integrationConfigs)
+      .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'stripe'), eq(integrationConfigs.isEnabled, true)))
+      .limit(1);
+    const stripeCreds = (stripeConfig?.credentials ?? {}) as Record<string, string>;
+
+    if (!stripeCreds.secretKey) {
+      reply.type('text/html').send('<html><body style="font-family:system-ui;text-align:center;padding:80px"><h1>Online Payment Unavailable</h1><p>Please contact us for payment options.</p></body></html>');
+      return;
+    }
+
+    const stripe = new Stripe(stripeCreds.secretKey);
+    const [customer] = await fastify.db.select().from(customers)
+      .where(and(eq(customers.id, invoice.customerId), eq(customers.tenantId, tenantId))).limit(1);
+
+    let stripeCustomerId = customer?.stripeCustomerId;
+    if (!stripeCustomerId && customer) {
+      const sc = await stripe.customers.create({
+        name: customer.name, email: customer.billingEmail || undefined,
+        metadata: { tenantId, customerId: customer.id },
+      });
+      stripeCustomerId = sc.id;
+      await fastify.db.update(customers).set({ stripeCustomerId }).where(eq(customers.id, customer.id));
+    }
+
+    const apiBaseUrl = fastify.config.API_BASE_URL || 'https://rivertownapi-production.up.railway.app';
+    const viewUrl = `${apiBaseUrl}/api/v1/invoices/${id}/view?token=${encodeURIComponent(token)}`;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer: stripeCustomerId || undefined,
+      customer_email: !stripeCustomerId ? (customer?.billingEmail || undefined) : undefined,
+      line_items: [{
+        price_data: { currency: 'usd', unit_amount: balanceCents, product_data: { name: `Invoice #${invoice.invoiceNumber}` } },
+        quantity: 1,
+      }],
+      metadata: { tenantId, invoiceId: invoice.id, invoiceNumber: String(invoice.invoiceNumber) },
+      success_url: `${viewUrl}&payment=success`,
+      cancel_url: `${viewUrl}&payment=cancelled`,
+    });
+
+    await fastify.db.update(invoices).set({ stripeInvoiceId: session.id, updatedAt: new Date() })
+      .where(eq(invoices.id, id));
+
+    reply.redirect(session.url!);
   });
 }
 

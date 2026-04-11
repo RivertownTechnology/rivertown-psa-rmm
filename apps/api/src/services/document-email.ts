@@ -8,7 +8,6 @@ import {
   customers, contacts, tenants, emailTemplates, payments, integrationConfigs,
 } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
-import Stripe from 'stripe';
 import { sendEmail, sendBillingEmail } from './email.js';
 import { renderTemplate, generateInvoiceHtml, generateQuoteHtml } from './template-renderer.js';
 import { htmlToPdf } from './pdf-generator.js';
@@ -73,74 +72,63 @@ function formatCents(cents: number): string {
 
 // --- Invoice Email ---
 
-export async function sendInvoiceEmailWithTemplate(db: Database, tenantId: string, invoiceId: string): Promise<boolean> {
+export async function sendInvoiceEmailWithTemplate(
+  db: Database, tenantId: string, invoiceId: string, jwtSign?: (payload: any, opts: any) => string,
+): Promise<boolean> {
   const [invoice] = await db.select().from(invoices)
     .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId))).limit(1);
   if (!invoice) return false;
 
-  const [customer] = await db.select().from(customers).where(eq(customers.id, invoice.customerId)).limit(1);
+  const [customer] = await db.select().from(customers)
+    .where(and(eq(customers.id, invoice.customerId), eq(customers.tenantId, tenantId))).limit(1);
   if (!customer?.billingEmail) return false;
 
   const lineItemRows = await db.select().from(invoiceLineItems)
-    .where(eq(invoiceLineItems.invoiceId, invoiceId)).orderBy(invoiceLineItems.sortOrder);
+    .where(and(eq(invoiceLineItems.invoiceId, invoiceId), eq(invoiceLineItems.tenantId, tenantId)))
+    .orderBy(invoiceLineItems.sortOrder);
 
   const lineItemsHtml = lineItemRows.length ? `<table style="width:100%;border-collapse:collapse">${lineItemRows.map(li =>
     `<tr><td style="padding:6px 0;border-bottom:1px solid #eee">${li.description}</td><td style="text-align:center;padding:6px;border-bottom:1px solid #eee">${li.quantity ?? '1'}</td><td style="text-align:right;padding:6px 0;border-bottom:1px solid #eee">$${formatCents(li.unitPriceCents)}</td><td style="text-align:right;padding:6px 0;border-bottom:1px solid #eee">$${formatCents(li.totalCents)}</td></tr>`
   ).join('')}</table>` : '';
 
+  const bv = await getBusinessVars(db, tenantId);
+  const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+  const ts = (tenant?.settings ?? {}) as Record<string, string>;
+
+  // Generate 30-day view token for the invoice link
+  const apiBaseUrl = process.env.API_BASE_URL || 'https://rivertownapi-production.up.railway.app';
+  let viewInvoiceUrl = '';
+  let payInvoiceUrl = '';
+
+  if (jwtSign) {
+    const viewToken = jwtSign(
+      { tid: tenantId, type: 'invoice_view', invoiceId },
+      { expiresIn: '30d' },
+    );
+    viewInvoiceUrl = `${apiBaseUrl}/api/v1/invoices/${invoiceId}/view?token=${encodeURIComponent(viewToken)}`;
+    payInvoiceUrl = `${apiBaseUrl}/api/v1/invoices/${invoiceId}/pay?token=${encodeURIComponent(viewToken)}`;
+  }
+
+  const balanceCents = invoice.totalCents - invoice.amountPaidCents - (invoice.creditsAppliedCents ?? 0);
+
   const vars: Record<string, string> = {
-    ...await getBusinessVars(db, tenantId),
+    ...bv,
     ...buildCustomerVars(customer),
     invoiceNumber: String(invoice.invoiceNumber),
     issueDate: invoice.issueDate,
     dueDate: invoice.dueDate,
     totalFormatted: formatCents(invoice.totalCents),
+    balanceFormatted: formatCents(balanceCents),
     amountFormatted: formatCents(invoice.totalCents),
     invoiceNotes: invoice.notes ?? '',
-    invoicePaymentTerms: '',
+    invoicePaymentTerms: ts.invoicePaymentTerms || '',
+    invoiceFooter: ts.invoiceFooter || '',
     lineItemsHtml,
+    viewInvoiceUrl,
+    payInvoiceUrl: balanceCents > 0 ? payInvoiceUrl : '',
+    // Keep paymentUrl for backwards compat with custom templates
+    paymentUrl: balanceCents > 0 ? payInvoiceUrl : '',
   };
-
-  // Get payment terms from settings
-  const bv = await getBusinessVars(db, tenantId);
-  const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
-  const ts = (tenant?.settings ?? {}) as Record<string, string>;
-  vars.invoicePaymentTerms = ts.invoicePaymentTerms || '';
-  vars.invoiceFooter = ts.invoiceFooter || '';
-
-  // Generate Stripe payment link if configured
-  let paymentUrl = '';
-  const [stripeConfig] = await db.select().from(integrationConfigs)
-    .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'stripe'), eq(integrationConfigs.isEnabled, true)))
-    .limit(1);
-  const stripeCreds = (stripeConfig?.credentials ?? {}) as Record<string, string>;
-  if (stripeCreds.secretKey) {
-    try {
-      const stripe = new Stripe(stripeCreds.secretKey);
-      const balanceCents = invoice.totalCents - invoice.amountPaidCents;
-      if (balanceCents > 0) {
-        let stripeCustomerId = customer.stripeCustomerId;
-        if (!stripeCustomerId) {
-          const sc = await stripe.customers.create({
-            name: customer.name, email: customer.billingEmail || undefined,
-            metadata: { tenantId, customerId: customer.id },
-          });
-          stripeCustomerId = sc.id;
-          await db.update(customers).set({ stripeCustomerId }).where(eq(customers.id, customer.id));
-        }
-        const session = await stripe.checkout.sessions.create({
-          mode: 'payment', customer: stripeCustomerId,
-          line_items: [{ price_data: { currency: 'usd', unit_amount: balanceCents, product_data: { name: `Invoice #${invoice.invoiceNumber}` } }, quantity: 1 }],
-          metadata: { tenantId, invoiceId, invoiceNumber: String(invoice.invoiceNumber) },
-          success_url: `${vars.businessEmail ? 'https://portal.rivertowntechnology.com' : 'https://psa.rivertowntechnology.com'}/billing/invoices/${invoiceId}?payment=success`,
-          cancel_url: `${vars.businessEmail ? 'https://portal.rivertowntechnology.com' : 'https://psa.rivertowntechnology.com'}/billing/invoices/${invoiceId}?payment=cancelled`,
-        });
-        paymentUrl = session.url || '';
-        await db.update(invoices).set({ stripeInvoiceId: session.id, updatedAt: new Date() }).where(eq(invoices.id, invoiceId));
-      }
-    } catch (err) { console.error('[STRIPE] Payment link creation failed:', err); }
-  }
-  vars.paymentUrl = paymentUrl;
 
   const template = await getTemplate(db, tenantId, 'invoice_sent');
 
@@ -153,44 +141,7 @@ export async function sendInvoiceEmailWithTemplate(db: Database, tenantId: strin
     html = `<p>Please find attached Invoice #${invoice.invoiceNumber} for $${formatCents(invoice.totalCents)}, due ${invoice.dueDate}.</p>`;
   }
 
-  // Generate PDF HTML attachment
-  const pdfHtml = generateInvoiceHtml({
-    businessName: bv.businessName, businessAddress: bv.businessAddress, businessCity: bv.businessCity,
-    businessState: bv.businessState, businessZip: bv.businessZip, businessPhone: bv.businessPhone,
-    businessEmail: bv.businessEmail, businessLogo: bv.businessLogo, businessWebsite: '',
-    customerName: customer.name, customerAddress: customer.address ?? undefined,
-    customerCity: customer.city ?? undefined, customerState: customer.state ?? undefined,
-    customerZip: customer.zip ?? undefined, customerEmail: customer.billingEmail ?? undefined,
-    customerPhone: customer.phone ?? undefined,
-    invoiceNumber: invoice.invoiceNumber, issueDate: invoice.issueDate, dueDate: invoice.dueDate,
-    notes: invoice.notes ?? '',
-    lineItems: lineItemRows.map(li => ({
-      description: li.description, quantity: li.quantity ?? '1',
-      unitPrice: (li.unitPriceCents / 100).toFixed(2), total: (li.totalCents / 100).toFixed(2),
-    })),
-    subtotal: (invoice.subtotalCents / 100).toFixed(2), tax: (invoice.taxCents / 100).toFixed(2),
-    total: (invoice.totalCents / 100).toFixed(2), paid: (invoice.amountPaidCents / 100).toFixed(2),
-    balance: ((invoice.totalCents - invoice.amountPaidCents) / 100).toFixed(2),
-    style: ts.invoiceStyle || 'modern', footer: ts.invoiceFooter || '', paymentTerms: ts.invoicePaymentTerms || '',
-  });
-
-  // Add Pay Now button if Stripe payment URL is available
-  if (paymentUrl) {
-    html += `<div style="text-align:center;margin:24px 0">
-      <a href="${paymentUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Pay Now — $${formatCents(invoice.totalCents - invoice.amountPaidCents)}</a>
-    </div>`;
-  }
-
-  // Generate PDF attachment
-  let attachments;
-  try {
-    const pdfBuffer = await htmlToPdf(pdfHtml);
-    attachments = [{ filename: `Invoice-${invoice.invoiceNumber}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }];
-  } catch (err) {
-    console.error('[PDF] Invoice PDF generation failed, sending without attachment:', err);
-  }
-
-  return sendBillingEmail(db, tenantId, { to: customer.billingEmail, subject, html, attachments });
+  return sendBillingEmail(db, tenantId, { to: customer.billingEmail, subject, html });
 }
 
 // --- Quote Email ---

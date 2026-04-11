@@ -12,6 +12,9 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
+  // Public-facing API URL (used in invoice view links sent via email)
+  API_BASE_URL: z.string().default('https://rivertownapi-production.up.railway.app'),
+
   // Google Email OAuth (uses same Google OAuth app as SSO)
   GOOGLE_EMAIL_REDIRECT_URI: z.string().optional(),
 
