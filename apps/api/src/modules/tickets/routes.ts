@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and, sql, count, desc } from 'drizzle-orm';
+import { eq, and, sql, count, desc, inArray } from 'drizzle-orm';
 import {
   tickets,
   ticketComments,
@@ -50,7 +50,14 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       const { offset, limit } = paginationToOffset(query);
 
       const conditions = [eq(tickets.tenantId, request.tenantId)];
-      if (params.status) conditions.push(eq(tickets.status, params.status));
+      if (params.status) {
+        const statusValues = params.status.split(',').map(s => s.trim()).filter(Boolean);
+        if (statusValues.length === 1) {
+          conditions.push(eq(tickets.status, statusValues[0]));
+        } else if (statusValues.length > 1) {
+          conditions.push(inArray(tickets.status, statusValues));
+        }
+      }
       if (params.priority) conditions.push(eq(tickets.priority, params.priority));
       if (params.customerId) conditions.push(eq(tickets.customerId, params.customerId));
       if (params.assignedTo) conditions.push(eq(tickets.assignedTo, params.assignedTo));

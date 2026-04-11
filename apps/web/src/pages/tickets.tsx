@@ -74,7 +74,7 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
   const [showCreate, setShowCreate] = useState(false);
@@ -85,7 +85,7 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
 
   const fetchTickets = useCallback(async () => {
     const params = new URLSearchParams({ page: String(page), limit: '25' });
-    if (statusFilter) params.set('status', statusFilter);
+    if (statusFilter.length > 0) params.set('status', statusFilter.join(','));
     const data = await api<PaginatedResponse>(`/tickets?${params}`);
     setTickets(data.data);
     setTotal(data.pagination.total);
@@ -187,14 +187,26 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
           </Button>
         </div>
         <div className="flex items-center gap-2">
-          {statuses.map((s) => (
+          <Button
+            variant={statusFilter.length === 0 ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => { setStatusFilter([]); setPage(1); }}
+          >
+            All
+          </Button>
+          {statuses.filter(Boolean).map((s) => (
             <Button
               key={s}
-              variant={statusFilter === s ? 'default' : 'outline'}
+              variant={statusFilter.includes(s) ? 'default' : 'outline'}
               size="sm"
-              onClick={() => { setStatusFilter(s); setPage(1); }}
+              onClick={() => {
+                setStatusFilter(prev =>
+                  prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]
+                );
+                setPage(1);
+              }}
             >
-              {s || 'All'}
+              {s === 'waiting_on_customer' ? 'Waiting' : s.charAt(0).toUpperCase() + s.slice(1)}
             </Button>
           ))}
         </div>
