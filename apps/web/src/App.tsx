@@ -48,16 +48,32 @@ function AppRouter() {
     );
   }
 
-  // Handle Google SSO callback
+  // Handle Google SSO callback — exchange code for tokens
   if (pathname === '/auth/callback') {
     const params = new URLSearchParams(window.location.search);
-    const accessToken = params.get('accessToken');
-    const refreshToken = params.get('refreshToken');
-    if (accessToken && refreshToken) {
-      login(accessToken, refreshToken).then(() => {
-        window.history.replaceState(null, '', '/');
-        window.dispatchEvent(new PopStateEvent('popstate'));
-      });
+    const code = params.get('code');
+    if (code) {
+      const API_BASE = (import.meta as any).env?.VITE_API_URL
+        ? `${(import.meta as any).env.VITE_API_URL}/api/v1`
+        : '/api/v1';
+      fetch(`${API_BASE}/auth/google/exchange`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.accessToken && data.refreshToken) {
+            login(data.accessToken, data.refreshToken).then(() => {
+              window.history.replaceState(null, '', '/');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            });
+          }
+        })
+        .catch(() => {
+          window.history.replaceState(null, '', '/login?error=exchange_failed');
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        });
       return (
         <div className="min-h-screen flex items-center justify-center">
           <div className="text-muted-foreground">Signing in...</div>
