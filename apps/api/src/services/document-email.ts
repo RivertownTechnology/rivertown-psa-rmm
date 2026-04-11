@@ -224,13 +224,28 @@ export async function sendQuoteEmailWithTemplate(db: Database, tenantId: string,
 
 // --- Payment Receipt Email ---
 
-export async function sendPaymentReceiptEmail(db: Database, tenantId: string, invoiceId: string, paymentAmountCents: number): Promise<boolean> {
+export async function sendPaymentReceiptEmail(
+  db: Database, tenantId: string, invoiceId: string, paymentAmountCents: number,
+  jwtSign?: (payload: any, opts: any) => string,
+): Promise<boolean> {
   const [invoice] = await db.select().from(invoices)
     .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId))).limit(1);
   if (!invoice) return false;
 
-  const [customer] = await db.select().from(customers).where(eq(customers.id, invoice.customerId)).limit(1);
+  const [customer] = await db.select().from(customers)
+    .where(and(eq(customers.id, invoice.customerId), eq(customers.tenantId, tenantId))).limit(1);
   if (!customer?.billingEmail) return false;
+
+  // Generate 30-day view link
+  const apiBaseUrl = process.env.API_BASE_URL || 'https://rivertownapi-production.up.railway.app';
+  let viewInvoiceUrl = '';
+  if (jwtSign) {
+    const viewToken = jwtSign(
+      { tid: tenantId, type: 'invoice_view', invoiceId },
+      { expiresIn: '30d' },
+    );
+    viewInvoiceUrl = `${apiBaseUrl}/api/v1/invoices/${invoiceId}/view?token=${encodeURIComponent(viewToken)}`;
+  }
 
   const vars: Record<string, string> = {
     ...await getBusinessVars(db, tenantId),
@@ -238,6 +253,7 @@ export async function sendPaymentReceiptEmail(db: Database, tenantId: string, in
     invoiceNumber: String(invoice.invoiceNumber),
     amountFormatted: formatCents(paymentAmountCents),
     totalFormatted: formatCents(invoice.totalCents),
+    viewInvoiceUrl,
   };
 
   const template = await getTemplate(db, tenantId, 'invoice_paid');

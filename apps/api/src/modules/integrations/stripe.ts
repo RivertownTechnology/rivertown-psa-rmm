@@ -216,7 +216,7 @@ export async function stripeRoutes(fastify: FastifyInstance) {
 
         // Send payment receipt email
         const { sendPaymentReceiptEmail } = await import('../../services/document-email.js');
-        sendPaymentReceiptEmail(fastify.db, tenantId, invoiceId, amountCents)
+        sendPaymentReceiptEmail(fastify.db, tenantId, invoiceId, amountCents, fastify.jwt.sign.bind(fastify.jwt))
           .catch(e => console.error('[STRIPE] Receipt email failed:', e));
 
         // Sync payment to QuickBooks (fire and forget)

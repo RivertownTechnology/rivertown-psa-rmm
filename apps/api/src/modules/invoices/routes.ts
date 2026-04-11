@@ -243,7 +243,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
     // Send payment receipt email (fire and forget)
     import('../../services/document-email.js').then(({ sendPaymentReceiptEmail }) => {
-      sendPaymentReceiptEmail(fastify.db, request.tenantId, id, body.amountCents).catch(e => console.error('Payment receipt email failed:', e));
+      sendPaymentReceiptEmail(fastify.db, request.tenantId, id, body.amountCents, fastify.jwt.sign.bind(fastify.jwt)).catch(e => console.error('Payment receipt email failed:', e));
     });
 
     // Sync payment to QuickBooks (fire and forget)
