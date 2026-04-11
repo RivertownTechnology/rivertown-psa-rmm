@@ -745,6 +745,42 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       await fastify.db.update(customers).set({ stripeCustomerId }).where(eq(customers.id, customer.id));
     }
 
+    // Fetch line items for Stripe checkout detail
+    const lineItemRows = await fastify.db.select().from(invoiceLineItems)
+      .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.tenantId, tenantId)))
+      .orderBy(invoiceLineItems.sortOrder);
+
+    // Build Stripe line items from invoice line items
+    const stripeLineItems = lineItemRows.length > 0
+      ? lineItemRows.map(li => ({
+          price_data: {
+            currency: 'usd' as const,
+            unit_amount: li.unitPriceCents,
+            product_data: { name: li.description },
+          },
+          quantity: Math.max(1, Math.round(parseFloat(li.quantity ?? '1'))),
+        }))
+      : [{
+          price_data: {
+            currency: 'usd' as const,
+            unit_amount: balanceCents,
+            product_data: { name: `Invoice #${invoice.invoiceNumber}` },
+          },
+          quantity: 1,
+        }];
+
+    // Add tax as a separate line item if present
+    if (invoice.taxCents > 0 && lineItemRows.length > 0) {
+      stripeLineItems.push({
+        price_data: {
+          currency: 'usd',
+          unit_amount: invoice.taxCents,
+          product_data: { name: 'Sales Tax' },
+        },
+        quantity: 1,
+      });
+    }
+
     const apiBaseUrl = fastify.config.API_BASE_URL || 'https://rivertownapi-production.up.railway.app';
     const viewUrl = `${apiBaseUrl}/api/v1/invoices/${id}/view?token=${encodeURIComponent(token)}`;
 
@@ -752,14 +788,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       mode: 'payment',
       customer: stripeCustomerId || undefined,
       customer_email: !stripeCustomerId ? (customer?.billingEmail || undefined) : undefined,
-      line_items: [{
-        price_data: {
-          currency: 'usd',
-          unit_amount: balanceCents,
-          product_data: { name: `Invoice #${invoice.invoiceNumber}` },
-        },
-        quantity: 1,
-      }],
+      line_items: stripeLineItems,
       metadata: { tenantId, invoiceId: invoice.id, invoiceNumber: String(invoice.invoiceNumber) },
       success_url: `${viewUrl}&payment=success`,
       cancel_url: `${viewUrl}&payment=cancelled`,
@@ -775,7 +804,6 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   fastify.get('/api/v1/invoices/:id/pay', {
     config: { public: true } as any,
   }, async (request, reply) => {
-    // Forward to POST handler logic
     const { id } = request.params as { id: string };
     const token = (request.query as Record<string, string>).token;
     if (!token) { reply.code(401).send({ error: 'Token required' }); return; }
@@ -826,6 +854,40 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       await fastify.db.update(customers).set({ stripeCustomerId }).where(eq(customers.id, customer.id));
     }
 
+    // Fetch line items for Stripe checkout detail
+    const lineItemRows = await fastify.db.select().from(invoiceLineItems)
+      .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.tenantId, tenantId)))
+      .orderBy(invoiceLineItems.sortOrder);
+
+    const stripeLineItems = lineItemRows.length > 0
+      ? lineItemRows.map(li => ({
+          price_data: {
+            currency: 'usd' as const,
+            unit_amount: li.unitPriceCents,
+            product_data: { name: li.description },
+          },
+          quantity: Math.max(1, Math.round(parseFloat(li.quantity ?? '1'))),
+        }))
+      : [{
+          price_data: {
+            currency: 'usd' as const,
+            unit_amount: balanceCents,
+            product_data: { name: `Invoice #${invoice.invoiceNumber}` },
+          },
+          quantity: 1,
+        }];
+
+    if (invoice.taxCents > 0 && lineItemRows.length > 0) {
+      stripeLineItems.push({
+        price_data: {
+          currency: 'usd',
+          unit_amount: invoice.taxCents,
+          product_data: { name: 'Sales Tax' },
+        },
+        quantity: 1,
+      });
+    }
+
     const apiBaseUrl = fastify.config.API_BASE_URL || 'https://rivertownapi-production.up.railway.app';
     const viewUrl = `${apiBaseUrl}/api/v1/invoices/${id}/view?token=${encodeURIComponent(token)}`;
 
@@ -833,10 +895,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       mode: 'payment',
       customer: stripeCustomerId || undefined,
       customer_email: !stripeCustomerId ? (customer?.billingEmail || undefined) : undefined,
-      line_items: [{
-        price_data: { currency: 'usd', unit_amount: balanceCents, product_data: { name: `Invoice #${invoice.invoiceNumber}` } },
-        quantity: 1,
-      }],
+      line_items: stripeLineItems,
       metadata: { tenantId, invoiceId: invoice.id, invoiceNumber: String(invoice.invoiceNumber) },
       success_url: `${viewUrl}&payment=success`,
       cancel_url: `${viewUrl}&payment=cancelled`,

@@ -202,8 +202,6 @@ export function generateInvoiceHtml(data: {
   const isClassic = d.style === 'classic';
 
   const primaryColor = isModern ? '#2563eb' : isClassic ? '#1a1a1a' : '#374151';
-  const headerBg = isModern ? '#2563eb' : isClassic ? '#f8f9fa' : '#ffffff';
-  const headerText = isModern ? '#ffffff' : '#111111';
 
   const rows = d.lineItems.map(li => `
     <tr>
@@ -223,17 +221,17 @@ export function generateInvoiceHtml(data: {
   table { width:100%; border-collapse:collapse; }
 </style></head>
 <body><div class="page">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px;padding:24px;background:${headerBg};border-radius:8px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px;padding:24px;background:#ffffff;border:1px solid #e5e7eb;border-top:4px solid ${primaryColor};border-radius:8px">
     <div>
       ${d.businessLogo ? `<img src="${d.businessLogo}" style="max-height:60px;margin-bottom:8px"><br>` : ''}
-      <div style="font-size:20px;font-weight:700;color:${headerText}">${d.businessName}</div>
-      <div style="font-size:12px;color:${isModern ? 'rgba(255,255,255,0.8)' : '#6b7280'};margin-top:4px">
+      <div style="font-size:20px;font-weight:700;color:#111111">${d.businessName}</div>
+      <div style="font-size:12px;color:#6b7280;margin-top:4px">
         ${d.businessAddress ? `${d.businessAddress}<br>` : ''}${[d.businessCity, d.businessState].filter(Boolean).join(', ')}${d.businessZip ? ` ${d.businessZip}` : ''}${(d.businessPhone || d.businessEmail) ? '<br>' : ''}${[d.businessPhone, d.businessEmail].filter(Boolean).join(' | ')}
       </div>
     </div>
     <div style="text-align:right">
-      <div style="font-size:28px;font-weight:700;color:${headerText}">INVOICE</div>
-      <div style="font-size:16px;color:${isModern ? 'rgba(255,255,255,0.8)' : '#6b7280'};">#${d.invoiceNumber}</div>
+      <div style="font-size:28px;font-weight:700;color:${primaryColor}">INVOICE</div>
+      <div style="font-size:16px;color:#6b7280">#${d.invoiceNumber}</div>
     </div>
   </div>
 
