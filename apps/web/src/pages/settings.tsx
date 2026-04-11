@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { User, Building, Bell, Hash, Mail, Send, CheckCircle, DollarSign, Shield, ShieldAlert, X, Package, Plus, Pencil, Trash2, Search } from 'lucide-react';
+import { User, Building, Bell, Hash, Mail, Send, CheckCircle, DollarSign, Shield, ShieldAlert, X, Package, Plus, Pencil, Trash2, Search, Sparkles } from 'lucide-react';
 import { BusinessProfileCard } from '@/components/business-profile-card';
 import { SecurityPage } from './security';
 import { ProductCatalogPage } from './product-catalog';
@@ -427,6 +427,7 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
           <TabsTrigger value="templates">Templates</TabsTrigger>
           <TabsTrigger value="billing">Billing</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
+          <TabsTrigger value="ai">AI Assistant</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
           <TabsTrigger value="catalog">Product Catalog</TabsTrigger>
         </TabsList>
@@ -1146,6 +1147,11 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
           </div>
         </TabsContent>
 
+        {/* AI ASSISTANT TAB */}
+        <TabsContent value="ai">
+          <AISettingsTab />
+        </TabsContent>
+
         {/* SECURITY TAB */}
         <TabsContent value="security">
           <div className="mt-4">
@@ -1586,5 +1592,93 @@ function QuickBooksCard() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ===== AI ASSISTANT SETTINGS =====
+
+function AISettingsTab() {
+  const [config, setConfig] = useState({ isEnabled: false, apiKey: '', model: 'claude-sonnet-4-20250514' });
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    api<typeof config>('/settings/ai').then(setConfig).catch(() => {});
+  }, []);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true); setMessage('');
+    try {
+      await api('/settings/ai', { method: 'PUT', body: JSON.stringify(config) });
+      setMessage('AI settings saved');
+      const updated = await api<typeof config>('/settings/ai');
+      setConfig(updated);
+    } catch (err: unknown) { setMessage(err instanceof Error ? err.message : 'Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function handleTest() {
+    setTesting(true); setMessage('');
+    try {
+      const res = await api<{ message: string }>('/settings/ai/test', { method: 'POST', body: JSON.stringify({}) });
+      setMessage(res.message);
+    } catch (err: unknown) { setMessage(err instanceof Error ? err.message : 'Test failed'); }
+    finally { setTesting(false); }
+  }
+
+  return (
+    <div className="space-y-6 mt-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5" />AI Assistant</CardTitle>
+          <CardDescription>Configure AI-powered features for ticket management. Uses Claude (Anthropic) for ticket summaries and reply improvement.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
+          <form onSubmit={handleSave} className="space-y-4">
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <input type="checkbox" checked={config.isEnabled} onChange={e => setConfig(c => ({ ...c, isEnabled: e.target.checked }))} className="rounded" />
+                Enable AI features
+              </label>
+            </div>
+
+            <div>
+              <Label>Anthropic API Key</Label>
+              <Input type="password" value={config.apiKey} onChange={e => setConfig(c => ({ ...c, apiKey: e.target.value }))} placeholder="sk-ant-api03-..." />
+              <p className="text-xs text-muted-foreground mt-1">Get your key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="text-primary underline">console.anthropic.com</a></p>
+            </div>
+
+            <div>
+              <Label>Model</Label>
+              <select value={config.model} onChange={e => setConfig(c => ({ ...c, model: e.target.value }))}
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
+                <option value="claude-sonnet-4-20250514">Claude Sonnet 4 (Recommended)</option>
+                <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (Faster, cheaper)</option>
+                <option value="claude-opus-4-20250115">Claude Opus 4 (Most capable)</option>
+              </select>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Features</div>
+              <div className="text-sm text-muted-foreground space-y-1">
+                <div className="flex items-center gap-2"><Sparkles className="h-3.5 w-3.5" /> <strong>Ticket Summarize</strong> — AI reads the full ticket and generates a concise summary</div>
+                <div className="flex items-center gap-2"><Sparkles className="h-3.5 w-3.5" /> <strong>Improve Reply</strong> — AI rewrites your draft reply to be customer-friendly and professional</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save Settings'}</Button>
+              <Button type="button" variant="outline" onClick={handleTest} disabled={testing}>
+                {testing ? 'Testing...' : 'Test Connection'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

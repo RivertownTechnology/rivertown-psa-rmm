@@ -23,6 +23,9 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_WEBHOOK_PATH: z.string().default('stripe'),
 
+  // AI (Anthropic Claude)
+  ANTHROPIC_API_KEY: z.string().optional(),
+
   // Passkeys (WebAuthn)
   PASSKEY_RP_ID: z.string().default('portal.rivertowntechnology.com'),
   PASSKEY_ORIGIN: z.string().default('https://portal.rivertowntechnology.com'),

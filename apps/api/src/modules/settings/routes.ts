@@ -193,6 +193,92 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== AI ASSISTANT =====
+
+  fastify.get(
+    '/api/v1/settings/ai',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials } = await import('../../common/credentials.js');
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'ai')))
+        .limit(1);
+
+      if (!config) {
+        return { isEnabled: false, apiKey: '', model: 'claude-sonnet-4-20250514' };
+      }
+
+      const creds = readCredentials(config.credentials);
+      const settings = (config.settings ?? {}) as Record<string, string>;
+      return {
+        isEnabled: config.isEnabled,
+        apiKey: creds.apiKey ? '••••••••' + String(creds.apiKey).slice(-4) : '',
+        model: settings.model || 'claude-sonnet-4-20250514',
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/ai',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
+      const body = request.body as { isEnabled: boolean; apiKey?: string; model?: string };
+
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'ai')))
+        .limit(1);
+
+      const prevCreds = existing ? readCredentials(existing.credentials) : {};
+      const prevSettings = (existing?.settings ?? {}) as Record<string, string>;
+
+      const credentials = writeCredentials({
+        apiKey: body.apiKey?.startsWith('••') ? prevCreds.apiKey : (body.apiKey || prevCreds.apiKey || ''),
+      });
+
+      const settings = { ...prevSettings, model: body.model || prevSettings.model || 'claude-sonnet-4-20250514' };
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, credentials, settings, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'ai',
+          isEnabled: body.isEnabled, credentials, settings,
+        });
+      }
+
+      return { success: true };
+    },
+  );
+
+  fastify.post(
+    '/api/v1/settings/ai/test',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials } = await import('../../common/credentials.js');
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'ai')))
+        .limit(1);
+
+      const creds = config ? readCredentials(config.credentials) : {};
+      const apiKey = (creds.apiKey as string) || process.env.ANTHROPIC_API_KEY || '';
+      if (!apiKey) throw new ValidationError('No API key configured');
+
+      const Anthropic = (await import('@anthropic-ai/sdk')).default;
+      const client = new Anthropic({ apiKey });
+      const response = await client.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 50,
+        messages: [{ role: 'user', content: 'Reply with "AI connection successful" and nothing else.' }],
+      });
+
+      const text = response.content[0];
+      return { success: true, message: text.type === 'text' ? text.text : 'Connected' };
+    },
+  );
+
   // ===== BILLING EMAIL (Mailjet) =====
 
   fastify.get(

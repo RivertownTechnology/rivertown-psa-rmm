@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
   ArrowLeft, Clock, MessageSquare, Pencil, Check, X, ChevronDown, ChevronUp,
-  Eye, EyeOff, Plus, Timer, User, Users, AlertCircle, Send, Trash2,
+  Eye, EyeOff, Plus, Timer, User, Users, AlertCircle, Send, Trash2, Sparkles,
 } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 
@@ -159,6 +159,13 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
   const [commentBody, setCommentBody] = useState('');
   const [commentInternal, setCommentInternal] = useState(false);
   const [submittingComment, setSubmittingComment] = useState(false);
+
+  // AI assist
+  const [aiSummary, setAiSummary] = useState('');
+  const [aiSummarizing, setAiSummarizing] = useState(false);
+  const [aiImproving, setAiImproving] = useState(false);
+  const [aiImprovedText, setAiImprovedText] = useState('');
+  const [showAiPreview, setShowAiPreview] = useState(false);
 
   // Time entry form
   const [timeForm, setTimeForm] = useState({ durationMinutes: '', notes: '', isBillable: true });
@@ -453,6 +460,34 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                   </Button>
                 )}
               </div>
+
+              {/* AI Summary */}
+              <div className="mt-3">
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs"
+                  disabled={aiSummarizing}
+                  onClick={async () => {
+                    setAiSummarizing(true); setAiSummary('');
+                    try {
+                      const res = await api<{ summary: string }>('/ai/summarize-ticket', {
+                        method: 'POST', body: JSON.stringify({ ticketId }),
+                      });
+                      setAiSummary(res.summary);
+                    } catch (err: any) { setAiSummary(`Error: ${err.message || 'AI unavailable'}`); }
+                    finally { setAiSummarizing(false); }
+                  }}>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {aiSummarizing ? 'Summarizing...' : 'AI Summary'}
+                </Button>
+                {aiSummary && (
+                  <div className="mt-2 p-3 rounded-md bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 text-sm">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wider flex items-center gap-1"><Sparkles className="h-3 w-3" /> AI Summary</span>
+                      <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => setAiSummary('')}><X className="h-3 w-3" /></Button>
+                    </div>
+                    <div className="text-muted-foreground whitespace-pre-wrap">{aiSummary}</div>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -545,7 +580,46 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                     <EyeOff className="h-3.5 w-3.5" />
                     {submittingComment && commentInternal ? 'Saving...' : 'Internal Note'}
                   </Button>
+                  <div className="flex-1" />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={aiImproving || !commentBody.trim()}
+                    onClick={async () => {
+                      setAiImproving(true);
+                      try {
+                        const res = await api<{ improvedText: string }>('/ai/improve-reply', {
+                          method: 'POST',
+                          body: JSON.stringify({ draftText: commentBody, ticketSubject: ticket?.subject || '' }),
+                        });
+                        setAiImprovedText(res.improvedText);
+                        setShowAiPreview(true);
+                      } catch { /* ignore */ }
+                      finally { setAiImproving(false); }
+                    }}
+                    className="gap-1 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/30"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {aiImproving ? 'Improving...' : 'AI Improve'}
+                  </Button>
                 </div>
+                {/* AI Improved Reply Preview */}
+                {showAiPreview && aiImprovedText && (
+                  <div className="p-3 rounded-md bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wider flex items-center gap-1"><Sparkles className="h-3 w-3" /> AI Suggestion</span>
+                      <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => setShowAiPreview(false)}><X className="h-3 w-3" /></Button>
+                    </div>
+                    <div className="text-sm whitespace-pre-wrap bg-white dark:bg-gray-900 p-2 rounded border">{aiImprovedText}</div>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" onClick={() => { setCommentBody(aiImprovedText); setShowAiPreview(false); setAiImprovedText(''); }}
+                        className="gap-1 bg-purple-600 hover:bg-purple-700">
+                        <Check className="h-3.5 w-3.5" />Accept
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setShowAiPreview(false)}>Cancel</Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

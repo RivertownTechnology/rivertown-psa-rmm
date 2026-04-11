@@ -15,6 +15,7 @@ import { googleCalendarRoutes } from './modules/integrations/google-calendar.js'
 import { stripeRoutes } from './modules/integrations/stripe.js';
 import { pax8Routes } from './modules/integrations/pax8.js';
 import { quickbooksRoutes } from './modules/integrations/quickbooks.js';
+import { aiRoutes } from './modules/ai/routes.js';
 import { loadModules } from './modules/registry.js';
 import { AppError } from './common/errors.js';
 import { ZodError } from 'zod';
@@ -212,6 +213,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   await fastify.register(stripeRoutes);
   await fastify.register(pax8Routes);
   await fastify.register(quickbooksRoutes);
+  await fastify.register(aiRoutes);
 
   // Load feature modules
   await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, portalModule, publicApiModule]);
