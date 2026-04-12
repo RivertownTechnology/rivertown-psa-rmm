@@ -13,4 +13,11 @@ export default defineConfig({
       '/api': { target: 'http://localhost:3000', changeOrigin: true },
     },
   },
+  // Vite preview has a DNS-rebinding host check that blocks unknown hosts by default.
+  // Behind Railway/Cloudflare TLS the proxy already handles host validation, so we
+  // allow all hosts here. Safe because the origin is only reachable via Railway routing.
+  preview: {
+    allowedHosts: true,
+    host: '0.0.0.0',
+  },
 });
