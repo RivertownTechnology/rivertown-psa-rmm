@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LogOut, User, Sun, Moon, Palette, Search, Menu, Settings as SettingsIcon } from 'lucide-react';
+import { LogOut, User, Sun, Moon, Palette, Search, Menu, Settings as SettingsIcon, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface HeaderProps {
@@ -129,6 +129,12 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
               <SettingsIcon className="mr-2 h-4 w-4" />
               Settings
             </DropdownMenuItem>
+            {user?.isSuperAdmin && (
+              <DropdownMenuItem onClick={() => onNavigate('/admin')}>
+                <Shield className="mr-2 h-4 w-4" />
+                ForgePSA Admin
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={logout} className="text-destructive">
               <LogOut className="mr-2 h-4 w-4" />

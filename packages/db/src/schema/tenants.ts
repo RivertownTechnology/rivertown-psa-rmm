@@ -18,6 +18,29 @@ export const tenants = pgTable('tenants', {
   ssoProvider: text('sso_provider'),
   ssoConfig: jsonb('sso_config'),
 
+  // SaaS billing / trial
+  trialEndsAt: timestamp('trial_ends_at', { withTimezone: true }),
+  subscriptionStatus: text('subscription_status').default('trial').notNull(), // trial | active | past_due | cancelled
+  stripeCustomerId: text('stripe_customer_id'),
+  stripeSubscriptionId: text('stripe_subscription_id'),
+  planTier: text('plan_tier').default('starter').notNull(), // starter | pro | enterprise
+  pastDueAt: timestamp('past_due_at', { withTimezone: true }), // first failed renewal; 30-day grace before lockout
+
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const tenantSsoConfigs = pgTable('tenant_sso_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => tenants.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(), // 'microsoft' | 'google' | 'saml'
+  domain: text('domain'), // email domain for auto-lookup
+  credentials: text('credentials'), // encrypted JSON
+  samlMetadataUrl: text('saml_metadata_url'),
+  samlCertificate: text('saml_certificate'),
+  isEnabled: boolean('is_enabled').default(false).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

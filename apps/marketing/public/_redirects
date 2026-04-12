@@ -1,0 +1,5 @@
+# Redirect /login to the application's login page
+/login  https://app.forgepsa.com/login  302
+
+# SPA fallback — serve index.html for any path not matched by a real file
+/*  /index.html  200

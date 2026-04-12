@@ -16,6 +16,8 @@ import { TimeEntriesPage } from '@/pages/time-entries';
 import { QuoteDetailPage } from '@/pages/quote-detail';
 import { SettingsPage } from '@/pages/settings';
 import { AccountPage } from '@/pages/account';
+import { BillingPage } from '@/pages/billing';
+import { AdminPage } from '@/pages/admin';
 import { ProductCatalogPage } from '@/pages/product-catalog';
 import { Pax8Page } from '@/pages/pax8';
 import { DispatchPage } from '@/pages/dispatch';
@@ -85,6 +87,12 @@ function AppRouter() {
   }
 
   if (!user) return <LoginPage />;
+
+  // Hard lockout: trial ended with no subscription, past-due grace expired, or cancelled.
+  // Force the billing screen until a subscription is active.
+  if (user.lockedOut) {
+    return <BillingPage forced />;
+  }
 
   function navigate(path: string) { pushPath(path); }
   function navigateToCustomer(id: string) { pushPath(`/customers/${id}`); }
@@ -163,6 +171,12 @@ function AppRouter() {
   } else if (pathname === '/account') {
     title = 'My Account';
     content = <AccountPage />;
+  } else if (pathname === '/billing') {
+    title = 'Billing';
+    content = <BillingPage />;
+  } else if (pathname === '/admin') {
+    title = 'ForgePSA Admin';
+    content = <AdminPage />;
   } else if (pathname === '/catalog') {
     title = 'Product Catalog'; currentNav = '/catalog';
     content = <ProductCatalogPage />;

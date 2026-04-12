@@ -73,10 +73,10 @@ export function Sidebar({ currentPath, onNavigate, mobileOpen, onClose }: Sideba
     >
       <div className="p-4 border-b flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="Rivertown Technology" className="h-8 w-8 rounded-lg object-contain" />
+          <img src="/logo.png" alt="ForgePSA" className="h-8 w-8 rounded-lg object-contain" />
           <div>
-            <h1 className="text-sm font-semibold">Rivertown PSA</h1>
-            <p className="text-xs text-muted-foreground">v0.3.0</p>
+            <h1 className="text-sm font-semibold">ForgePSA</h1>
+            <p className="text-xs text-muted-foreground">v0.3.0-beta.1</p>
           </div>
         </div>
         <button onClick={onClose} className="lg:hidden p-1 rounded-md hover:bg-accent">

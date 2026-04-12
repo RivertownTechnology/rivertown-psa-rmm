@@ -19,3 +19,4 @@ export * from './audit-log.js';
 export * from './tax-rates.js';
 export * from './passkeys.js';
 export * from './portal-mfa.js';
+export * from './system-configs.js';

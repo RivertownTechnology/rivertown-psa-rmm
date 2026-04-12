@@ -9,6 +9,16 @@ interface User {
   tenantId: string;
   mfaEnabled: boolean;
   mfaProvider: string | null;
+  isSuperAdmin?: boolean;
+  tenantName?: string;
+  trialEndsAt?: string | null;
+  pastDueAt?: string | null;
+  subscriptionStatus?: 'trial' | 'active' | 'past_due' | 'cancelled';
+  planTier?: 'starter' | 'pro' | 'enterprise';
+  trialDaysRemaining?: number | null;
+  pastDueDaysRemaining?: number | null;
+  trialExpired?: boolean;
+  lockedOut?: boolean;
 }
 
 interface AuthContextType {

@@ -33,6 +33,9 @@ import ticketsModule from './modules/tickets/index.js';
 import dispatchModule from './modules/dispatch/index.js';
 import portalModule from './modules/portal/index.js';
 import publicApiModule from './modules/public-api/index.js';
+import { publicSignupRoutes } from './modules/public-signup/routes.js';
+import { adminRoutes } from './modules/admin/routes.js';
+import { saasBillingRoutes } from './modules/saas-billing/routes.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -72,15 +75,23 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     }
   });
 
-  // CORS
-  const allowedOrigins = [
+  // CORS — keep dev-only origins strictly out of production to prevent
+  // an attacker's localhost page from exercising the prod API.
+  const prodOrigins = [
     'https://psa.rivertowntechnology.com',
     'https://rivertown-psa-rmm-production.up.railway.app',
+    'https://forgepsa.com',
+    'https://www.forgepsa.com',
+    'https://app.forgepsa.com',
+    'https://portal.forgepsa.com',
+  ];
+  const devOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
+    'http://localhost:5175',
   ];
   await fastify.register(cors, {
-    origin: config.NODE_ENV === 'development' ? true : allowedOrigins,
+    origin: config.NODE_ENV === 'development' ? [...prodOrigins, ...devOrigins] : prodOrigins,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
     credentials: true,
@@ -164,6 +175,51 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     await fastify.authenticate(request, reply);
   });
 
+  // Trial enforcement — block writes when trial expired with no active subscription
+  fastify.addHook('preHandler', async (request, reply) => {
+    if ((request.routeOptions?.config as any)?.public) return;
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return;
+
+    const user = (request as any).user;
+    if (!user?.tid) return; // unauthenticated; other middleware handles it
+
+    // Allow the user to log out, manage billing, or hit auth endpoints even in read-only mode
+    const url = request.url.split('?')[0];
+    if (
+      url.startsWith('/api/v1/auth/') ||
+      url.startsWith('/api/v1/billing/') ||
+      url.startsWith('/api/v1/admin/')
+    ) return;
+
+    const { getTenantSubscriptionState } = await import('./common/tenant-subscription-cache.js');
+    const t = await getTenantSubscriptionState(fastify.db, user.tid);
+    if (!t) return;
+
+    const now = Date.now();
+    const GRACE_MS = 30 * 24 * 60 * 60 * 1000;
+
+    const trialExpired = t.status === 'trial'
+      && t.trialEndsAt != null
+      && t.trialEndsAt.getTime() < now;
+    const graceExpired = t.status === 'past_due'
+      && t.pastDueAt != null
+      && now - t.pastDueAt.getTime() > GRACE_MS;
+
+    // Cancelled or past-their-grace accounts are locked out. past_due within the 30-day grace
+    // keeps writes working so the customer has time to resolve the card issue.
+    const locked = t.status === 'cancelled' || trialExpired || graceExpired;
+
+    if (locked) {
+      reply.code(402).send({
+        error: 'SUBSCRIPTION_REQUIRED',
+        message: trialExpired
+          ? 'Your 45-day free trial has ended. Add a subscription to continue making changes.'
+          : 'Your subscription is not active. Update billing to continue making changes.',
+        subscriptionStatus: t.status,
+      });
+    }
+  });
+
   // Error handler
   fastify.setErrorHandler((error: Error & { validation?: unknown; statusCode?: number }, request, reply) => {
     if (error instanceof AppError) {
@@ -203,6 +259,15 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   fastify.get('/health', { config: { public: true } as any }, async () => {
     return { status: 'ok', timestamp: new Date().toISOString() };
   });
+
+  // Public signup (SaaS onboarding)
+  await fastify.register(publicSignupRoutes);
+
+  // ForgePSA super-admin dashboard
+  await fastify.register(adminRoutes);
+
+  // SaaS billing — platform-level Stripe for charging tenants
+  await fastify.register(saasBillingRoutes);
 
   // Auth routes
   await fastify.register(authRoutes);

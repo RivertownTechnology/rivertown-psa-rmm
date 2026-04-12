@@ -1,5 +1,7 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
+import { eq, and } from 'drizzle-orm';
 import { ForbiddenError } from '../common/errors.js';
+import { users } from '@rivertown/db';
 
 const rolePermissions: Record<string, string[]> = {
   owner: ['*'],
@@ -28,6 +30,28 @@ const rolePermissions: Record<string, string[]> = {
     'portal:assets:read',
   ],
 };
+
+/**
+ * Gate a route to ForgePSA internal super-admins only. Checks the DB rather
+ * than trusting the JWT alone so revoking super-admin takes effect immediately.
+ */
+export function requireSuperAdmin(fastify: FastifyInstance) {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user as { sub?: string; tid?: string } | undefined;
+    if (!user?.sub || !user?.tid) {
+      reply.code(401).send({ error: 'UNAUTHORIZED' });
+      return;
+    }
+    const [row] = await fastify.db
+      .select({ isSuperAdmin: users.isSuperAdmin })
+      .from(users)
+      .where(and(eq(users.id, user.sub), eq(users.tenantId, user.tid)))
+      .limit(1);
+    if (!row?.isSuperAdmin) {
+      reply.code(403).send({ error: 'FORBIDDEN', message: 'Super-admin access required' });
+    }
+  };
+}
 
 export function requirePermission(...permissions: string[]) {
   return async (request: FastifyRequest, reply: FastifyReply) => {

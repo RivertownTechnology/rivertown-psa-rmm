@@ -11,9 +11,43 @@ export async function authRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/api/v1/auth/login',
     { config: { public: true, rateLimit: { max: 5, timeWindow: '5 minutes' } } as any },
-    async (request, reply) => {
-      // Password login disabled — use Google SSO
-      throw new UnauthorizedError('Password login is disabled. Please sign in with Google SSO.');
+    async (request) => {
+      const { email, password } = loginSchema.parse(request.body);
+
+      const [user] = await fastify.db
+        .select()
+        .from(users)
+        .where(eq(users.email, email.toLowerCase()))
+        .limit(1);
+
+      if (!user || !user.isActive || !user.passwordHash) {
+        throw new UnauthorizedError('Invalid credentials');
+      }
+
+      const valid = await compare(password, user.passwordHash);
+      if (!valid) {
+        throw new UnauthorizedError('Invalid credentials');
+      }
+
+      await logAudit(fastify.db, {
+        tenantId: user.tenantId,
+        actorType: 'user',
+        actorId: user.id,
+        action: 'login',
+        entityType: 'user',
+        entityId: user.id,
+      });
+
+      const accessToken = fastify.jwt.sign(
+        { jti: randomUUID(), sub: user.id, tid: user.tenantId, role: user.role, type: 'access' as const },
+        { expiresIn: fastify.config.JWT_EXPIRES_IN },
+      );
+      const refreshToken = fastify.jwt.sign(
+        { jti: randomUUID(), sub: user.id, tid: user.tenantId, role: user.role, type: 'refresh' as const },
+        { expiresIn: fastify.config.REFRESH_TOKEN_EXPIRES_IN },
+      );
+
+      return { accessToken, refreshToken };
     },
   );
 
@@ -62,7 +96,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
   fastify.get('/api/v1/auth/me', async (request) => {
     const payload = request.user;
-    const [user] = await fastify.db
+    const [row] = await fastify.db
       .select({
         id: users.id,
         email: users.email,
@@ -71,13 +105,52 @@ export async function authRoutes(fastify: FastifyInstance) {
         tenantId: users.tenantId,
         mfaEnabled: users.mfaEnabled,
         mfaProvider: users.mfaProvider,
+        isSuperAdmin: users.isSuperAdmin,
+        tenantName: tenants.name,
+        trialEndsAt: tenants.trialEndsAt,
+        subscriptionStatus: tenants.subscriptionStatus,
+        planTier: tenants.planTier,
+        pastDueAt: tenants.pastDueAt,
       })
       .from(users)
+      .innerJoin(tenants, eq(tenants.id, users.tenantId))
       .where(and(eq(users.id, payload.sub), eq(users.tenantId, payload.tid)))
       .limit(1);
 
-    if (!user) throw new UnauthorizedError('User not found');
-    return user;
+    if (!row) throw new UnauthorizedError('User not found');
+
+    const now = Date.now();
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const GRACE_DAYS = 30;
+
+    const trialDaysRemaining = row.trialEndsAt
+      ? Math.max(0, Math.ceil((new Date(row.trialEndsAt).getTime() - now) / MS_PER_DAY))
+      : null;
+    const trialExpired = row.subscriptionStatus === 'trial'
+      && row.trialEndsAt != null
+      && new Date(row.trialEndsAt).getTime() < now;
+
+    // Past-due grace period: once Stripe reports a failed renewal we set pastDueAt.
+    // Customers keep full access for 30 days, then login is gated to the billing screen.
+    const pastDueDaysRemaining = row.pastDueAt
+      ? Math.max(0, GRACE_DAYS - Math.floor((now - new Date(row.pastDueAt).getTime()) / MS_PER_DAY))
+      : null;
+    const graceExpired = row.pastDueAt != null
+      && now - new Date(row.pastDueAt).getTime() > GRACE_DAYS * MS_PER_DAY;
+
+    const lockedOut = (
+      row.subscriptionStatus === 'cancelled'
+      || trialExpired
+      || (row.subscriptionStatus === 'past_due' && graceExpired)
+    );
+
+    return {
+      ...row,
+      trialDaysRemaining,
+      trialExpired,
+      pastDueDaysRemaining,
+      lockedOut,
+    };
   });
 
   // Logout — blacklist current token

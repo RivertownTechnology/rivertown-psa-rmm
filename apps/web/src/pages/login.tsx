@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { login as apiLogin, verifyMfa } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,21 @@ export function LoginPage() {
   const [mfaStep, setMfaStep] = useState(false);
   const [mfaToken, setMfaToken] = useState('');
   const [mfaCode, setMfaCode] = useState('');
-  const [mfaSetupRequired, setMfaSetupRequired] = useState(false);
+
+  // Consume tokens from URL hash (set by marketing signup redirect)
+  useEffect(() => {
+    if (!window.location.hash) return;
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const access = params.get('token');
+    const refresh = params.get('refresh');
+    if (access && refresh) {
+      // Clear hash before signing in so tokens aren't left in browser history
+      window.history.replaceState(null, '', window.location.pathname);
+      login(access, refresh).catch(() => {
+        setError('Could not complete signup. Please sign in.');
+      });
+    }
+  }, [login]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -32,10 +46,6 @@ export function LoginPage() {
         setMfaStep(true);
         setLoading(false);
         return;
-      }
-
-      if (data.mfaSetupRequired) {
-        setMfaSetupRequired(true);
       }
 
       await login(data.accessToken, data.refreshToken);
@@ -123,19 +133,58 @@ export function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-muted/50 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <img src="/logo.png" alt="Rivertown Technology" className="mx-auto mb-4 h-16 w-auto object-contain" />
-          <CardTitle className="text-2xl">Rivertown PSA</CardTitle>
-          <CardDescription>Sign in with your company Google account</CardDescription>
+          <img src="/logo.png" alt="ForgePSA" className="mx-auto mb-4 h-16 w-auto object-contain" />
+          <CardTitle className="text-2xl">ForgePSA</CardTitle>
+          <CardDescription>Sign in to your account</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           {error && (
-            <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-md mb-4">
+            <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-md">
               {error}
             </div>
           )}
+
+          <form onSubmit={handleLogin} className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="you@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={loading || !email || !password}>
+              {loading ? 'Signing in…' : 'Sign in'}
+            </Button>
+          </form>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">Or</span>
+            </div>
+          </div>
+
           <a
             href={`${(import.meta as any).env?.VITE_API_URL || ''}/api/v1/auth/google`}
-            className="inline-flex items-center justify-center gap-3 w-full rounded-md bg-white border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
+            className="inline-flex items-center justify-center gap-3 w-full rounded-md bg-white border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
@@ -145,6 +194,13 @@ export function LoginPage() {
             </svg>
             Sign in with Google
           </a>
+
+          <p className="text-xs text-center text-muted-foreground pt-2">
+            Don't have an account?{' '}
+            <a href="https://forgepsa.com/signup" className="text-primary hover:underline font-medium">
+              Start a 45-day free trial
+            </a>
+          </p>
         </CardContent>
       </Card>
     </div>
