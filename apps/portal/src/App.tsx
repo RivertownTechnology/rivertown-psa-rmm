@@ -1,10 +1,15 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { login as apiLogin, setTokens, clearTokens, getAccessToken, api } from '@/lib/api';
 import { LoginPage } from '@/components/LoginPage';
 import { ChangePassword } from '@/components/ChangePassword';
 import { Dashboard } from '@/components/Dashboard';
 import { MfaChallenge } from '@/components/MfaChallenge';
 import { MfaSetupRequired } from '@/components/MfaSetupRequired';
+
+interface PortalMe {
+  firstName: string; lastName: string; email: string;
+  portalRole: string; portalPermissions: string[];
+}
 
 export function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => !!getAccessToken());
@@ -13,12 +18,30 @@ export function App() {
   const [portalPermissions, setPortalPermissions] = useState<string[]>(['tickets']);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
+  const [loadingUser, setLoadingUser] = useState(() => !!getAccessToken());
 
   // MFA challenge state
   const [mfaChallenge, setMfaChallenge] = useState<{ mfaToken: string; phoneHint: string } | null>(null);
 
   // Forced MFA setup
   const [mustSetupMfa, setMustSetupMfa] = useState(false);
+
+  // Restore user state on mount/refresh if we have a valid token
+  useEffect(() => {
+    if (!isAuthenticated) { setLoadingUser(false); return; }
+    api<PortalMe>('/portal/me')
+      .then(me => {
+        setUserName(`${me.firstName} ${me.lastName}`.trim() || me.email);
+        setPortalRole(me.portalRole || 'user');
+        setPortalPermissions(Array.isArray(me.portalPermissions) ? me.portalPermissions : ['tickets']);
+      })
+      .catch(() => {
+        // Token invalid/expired — clear and force login
+        clearTokens();
+        setIsAuthenticated(false);
+      })
+      .finally(() => setLoadingUser(false));
+  }, [isAuthenticated]);
 
   const handleLogin = useCallback(async (email: string, password: string) => {
     const data = await apiLogin(email, password);
@@ -92,6 +115,14 @@ export function App() {
       return <MfaChallenge phoneHint={mfaChallenge.phoneHint} onVerify={handleMfaVerified} onCancel={() => setMfaChallenge(null)} />;
     }
     return <LoginPage onLogin={handleLogin} />;
+  }
+
+  if (loadingUser) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
   }
 
   if (mustChangePassword) {
