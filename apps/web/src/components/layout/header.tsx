@@ -134,7 +134,7 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
               Help &amp; Support
             </DropdownMenuItem>
             {user?.isSuperAdmin && (
-              <DropdownMenuItem onClick={() => onNavigate('/admin')}>
+              <DropdownMenuItem onClick={() => { window.location.href = 'https://forgeadmin.forgepsa.com'; }}>
                 <Shield className="mr-2 h-4 w-4" />
                 ForgePSA Admin
               </DropdownMenuItem>

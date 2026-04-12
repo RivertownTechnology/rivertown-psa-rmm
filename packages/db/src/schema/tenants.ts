@@ -31,6 +31,9 @@ export const tenants = pgTable('tenants', {
   billingModel: text('billing_model'), // 'per_user' | 'per_device' | 'flat_rate' | 'hybrid' | 'none'
   currency: text('currency').default('USD').notNull(),
 
+  // Per-tenant feature flags — overrides default plan-based gates
+  featureFlags: jsonb('feature_flags').default({}).notNull(),
+
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

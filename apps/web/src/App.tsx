@@ -17,7 +17,6 @@ import { QuoteDetailPage } from '@/pages/quote-detail';
 import { SettingsPage } from '@/pages/settings';
 import { AccountPage } from '@/pages/account';
 import { BillingPage } from '@/pages/billing';
-import { AdminPage } from '@/pages/admin';
 import { SupportPage } from '@/pages/support';
 import { ProductCatalogPage } from '@/pages/product-catalog';
 import { Pax8Page } from '@/pages/pax8';
@@ -184,9 +183,6 @@ function AppRouter() {
   } else if (pathname === '/billing') {
     title = 'Billing';
     content = <BillingPage />;
-  } else if (pathname === '/admin') {
-    title = 'ForgePSA Admin';
-    content = <AdminPage />;
   } else if (pathname === '/support') {
     title = 'Help & Support';
     content = <SupportPage />;

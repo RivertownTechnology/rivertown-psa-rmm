@@ -20,3 +20,4 @@ export * from './tax-rates.js';
 export * from './passkeys.js';
 export * from './portal-mfa.js';
 export * from './system-configs.js';
+export * from './support-tickets.js';

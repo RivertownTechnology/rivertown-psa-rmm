@@ -85,11 +85,13 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     'https://www.forgepsa.com',
     'https://app.forgepsa.com',
     'https://portal.forgepsa.com',
+    'https://forgeadmin.forgepsa.com',
   ];
   const devOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:5175',
+    'http://localhost:5176',
   ];
   await fastify.register(cors, {
     origin: config.NODE_ENV === 'development' ? [...prodOrigins, ...devOrigins] : prodOrigins,

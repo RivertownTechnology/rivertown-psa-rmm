@@ -2,7 +2,8 @@ import { FastifyInstance } from 'fastify';
 import { randomUUID } from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { compare } from 'bcryptjs';
-import { users, tenants } from '@rivertown/db';
+import { z } from 'zod';
+import { users, tenants, tenantSsoConfigs } from '@rivertown/db';
 import { loginSchema } from '@rivertown/shared';
 import { UnauthorizedError } from '../common/errors.js';
 import { logAudit } from '../common/audit.js';
@@ -48,6 +49,52 @@ export async function authRoutes(fastify: FastifyInstance) {
       );
 
       return { accessToken, refreshToken };
+    },
+  );
+
+  // SSO discovery — email-first login flow. Given an email, return which auth method
+  // the user should use based on the tenant's SSO config for their email domain.
+  // Deliberately does NOT reveal whether the email exists (prevents enumeration).
+  fastify.post(
+    '/api/v1/auth/sso-lookup',
+    { config: { public: true, rateLimit: { max: 20, timeWindow: '1 minute' } } as any },
+    async (request) => {
+      const body = z.object({
+        email: z.string().trim().toLowerCase().email(),
+      }).safeParse(request.body);
+
+      if (!body.success) {
+        return { method: 'password' as const };
+      }
+
+      const domain = body.data.email.split('@')[1];
+      if (!domain) return { method: 'password' as const };
+
+      // Look up active SSO config for this domain. We match on the domain column,
+      // not on user existence — so unknown emails still get a generic response.
+      const [sso] = await fastify.db
+        .select({
+          provider: tenantSsoConfigs.provider,
+          isEnabled: tenantSsoConfigs.isEnabled,
+        })
+        .from(tenantSsoConfigs)
+        .where(and(
+          eq(tenantSsoConfigs.domain, domain),
+          eq(tenantSsoConfigs.isEnabled, true),
+        ))
+        .limit(1);
+
+      if (sso?.provider) {
+        return {
+          method: 'sso' as const,
+          provider: sso.provider, // 'microsoft' | 'google' | 'saml'
+          // Future: redirectUrl will point to the OAuth/SAML initiation endpoint per provider.
+          // Until Microsoft/SAML are implemented, the UI falls back to Google SSO if provider === 'google'
+          // or shows password if the provider isn't yet wired.
+        };
+      }
+
+      return { method: 'password' as const };
     },
   );
 

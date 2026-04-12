@@ -9,7 +9,7 @@ import { FastifyInstance } from 'fastify';
 import { eq, and } from 'drizzle-orm';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
-import { users, tenants } from '@rivertown/db';
+import { users, tenants, supportTickets } from '@rivertown/db';
 
 const submitSchema = z.object({
   category: z.enum(['bug', 'question', 'feature', 'billing']),
@@ -60,6 +60,21 @@ export async function supportRoutes(fastify: FastifyInstance) {
 
       const ticketRef = `SUP-${randomUUID().slice(0, 8).toUpperCase()}`;
 
+      // Persist the ticket row first — it's the source of truth for the admin inbox.
+      // The email is a push notification; if mail delivery fails, the row stays around.
+      const [ticketRow] = await fastify.db
+        .insert(supportTickets)
+        .values({
+          ref: ticketRef,
+          tenantId: ctx.tenantId,
+          userId: request.user.sub,
+          userEmail: ctx.userEmail,
+          category: body.category,
+          subject: body.subject,
+          body: body.body,
+        })
+        .returning({ id: supportTickets.id });
+
       const html = `
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:640px">
   <h2 style="color:#1e3a8a">[${body.category.toUpperCase()}] ${escapeHtml(body.subject)}</h2>
@@ -101,6 +116,7 @@ export async function supportRoutes(fastify: FastifyInstance) {
         body.body,
       ].join('\n');
 
+      let emailSent = false;
       try {
         const { sendSystemEmail } = await import('../../services/system-mail.js');
         await sendSystemEmail(fastify.db, {
@@ -110,14 +126,18 @@ export async function supportRoutes(fastify: FastifyInstance) {
           text,
           replyTo: ctx.userEmail,
         });
+        emailSent = true;
       } catch (err) {
-        request.log.error({ err, ticketRef }, '[SUPPORT] Failed to send ticket email');
-        reply.code(502);
-        return {
-          error: 'DELIVERY_FAILED',
-          message: `We couldn't queue your ticket for delivery. Please email ${SUPPORT_EMAIL} directly with reference ${ticketRef}.`,
-          id: ticketRef,
-        };
+        // Don't fail the whole request — ticket is persisted in DB, admin can see it in the inbox.
+        request.log.warn({ err, ticketRef }, '[SUPPORT] Failed to send notification email (ticket still saved)');
+      }
+
+      // Flag the email-sent status so admins know whether to expect the push notification
+      if (emailSent) {
+        await fastify.db
+          .update(supportTickets)
+          .set({ emailSent: true })
+          .where(eq(supportTickets.id, ticketRow.id));
       }
 
       request.log.info({

@@ -18,6 +18,7 @@ declare module '@fastify/jwt' {
       portalRole?: string; // 'admin' | 'user' — portal contacts only
       perms?: string[]; // ['tickets', 'billing'] — portal permissions
       invoiceId?: string; // invoice view tokens
+      imp?: string; // real super-admin id when the token is an impersonation token
     };
     user: {
       jti?: string;
@@ -31,6 +32,7 @@ declare module '@fastify/jwt' {
       portalRole?: string;
       perms?: string[];
       invoiceId?: string;
+      imp?: string;
     };
   }
 }

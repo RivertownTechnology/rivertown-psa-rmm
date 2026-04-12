@@ -1,11 +1,22 @@
 import { FastifyInstance } from 'fastify';
-import { eq, sql, desc } from 'drizzle-orm';
+import { eq, sql, desc, and, gte, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { systemConfigs, tenants, users } from '@rivertown/db';
+import { randomUUID } from 'crypto';
+import {
+  systemConfigs, tenants, users, auditLog, supportTickets,
+} from '@rivertown/db';
 import { requireSuperAdmin } from '../../auth/rbac.js';
 import { readCredentialsText, writeCredentialsText } from '../../common/credentials.js';
 import { invalidateTenantSubscriptionCache } from '../../common/tenant-subscription-cache.js';
 import { logAudit } from '../../common/audit.js';
+
+// Monthly price per seat for MRR calculation. Pricing authoritative in Stripe;
+// these are a rough cash-equivalent for the dashboard only.
+const PLAN_PRICES_CENTS: Record<string, number> = {
+  starter: 4900,
+  pro: 7900,
+  enterprise: 0, // custom; excluded from MRR math
+};
 
 // Known system config keys. Values are always encrypted JSON objects.
 const KNOWN_KEYS = ['mailjet', 'stripe'] as const;
@@ -271,6 +282,417 @@ export async function adminRoutes(fastify: FastifyInstance) {
       });
 
       request.log.info({ tenantId, patch, by: request.user.sub }, '[ADMIN] Tenant updated');
+      return updated;
+    },
+  );
+
+  // ===== Metrics (#3) =====
+
+  fastify.get(
+    '/api/v1/admin/metrics',
+    { preHandler: [fastify.authenticate, superAdmin] },
+    async () => {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+      // Single query for all the counts — much faster than N round-trips
+      const [row] = await fastify.db
+        .select({
+          total: sql<number>`count(*)::int`,
+          trial: sql<number>`count(*) filter (where ${tenants.subscriptionStatus} = 'trial')::int`,
+          active: sql<number>`count(*) filter (where ${tenants.subscriptionStatus} = 'active')::int`,
+          pastDue: sql<number>`count(*) filter (where ${tenants.subscriptionStatus} = 'past_due')::int`,
+          cancelled: sql<number>`count(*) filter (where ${tenants.subscriptionStatus} = 'cancelled')::int`,
+          signupsThisMonth: sql<number>`count(*) filter (where ${tenants.createdAt} >= ${startOfMonth})::int`,
+          signupsLastMonth: sql<number>`count(*) filter (where ${tenants.createdAt} >= ${startOfLastMonth} and ${tenants.createdAt} < ${startOfMonth})::int`,
+          mrrCents: sql<number>`coalesce(sum(case
+            when ${tenants.subscriptionStatus} = 'active' and ${tenants.planTier} = 'starter' then ${PLAN_PRICES_CENTS.starter}
+            when ${tenants.subscriptionStatus} = 'active' and ${tenants.planTier} = 'pro' then ${PLAN_PRICES_CENTS.pro}
+            else 0 end), 0)::int`,
+        })
+        .from(tenants);
+
+      const [openTickets] = await fastify.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(supportTickets)
+        .where(eq(supportTickets.status, 'open'));
+
+      return {
+        tenants: {
+          total: row.total,
+          trial: row.trial,
+          active: row.active,
+          pastDue: row.pastDue,
+          cancelled: row.cancelled,
+        },
+        mrrCents: row.mrrCents,
+        signups: {
+          thisMonth: row.signupsThisMonth,
+          lastMonth: row.signupsLastMonth,
+        },
+        openSupportTickets: openTickets?.n ?? 0,
+      };
+    },
+  );
+
+  // ===== Activity feed (#4) =====
+
+  fastify.get(
+    '/api/v1/admin/activity',
+    { preHandler: [fastify.authenticate, superAdmin] },
+    async (request) => {
+      const query = z.object({
+        limit: z.coerce.number().int().min(1).max(200).default(50),
+      }).parse(request.query);
+
+      // Pull recent significant events: new tenants, subscription state changes (via audit log),
+      // support tickets. Unified into a single activity timeline.
+      const [newTenants, recentAudits, recentTickets] = await Promise.all([
+        fastify.db
+          .select({
+            id: tenants.id,
+            name: tenants.name,
+            slug: tenants.slug,
+            createdAt: tenants.createdAt,
+            planTier: tenants.planTier,
+          })
+          .from(tenants)
+          .orderBy(desc(tenants.createdAt))
+          .limit(query.limit),
+        fastify.db
+          .select()
+          .from(auditLog)
+          .where(inArray(auditLog.action, ['tenant.update', 'subscription.status_changed', 'subscription.cancelled', 'payment.failed', 'payment.succeeded']))
+          .orderBy(desc(auditLog.createdAt))
+          .limit(query.limit),
+        fastify.db
+          .select()
+          .from(supportTickets)
+          .orderBy(desc(supportTickets.createdAt))
+          .limit(query.limit),
+      ]);
+
+      type ActivityItem = {
+        kind: 'signup' | 'audit' | 'support';
+        at: string;
+        text: string;
+        tenantId?: string;
+        ref?: string;
+        data?: Record<string, unknown>;
+      };
+
+      const items: ActivityItem[] = [];
+      for (const t of newTenants) {
+        items.push({
+          kind: 'signup',
+          at: t.createdAt.toISOString(),
+          text: `New signup: ${t.name} (${t.planTier})`,
+          tenantId: t.id,
+        });
+      }
+      for (const a of recentAudits) {
+        items.push({
+          kind: 'audit',
+          at: a.createdAt.toISOString(),
+          text: `${a.action} on ${a.entityType}:${a.entityId}`,
+          tenantId: a.tenantId,
+          data: (a.changes ?? undefined) as Record<string, unknown> | undefined,
+        });
+      }
+      for (const s of recentTickets) {
+        items.push({
+          kind: 'support',
+          at: s.createdAt.toISOString(),
+          text: `Support [${s.category}]: ${s.subject}`,
+          tenantId: s.tenantId ?? undefined,
+          ref: s.ref,
+        });
+      }
+
+      items.sort((a, b) => b.at.localeCompare(a.at));
+      return items.slice(0, query.limit);
+    },
+  );
+
+  // ===== Per-tenant drill-down (#1) =====
+
+  fastify.get(
+    '/api/v1/admin/tenants/:tenantId/activity',
+    { preHandler: [fastify.authenticate, superAdmin] },
+    async (request, reply) => {
+      const { tenantId } = request.params as { tenantId: string };
+      const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+      const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+      if (!tenant) { reply.code(404); return { error: 'NOT_FOUND' }; }
+
+      const audits = await fastify.db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.tenantId, tenantId), gte(auditLog.createdAt, since)))
+        .orderBy(desc(auditLog.createdAt))
+        .limit(100);
+
+      const tickets = await fastify.db
+        .select()
+        .from(supportTickets)
+        .where(eq(supportTickets.tenantId, tenantId))
+        .orderBy(desc(supportTickets.createdAt))
+        .limit(50);
+
+      return { audits, tickets };
+    },
+  );
+
+  // ===== Impersonation (#2) =====
+
+  fastify.post(
+    '/api/v1/admin/tenants/:tenantId/impersonate',
+    { preHandler: [fastify.authenticate, superAdmin] },
+    async (request, reply) => {
+      const { tenantId } = request.params as { tenantId: string };
+
+      // Impersonate the earliest-created owner of the target tenant
+      const [target] = await fastify.db
+        .select({ id: users.id, tenantId: users.tenantId, role: users.role, email: users.email })
+        .from(users)
+        .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, ['owner', 'admin'])))
+        .orderBy(users.createdAt)
+        .limit(1);
+
+      if (!target) {
+        reply.code(404);
+        return { error: 'NO_TARGET_USER', message: 'No active owner/admin on this tenant.' };
+      }
+
+      // Short-lived impersonation tokens — 30-minute access, no refresh (forces explicit re-impersonate)
+      const realSuperAdminId = request.user.sub;
+      const accessToken = fastify.jwt.sign(
+        {
+          jti: randomUUID(),
+          sub: target.id,
+          tid: target.tenantId,
+          role: target.role,
+          type: 'access' as const,
+          imp: realSuperAdminId,
+        },
+        { expiresIn: '30m' },
+      );
+
+      await logAudit(fastify.db, {
+        tenantId,
+        actorType: 'super_admin',
+        actorId: realSuperAdminId,
+        action: 'tenant.impersonate',
+        entityType: 'user',
+        entityId: target.id,
+        changes: { target: { old: null, new: target.email } },
+      });
+
+      request.log.warn({
+        tenantId, targetUserId: target.id, by: realSuperAdminId,
+      }, '[ADMIN] Impersonation session started');
+
+      return {
+        accessToken,
+        user: { id: target.id, email: target.email, role: target.role },
+      };
+    },
+  );
+
+  // ===== Feature flags (#7) =====
+
+  fastify.put(
+    '/api/v1/admin/tenants/:tenantId/feature-flags',
+    { preHandler: [fastify.authenticate, superAdmin] },
+    async (request, reply) => {
+      const { tenantId } = request.params as { tenantId: string };
+      const body = z.record(z.boolean()).parse(request.body);
+
+      const [t] = await fastify.db
+        .select({ current: tenants.featureFlags })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
+      if (!t) { reply.code(404); return { error: 'NOT_FOUND' }; }
+
+      const merged = { ...(t.current as Record<string, boolean>), ...body };
+      await fastify.db
+        .update(tenants)
+        .set({ featureFlags: merged, updatedAt: new Date() })
+        .where(eq(tenants.id, tenantId));
+
+      await logAudit(fastify.db, {
+        tenantId,
+        actorType: 'super_admin',
+        actorId: request.user.sub,
+        action: 'tenant.feature_flags_update',
+        entityType: 'tenant',
+        entityId: tenantId,
+        changes: Object.fromEntries(
+          Object.entries(body).map(([k, v]) => [k, { old: (t.current as Record<string, boolean>)[k] ?? false, new: v }]),
+        ),
+      });
+
+      return { featureFlags: merged };
+    },
+  );
+
+  // ===== Refund / credit (#5) =====
+
+  fastify.post(
+    '/api/v1/admin/tenants/:tenantId/refund',
+    { preHandler: [fastify.authenticate, superAdmin] },
+    async (request, reply) => {
+      const { tenantId } = request.params as { tenantId: string };
+      const body = z.object({
+        amountCents: z.number().int().min(1),
+        reason: z.string().max(200).optional(),
+      }).parse(request.body);
+
+      const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+      if (!tenant) { reply.code(404); return { error: 'NOT_FOUND' }; }
+      if (!tenant.stripeCustomerId) {
+        reply.code(400);
+        return { error: 'NO_STRIPE_CUSTOMER', message: 'This tenant has no Stripe customer yet.' };
+      }
+
+      // Grab the platform Stripe secret key from system_configs
+      const stripeCfg = await readSystemConfig(fastify.db, 'stripe');
+      const secretKey = (stripeCfg as Record<string, string>).secretKey;
+      if (!secretKey) {
+        reply.code(503);
+        return { error: 'BILLING_NOT_CONFIGURED' };
+      }
+
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(secretKey);
+
+      // Find the most recent paid charge on this customer and refund from it
+      const charges = await stripe.charges.list({
+        customer: tenant.stripeCustomerId,
+        limit: 10,
+      });
+      const refundable = charges.data.find((c) => c.paid && !c.refunded && c.amount_refunded < c.amount);
+      if (!refundable) {
+        reply.code(400);
+        return { error: 'NO_REFUNDABLE_CHARGE', message: 'No recent paid charge available to refund.' };
+      }
+
+      const refund = await stripe.refunds.create({
+        charge: refundable.id,
+        amount: body.amountCents,
+        reason: 'requested_by_customer',
+        metadata: {
+          tenantId,
+          reason: body.reason ?? 'admin-issued',
+          issuedBy: request.user.sub,
+        },
+      });
+
+      await logAudit(fastify.db, {
+        tenantId,
+        actorType: 'super_admin',
+        actorId: request.user.sub,
+        action: 'tenant.refund',
+        entityType: 'charge',
+        entityId: refundable.id,
+        changes: {
+          amount: { old: null, new: body.amountCents },
+          reason: { old: null, new: body.reason ?? null },
+          refundId: { old: null, new: refund.id },
+        },
+      });
+
+      return {
+        refundId: refund.id,
+        chargeId: refundable.id,
+        amountCents: body.amountCents,
+        status: refund.status,
+      };
+    },
+  );
+
+  // ===== Support inbox (#6) =====
+
+  fastify.get(
+    '/api/v1/admin/support-tickets',
+    { preHandler: [fastify.authenticate, superAdmin] },
+    async (request) => {
+      const query = z.object({
+        status: z.enum(['open', 'replied', 'closed', 'all']).default('open'),
+        limit: z.coerce.number().int().min(1).max(200).default(100),
+      }).parse(request.query);
+
+      const rows = await fastify.db
+        .select({
+          id: supportTickets.id,
+          ref: supportTickets.ref,
+          tenantId: supportTickets.tenantId,
+          tenantName: tenants.name,
+          userEmail: supportTickets.userEmail,
+          category: supportTickets.category,
+          subject: supportTickets.subject,
+          status: supportTickets.status,
+          emailSent: supportTickets.emailSent,
+          createdAt: supportTickets.createdAt,
+          closedAt: supportTickets.closedAt,
+        })
+        .from(supportTickets)
+        .leftJoin(tenants, eq(tenants.id, supportTickets.tenantId))
+        .where(query.status === 'all' ? sql`true` : eq(supportTickets.status, query.status))
+        .orderBy(desc(supportTickets.createdAt))
+        .limit(query.limit);
+
+      return rows;
+    },
+  );
+
+  fastify.get(
+    '/api/v1/admin/support-tickets/:id',
+    { preHandler: [fastify.authenticate, superAdmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const [row] = await fastify.db
+        .select()
+        .from(supportTickets)
+        .where(eq(supportTickets.id, id))
+        .limit(1);
+      if (!row) { reply.code(404); return { error: 'NOT_FOUND' }; }
+      return row;
+    },
+  );
+
+  fastify.patch(
+    '/api/v1/admin/support-tickets/:id',
+    { preHandler: [fastify.authenticate, superAdmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = z.object({
+        status: z.enum(['open', 'replied', 'closed']),
+      }).parse(request.body);
+
+      const patch: Record<string, unknown> = { status: body.status, updatedAt: new Date() };
+      if (body.status === 'closed') patch.closedAt = new Date();
+
+      const [updated] = await fastify.db
+        .update(supportTickets)
+        .set(patch)
+        .where(eq(supportTickets.id, id))
+        .returning();
+      if (!updated) { reply.code(404); return { error: 'NOT_FOUND' }; }
+
+      await logAudit(fastify.db, {
+        tenantId: updated.tenantId ?? request.user.tid,
+        actorType: 'super_admin',
+        actorId: request.user.sub,
+        action: 'support_ticket.status_change',
+        entityType: 'support_ticket',
+        entityId: id,
+        changes: { status: { old: null, new: body.status } },
+      });
+
       return updated;
     },
   );
