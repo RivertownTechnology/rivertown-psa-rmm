@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LogOut, User, Sun, Moon, Palette, Search, Menu } from 'lucide-react';
+import { LogOut, User, Sun, Moon, Palette, Search, Menu, Settings as SettingsIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface HeaderProps {
@@ -121,8 +121,12 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
               <div className="text-xs text-muted-foreground">{user?.email}</div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => onNavigate('/settings')}>
+            <DropdownMenuItem onClick={() => onNavigate('/account')}>
               <User className="mr-2 h-4 w-4" />
+              My Account
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onNavigate('/settings')}>
+              <SettingsIcon className="mr-2 h-4 w-4" />
               Settings
             </DropdownMenuItem>
             <DropdownMenuSeparator />

@@ -102,7 +102,7 @@ export type UserRole = (typeof USER_ROLES)[number];
 export const INTEGRATION_PROVIDERS = [
   'pax8', 'quickbooks', 'stripe', 'connectbooster', 'qbo_payments',
   'twilio', 'google-email', 'google-calendar', 'billing-email', 'ai',
-  'ninjaone',
+  'ninjaone', 'crewhu',
 ] as const;
 export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
 

@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { User, Building, Bell, Hash, Mail, Send, CheckCircle, DollarSign, Shield, ShieldAlert, X, Package, Plus, Pencil, Trash2, Search, Sparkles, MessageSquare, Monitor } from 'lucide-react';
+import { User, Building, Bell, Hash, Mail, Send, CheckCircle, DollarSign, Shield, ShieldAlert, X, Package, Plus, Pencil, Trash2, Search, Sparkles, MessageSquare, Monitor, Smile } from 'lucide-react';
 import { BusinessProfileCard } from '@/components/business-profile-card';
 import { SecurityPage } from './security';
 import { ProductCatalogPage } from './product-catalog';
@@ -26,24 +26,25 @@ const defaultEmail: EmailConfig = {
   fromAddress: '', fromName: '', useTls: true, provider: 'smtp',
 };
 
-export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
+export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string; hideTabsList?: boolean } = {}) {
   const { user } = useAuth();
   const { mode, color, setMode, setColor } = useTheme();
   // Parse hash: "#topTab" or "#topTab/subTab" or "#topTab/subTab/subSubTab"
   const hashRaw = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
   const hashParts = hashRaw.split('/');
-  const validTabs = ['account', 'company', 'operations', 'templates', 'catalog', 'integrations'];
+  const validTabs = ['account', 'company', 'operations', 'catalog', 'integrations'];
   const legacyMap: Record<string, string> = {
-    general: 'account',
+    account: 'company', // My Account moved to /account route; settings defaults to Company
+    general: 'company',
+    templates: 'operations/templates',
     email: 'integrations/email',
     billing: 'integrations/accounting/tax-rates',
     ai: 'integrations/ai',
-    security: 'account',
+    security: 'company', // Security moved to /account page
   };
-  const rawTopTab = initialTab || hashParts[0] || 'account';
-  // Apply legacy mapping if the stored hash uses an old top-tab name
+  const rawTopTab = initialTab || hashParts[0] || 'company';
   const legacyRedirect = !validTabs.includes(rawTopTab) ? legacyMap[rawTopTab] : undefined;
-  const resolvedHash = legacyRedirect || (validTabs.includes(rawTopTab) ? hashRaw : 'account');
+  const resolvedHash = legacyRedirect || (validTabs.includes(rawTopTab) ? hashRaw : 'company');
   const [resolvedTop, resolvedSub, resolvedSubSub] = resolvedHash.split('/');
   const [tab, setTab] = useState(resolvedTop);
   const [integrationsSubTab, setIntegrationsSubTab] = useState(
@@ -676,14 +677,14 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
   return (
     <div className="max-w-4xl">
       <Tabs value={tab} onValueChange={changeTab}>
-        <TabsList>
-          <TabsTrigger value="account">My Account</TabsTrigger>
-          <TabsTrigger value="company">Company</TabsTrigger>
-          <TabsTrigger value="operations">Operations</TabsTrigger>
-          <TabsTrigger value="templates">Templates</TabsTrigger>
-          <TabsTrigger value="catalog">Product Catalog</TabsTrigger>
-          <TabsTrigger value="integrations">Integrations</TabsTrigger>
-        </TabsList>
+        {!hideTabsList && (
+          <TabsList>
+            <TabsTrigger value="company">Company</TabsTrigger>
+            <TabsTrigger value="operations">Operations</TabsTrigger>
+            <TabsTrigger value="catalog">Product Catalog</TabsTrigger>
+            <TabsTrigger value="integrations">Integrations</TabsTrigger>
+          </TabsList>
+        )}
 
         {/* MY ACCOUNT TAB */}
         <TabsContent value="account">
@@ -895,7 +896,13 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
           <Tabs defaultValue="sla" className="mt-4">
             <TabsList>
               <TabsTrigger value="sla">SLA</TabsTrigger>
+              <TabsTrigger value="templates">Templates</TabsTrigger>
             </TabsList>
+            <TabsContent value="templates">
+              <div className="mt-4">
+                <TemplatesSettingsPage />
+              </div>
+            </TabsContent>
             <TabsContent value="sla">
           <div className="space-y-6 mt-4">
 
@@ -973,13 +980,6 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
           </Tabs>
         </TabsContent>
 
-        {/* TEMPLATES TAB */}
-        <TabsContent value="templates">
-          <div className="mt-4">
-            <TemplatesSettingsPage />
-          </div>
-        </TabsContent>
-
         {/* INTEGRATIONS TAB */}
         <TabsContent value="integrations">
           <Tabs value={integrationsSubTab} onValueChange={changeIntegrationsSub} className="mt-4">
@@ -990,9 +990,17 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
               <TabsTrigger value="accounting">Accounting</TabsTrigger>
               <TabsTrigger value="vendors">Vendors</TabsTrigger>
               <TabsTrigger value="rmm">RMM</TabsTrigger>
+              <TabsTrigger value="csat">CSAT</TabsTrigger>
               <TabsTrigger value="sms">SMS</TabsTrigger>
               <TabsTrigger value="ai">AI</TabsTrigger>
             </TabsList>
+
+            {/* CSAT SUB-TAB (CrewHu) */}
+            <TabsContent value="csat">
+              <div className="space-y-6 mt-4 max-w-2xl">
+                <CrewHuCard />
+              </div>
+            </TabsContent>
 
             {/* EMAIL & INBOX SUB-TAB */}
             <TabsContent value="email">
@@ -2025,6 +2033,57 @@ function NinjaOneCard() {
           </div>
           <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save NinjaOne Settings'}</Button>
           <p className="text-xs text-muted-foreground">Full device/alert sync coming soon. Credentials are stored encrypted.</p>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+// ===== CREWHU CSAT CARD =====
+
+function CrewHuCard() {
+  const [config, setConfig] = useState({ isEnabled: false, apiKey: '' });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    api<typeof config>('/settings/crewhu').then(setConfig).catch(() => {});
+  }, []);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true); setMessage('');
+    try {
+      await api('/settings/crewhu', { method: 'PUT', body: JSON.stringify(config) });
+      setMessage('CrewHu settings saved');
+      const updated = await api<typeof config>('/settings/crewhu');
+      setConfig(updated);
+    } catch (err: unknown) { setMessage(err instanceof Error ? err.message : 'Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Smile className="h-5 w-5" />CrewHu (CSAT)</CardTitle>
+        <CardDescription>Customer satisfaction surveys for closed tickets. Get your API key from <a href="https://get-help-tnt.crewhu.com/hc/en-us/articles/360002286094-Open-API" target="_blank" rel="noopener noreferrer" className="text-primary underline">CrewHu Open API docs</a>.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input type="checkbox" checked={config.isEnabled} onChange={e => setConfig(c => ({ ...c, isEnabled: e.target.checked }))} className="rounded" />
+              Enable CrewHu CSAT
+            </label>
+          </div>
+          <div>
+            <Label>API Key</Label>
+            <Input type="password" value={config.apiKey} onChange={e => setConfig(c => ({ ...c, apiKey: e.target.value }))} placeholder="Your CrewHu API key" />
+            <p className="text-xs text-muted-foreground mt-1">In CrewHu: Settings → Integrations → Open API. Copy the API key.</p>
+          </div>
+          <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save CrewHu Settings'}</Button>
+          <p className="text-xs text-muted-foreground">Once enabled, CSAT surveys will be sent to customers when tickets are closed. Full integration coming soon; credentials are stored encrypted now.</p>
         </form>
       </CardContent>
     </Card>
