@@ -838,17 +838,28 @@ export async function portalRoutes(fastify: FastifyInstance) {
   }, async (request) => {
     const { passkeyCredentials } = await import('@rivertown/db');
     const { generateAuthenticationOptions } = await import('@simplewebauthn/server');
-    const { email } = request.body as { email: string };
-    if (!email) throw new ValidationError('Email required');
+    const { email } = (request.body ?? {}) as { email?: string };
 
-    // Find contact by email
+    // Discoverable-credential flow (no email) — user's device picks which passkey
+    if (!email) {
+      const options = await generateAuthenticationOptions({
+        rpID: RP_ID,
+        userVerification: 'preferred',
+        // allowCredentials omitted → browser shows all available passkeys for this RP
+      });
+      // Store challenge keyed by its own value (unique random string)
+      storeChallenge(`disc:${options.challenge}`, options.challenge);
+      return options;
+    }
+
+    // Email-scoped flow (legacy)
     const [contact] = await fastify.db.select({ id: contacts.id, tenantId: contacts.tenantId })
       .from(contacts).where(eq(contacts.email, email.toLowerCase().trim())).limit(1);
 
     if (!contact) {
-      // Don't reveal if contact exists — return generic options
+      // Don't reveal if contact exists — return generic discoverable options
       const options = await generateAuthenticationOptions({ rpID: RP_ID });
-      storeChallenge(`auth:unknown`, options.challenge);
+      storeChallenge(`disc:${options.challenge}`, options.challenge);
       return options;
     }
 
@@ -881,7 +892,19 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
     if (!cred) throw new ValidationError('Passkey not recognized');
 
-    const expectedChallenge = getChallenge(`auth:${cred.contactId}:${cred.tenantId}`);
+    // Extract challenge from clientDataJSON (base64url encoded)
+    let clientChallenge: string | null = null;
+    try {
+      const clientDataJson = body.response?.clientDataJSON || '';
+      const decoded = Buffer.from(clientDataJson.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+      const clientData = JSON.parse(decoded);
+      clientChallenge = clientData.challenge;
+    } catch { /* ignore */ }
+
+    // Try discoverable-credential challenge first, then email-scoped challenge as fallback
+    let expectedChallenge: string | null = null;
+    if (clientChallenge) expectedChallenge = getChallenge(`disc:${clientChallenge}`);
+    if (!expectedChallenge) expectedChallenge = getChallenge(`auth:${cred.contactId}:${cred.tenantId}`);
     if (!expectedChallenge) throw new ValidationError('Authentication challenge expired. Please try again.');
 
     const verification = await verifyAuthenticationResponse({

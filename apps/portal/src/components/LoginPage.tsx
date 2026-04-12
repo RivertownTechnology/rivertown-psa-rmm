@@ -32,13 +32,13 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   async function handlePasskeySignIn() {
     setError(''); setLoading(true);
     try {
-      if (!email) throw new Error('Enter your email address first');
       const { startAuthentication } = await import('@simplewebauthn/browser');
 
+      // Request discoverable-credential options (no email — browser picks the passkey)
       const optsRes = await fetch('/api/v1/portal/auth/passkey/login-options', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({}),
       });
       if (!optsRes.ok) throw new Error('Failed to get passkey options');
       const options = await optsRes.json();
@@ -168,7 +168,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             <Fingerprint className="h-5 w-5" />
             Sign in with Passkey
           </Button>
-          <p className="text-xs text-center text-muted-foreground mt-2">Enter your email above, then click to use your fingerprint, face, or security key.</p>
+          <p className="text-xs text-center text-muted-foreground mt-2">Your device will prompt you to use your fingerprint, face, or security key.</p>
 
           <div className="mt-8 pt-6 border-t text-center text-sm text-muted-foreground space-y-2">
             <p>Don't have an account? Contact your account manager at Rivertown Technology to get portal access.</p>
