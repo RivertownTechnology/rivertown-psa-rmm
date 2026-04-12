@@ -1,28 +1,62 @@
 /**
- * SMS service — placeholder for Twilio integration.
- * When TWILIO_* env vars are set, sends real SMS. Otherwise logs to console (dev mode).
+ * SMS service — Twilio integration.
+ * Credentials pulled from integrationConfigs (provider='twilio') per-tenant.
+ * Falls back to TWILIO_* env vars if no per-tenant config (dev mode).
+ * If neither configured, logs to console (placeholder mode).
  */
+import { eq, and } from 'drizzle-orm';
+import { integrationConfigs } from '@rivertown/db';
+import type { Database } from '@rivertown/db';
+import { readCredentials } from '../common/credentials.js';
 
 export interface SmsSendOptions {
   to: string; // E.164 format, e.g. +18435551234
   message: string;
 }
 
-export async function sendSms(options: SmsSendOptions): Promise<{ success: boolean; error?: string }> {
+async function getTwilioConfig(db: Database | undefined, tenantId: string | undefined):
+  Promise<{ accountSid: string; authToken: string; fromNumber: string } | null> {
+  // Try DB first if tenant provided
+  if (db && tenantId) {
+    const [config] = await db.select().from(integrationConfigs)
+      .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'twilio')))
+      .limit(1);
+    if (config?.isEnabled) {
+      const creds = readCredentials(config.credentials);
+      const accountSid = (creds.accountSid as string) || '';
+      const authToken = (creds.authToken as string) || '';
+      const fromNumber = (creds.fromNumber as string) || '';
+      if (accountSid && authToken && fromNumber) {
+        return { accountSid, authToken, fromNumber };
+      }
+    }
+  }
+
+  // Fall back to env vars
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+  if (accountSid && authToken && fromNumber) {
+    return { accountSid, authToken, fromNumber };
+  }
 
+  return null;
+}
+
+export async function sendSms(options: SmsSendOptions, db?: Database, tenantId?: string): Promise<{ success: boolean; error?: string }> {
   // Validate phone format (E.164)
   if (!/^\+[1-9]\d{6,14}$/.test(options.to)) {
     return { success: false, error: 'Invalid phone number format (must be E.164, e.g. +18435551234)' };
   }
 
+  const twilio = await getTwilioConfig(db, tenantId);
+
   // Dev/placeholder mode — no Twilio configured
-  if (!accountSid || !authToken || !fromNumber) {
+  if (!twilio) {
     console.log(`[SMS-PLACEHOLDER] Would send to ${options.to}: ${options.message}`);
     return { success: true };
   }
+  const { accountSid, authToken, fromNumber } = twilio;
 
   // Real Twilio send via REST API (no SDK dependency)
   try {

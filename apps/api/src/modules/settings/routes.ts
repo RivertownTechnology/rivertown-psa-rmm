@@ -279,6 +279,86 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== TWILIO (SMS MFA) =====
+
+  fastify.get(
+    '/api/v1/settings/twilio',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials } = await import('../../common/credentials.js');
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'twilio')))
+        .limit(1);
+
+      if (!config) {
+        return { isEnabled: false, accountSid: '', authToken: '', fromNumber: '' };
+      }
+
+      const creds = readCredentials(config.credentials) as Record<string, string>;
+      return {
+        isEnabled: config.isEnabled,
+        accountSid: creds.accountSid ? '••••••••' + String(creds.accountSid).slice(-4) : '',
+        authToken: creds.authToken ? '••••••••' : '',
+        fromNumber: creds.fromNumber || '',
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/twilio',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
+      const body = request.body as { isEnabled: boolean; accountSid?: string; authToken?: string; fromNumber?: string };
+
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'twilio')))
+        .limit(1);
+
+      const prevCreds = existing ? (readCredentials(existing.credentials) as Record<string, string>) : {};
+
+      const credentials = writeCredentials({
+        accountSid: body.accountSid?.startsWith('••') ? prevCreds.accountSid : (body.accountSid || prevCreds.accountSid || ''),
+        authToken: body.authToken?.startsWith('••') ? prevCreds.authToken : (body.authToken || prevCreds.authToken || ''),
+        fromNumber: body.fromNumber || prevCreds.fromNumber || '',
+      });
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, credentials, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'twilio',
+          isEnabled: body.isEnabled, credentials,
+        });
+      }
+
+      return { success: true };
+    },
+  );
+
+  fastify.post(
+    '/api/v1/settings/twilio/test',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { sendSms } = await import('../../services/sms.js');
+      const { phone } = request.body as { phone: string };
+      if (!phone) throw new ValidationError('Phone number required');
+
+      const digits = phone.replace(/\D/g, '');
+      const e164 = digits.startsWith('1') ? `+${digits}` : `+1${digits}`;
+
+      const result = await sendSms(
+        { to: e164, message: 'Rivertown Technology test: SMS is working!' },
+        fastify.db, request.tenantId,
+      );
+
+      if (!result.success) throw new ValidationError(result.error || 'SMS test failed');
+      return { success: true, message: `Test SMS sent to ${e164}` };
+    },
+  );
+
   // ===== BILLING EMAIL (Mailjet) =====
 
   fastify.get(

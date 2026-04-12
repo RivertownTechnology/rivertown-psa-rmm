@@ -26,10 +26,11 @@ const envSchema = z.object({
   // AI (Anthropic Claude)
   ANTHROPIC_API_KEY: z.string().optional(),
 
-  // Twilio (for portal SMS MFA)
+  // Twilio env vars are now optional fallback only.
+  // Preferred: configure per-tenant in Settings > Integrations > Twilio (stored encrypted in DB).
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
-  TWILIO_PHONE_NUMBER: z.string().optional(), // from number for SMS
+  TWILIO_PHONE_NUMBER: z.string().optional(),
 
   // Passkeys (WebAuthn)
   PASSKEY_RP_ID: z.string().default('portal.rivertowntechnology.com'),

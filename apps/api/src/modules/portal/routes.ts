@@ -66,7 +66,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
         tenantId: contact.tenantId, contactId: contact.id, codeHash,
         purpose: 'login', expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       });
-      sendSms({ to: contact.portalMfaPhone, message: `Your Rivertown Technology verification code is ${code}. Expires in 10 minutes.` })
+      sendSms({ to: contact.portalMfaPhone, message: `Your Rivertown Technology verification code is ${code}. Expires in 10 minutes.` }, fastify.db, contact.tenantId)
         .catch(e => console.error('[SMS] Send failed:', e));
 
       return reply.send({
@@ -206,7 +206,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
       portalMfaPhone: e164, updatedAt: new Date(),
     }).where(and(eq(contacts.id, user.sub), eq(contacts.tenantId, user.tid)));
 
-    const result = await sendSms({ to: e164, message: `Your Rivertown Technology setup code is ${code}. Expires in 10 minutes.` });
+    const result = await sendSms({ to: e164, message: `Your Rivertown Technology setup code is ${code}. Expires in 10 minutes.` }, fastify.db, user.tid);
     if (!result.success) throw new ValidationError(result.error || 'Failed to send SMS');
 
     return { success: true, phoneHint: '***-***-' + e164.slice(-4) };
