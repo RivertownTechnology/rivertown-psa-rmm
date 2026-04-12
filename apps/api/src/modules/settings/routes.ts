@@ -279,6 +279,101 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== CONNECTBOOSTER (MSP Payment Processor) =====
+
+  fastify.get(
+    '/api/v1/settings/connectbooster',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials } = await import('../../common/credentials.js');
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'connectbooster')))
+        .limit(1);
+      if (!config) return { isEnabled: false, apiKey: '', merchantId: '' };
+      const creds = readCredentials(config.credentials) as Record<string, string>;
+      return {
+        isEnabled: config.isEnabled,
+        apiKey: creds.apiKey ? '••••••••' + String(creds.apiKey).slice(-4) : '',
+        merchantId: creds.merchantId || '',
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/connectbooster',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
+      const body = request.body as { isEnabled: boolean; apiKey?: string; merchantId?: string };
+
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'connectbooster')))
+        .limit(1);
+
+      const prevCreds = existing ? (readCredentials(existing.credentials) as Record<string, string>) : {};
+      const credentials = writeCredentials({
+        apiKey: body.apiKey?.startsWith('••') ? prevCreds.apiKey : (body.apiKey || prevCreds.apiKey || ''),
+        merchantId: body.merchantId || prevCreds.merchantId || '',
+      });
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, credentials, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'connectbooster',
+          isEnabled: body.isEnabled, credentials,
+        });
+      }
+      return { success: true };
+    },
+  );
+
+  // ===== QBO PAYMENTS =====
+  // QuickBooks Payments uses the same OAuth tokens as QBO itself.
+  // This setting just flags whether the tenant wants to use QBO Payments for invoice payment links.
+
+  fastify.get(
+    '/api/v1/settings/qbo-payments',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'qbo_payments')))
+        .limit(1);
+      const [qbo] = await fastify.db.select({ isEnabled: integrationConfigs.isEnabled }).from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'quickbooks')))
+        .limit(1);
+      return {
+        isEnabled: config?.isEnabled ?? false,
+        qboConnected: qbo?.isEnabled ?? false,
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/qbo-payments',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const body = request.body as { isEnabled: boolean };
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'qbo_payments')))
+        .limit(1);
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'qbo_payments',
+          isEnabled: body.isEnabled, credentials: {},
+        });
+      }
+      return { success: true };
+    },
+  );
+
   // ===== TWILIO (SMS MFA) =====
 
   fastify.get(

@@ -76,7 +76,7 @@ export const INVOICE_STATUSES = [
 ] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 
-export const PAYMENT_METHODS = ['stripe', 'manual', 'check', 'qbo'] as const;
+export const PAYMENT_METHODS = ['stripe', 'connectbooster', 'qbo_payments', 'manual', 'check', 'ach', 'qbo'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 export const CUSTOMER_STATUSES = ['active', 'inactive', 'prospect'] as const;
@@ -99,7 +99,10 @@ export type AssetStatus = (typeof ASSET_STATUSES)[number];
 export const USER_ROLES = ['owner', 'admin', 'tech'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
-export const INTEGRATION_PROVIDERS = ['pax8', 'quickbooks', 'stripe'] as const;
+export const INTEGRATION_PROVIDERS = [
+  'pax8', 'quickbooks', 'stripe', 'connectbooster', 'qbo_payments',
+  'twilio', 'google-email', 'google-calendar', 'billing-email', 'ai',
+] as const;
 export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
 
 export const SYNC_STATUSES = ['idle', 'syncing', 'error'] as const;

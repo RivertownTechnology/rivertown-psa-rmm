@@ -1035,6 +1035,16 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
 
         {/* INTEGRATIONS TAB */}
         <TabsContent value="integrations">
+          <Tabs defaultValue="payments" className="mt-4">
+            <TabsList>
+              <TabsTrigger value="payments">Payments</TabsTrigger>
+              <TabsTrigger value="accounting">Accounting</TabsTrigger>
+              <TabsTrigger value="vendors">Vendors</TabsTrigger>
+              <TabsTrigger value="communication">Communication</TabsTrigger>
+            </TabsList>
+
+            {/* PAYMENTS SUB-TAB */}
+            <TabsContent value="payments">
           <div className="space-y-6 mt-4 max-w-2xl">
             {stripeSuccess && <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800 flex items-center gap-2"><CheckCircle className="h-4 w-4" />{stripeSuccess}</div>}
 
@@ -1074,6 +1084,18 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
                 }} disabled={stripeSaving}>{stripeSaving ? 'Saving...' : 'Save Stripe Settings'}</Button>
               </CardContent>
             </Card>
+
+            {/* ConnectBooster */}
+            <ConnectBoosterCard />
+
+            {/* QBO Payments */}
+            <QBOPaymentsCard />
+          </div>
+        </TabsContent>
+
+        {/* VENDORS SUB-TAB */}
+        <TabsContent value="vendors">
+          <div className="space-y-6 mt-4 max-w-2xl">
 
             {/* Pax8 */}
             <Card>
@@ -1142,12 +1164,26 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
               </CardContent>
             </Card>
 
+          </div>
+        </TabsContent>
+
+        {/* ACCOUNTING SUB-TAB */}
+        <TabsContent value="accounting">
+          <div className="space-y-6 mt-4 max-w-2xl">
             {/* QuickBooks Online */}
             <QuickBooksCard />
+          </div>
+        </TabsContent>
 
+        {/* COMMUNICATION SUB-TAB */}
+        <TabsContent value="communication">
+          <div className="space-y-6 mt-4 max-w-2xl">
             {/* Twilio (SMS MFA for portal) */}
             <TwilioCard />
           </div>
+        </TabsContent>
+
+          </Tabs>
         </TabsContent>
 
         {/* AI ASSISTANT TAB */}
@@ -1760,6 +1796,111 @@ function TwilioCard() {
             </div>
           </div>
         </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ===== CONNECTBOOSTER CARD =====
+
+function ConnectBoosterCard() {
+  const [config, setConfig] = useState({ isEnabled: false, apiKey: '', merchantId: '' });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    api<typeof config>('/settings/connectbooster').then(setConfig).catch(() => {});
+  }, []);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true); setMessage('');
+    try {
+      await api('/settings/connectbooster', { method: 'PUT', body: JSON.stringify(config) });
+      setMessage('ConnectBooster settings saved');
+      const updated = await api<typeof config>('/settings/connectbooster');
+      setConfig(updated);
+    } catch (err: unknown) { setMessage(err instanceof Error ? err.message : 'Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><DollarSign className="h-5 w-5" />ConnectBooster</CardTitle>
+        <CardDescription>MSP-focused payment processor with QuickBooks sync. Get credentials from your ConnectBooster account rep.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input type="checkbox" checked={config.isEnabled} onChange={e => setConfig(c => ({ ...c, isEnabled: e.target.checked }))} className="rounded" />
+              Enable ConnectBooster
+            </label>
+          </div>
+          <div>
+            <Label>Merchant ID</Label>
+            <Input value={config.merchantId} onChange={e => setConfig(c => ({ ...c, merchantId: e.target.value }))} placeholder="Your ConnectBooster merchant ID" />
+          </div>
+          <div>
+            <Label>API Key</Label>
+            <Input type="password" value={config.apiKey} onChange={e => setConfig(c => ({ ...c, apiKey: e.target.value }))} placeholder="Your API key" />
+          </div>
+          <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save ConnectBooster Settings'}</Button>
+          <p className="text-xs text-muted-foreground">Integration coming soon. Credentials are stored encrypted.</p>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ===== QBO PAYMENTS CARD =====
+
+function QBOPaymentsCard() {
+  const [status, setStatus] = useState({ isEnabled: false, qboConnected: false });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    api<typeof status>('/settings/qbo-payments').then(setStatus).catch(() => {});
+  }, []);
+
+  async function toggleEnabled(enabled: boolean) {
+    setSaving(true); setMessage('');
+    try {
+      await api('/settings/qbo-payments', { method: 'PUT', body: JSON.stringify({ isEnabled: enabled }) });
+      setStatus(s => ({ ...s, isEnabled: enabled }));
+      setMessage(enabled ? 'QBO Payments enabled' : 'QBO Payments disabled');
+    } catch (err: unknown) { setMessage(err instanceof Error ? err.message : 'Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><DollarSign className="h-5 w-5" />QuickBooks Payments</CardTitle>
+        <CardDescription>Accept payments via QuickBooks Payments. Uses your existing QuickBooks Online connection.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
+        {!status.qboConnected ? (
+          <div className="bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 text-sm p-3 rounded-md border border-amber-200 dark:border-amber-800">
+            Connect QuickBooks Online first (under the Accounting sub-tab), then enable QBO Payments here.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <input type="checkbox" checked={status.isEnabled} onChange={e => toggleEnabled(e.target.checked)} disabled={saving} className="rounded" />
+                Enable QuickBooks Payments
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Ensure QuickBooks Payments is active in your QuickBooks Online account. Once enabled, invoices synced to QBO will include a "Pay Online" link powered by QB Payments.
+            </p>
+            <p className="text-xs text-muted-foreground">Integration coming soon. Setup activates the feature flag only.</p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
