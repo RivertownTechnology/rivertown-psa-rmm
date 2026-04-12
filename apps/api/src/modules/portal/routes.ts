@@ -523,10 +523,18 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
   // In-memory challenge store (short-lived, 5 min TTL)
   const challengeStore = new Map<string, { challenge: string; expiresAt: number }>();
+  const MAX_STORE_SIZE = 10000;
   function storeChallenge(key: string, challenge: string) {
+    // Prevent unbounded growth — if we exceed max, purge expired + oldest half
+    if (challengeStore.size >= MAX_STORE_SIZE) {
+      const now = Date.now();
+      for (const [k, v] of challengeStore) { if (v.expiresAt < now) challengeStore.delete(k); }
+      if (challengeStore.size >= MAX_STORE_SIZE) {
+        const keys = Array.from(challengeStore.keys()).slice(0, Math.floor(MAX_STORE_SIZE / 2));
+        for (const k of keys) challengeStore.delete(k);
+      }
+    }
     challengeStore.set(key, { challenge, expiresAt: Date.now() + 5 * 60 * 1000 });
-    // Cleanup expired
-    for (const [k, v] of challengeStore) { if (v.expiresAt < Date.now()) challengeStore.delete(k); }
   }
   function getChallenge(key: string): string | null {
     const entry = challengeStore.get(key);
@@ -534,6 +542,11 @@ export async function portalRoutes(fastify: FastifyInstance) {
     if (!entry || entry.expiresAt < Date.now()) return null;
     return entry.challenge;
   }
+  // Periodic cleanup every 5 minutes
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of challengeStore) { if (v.expiresAt < now) challengeStore.delete(k); }
+  }, 5 * 60 * 1000);
 
   // Generate registration options (must be logged in)
   fastify.post('/api/v1/portal/auth/passkey/register-options', async (request) => {
@@ -556,7 +569,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
       },
     });
 
-    storeChallenge(`reg:${user.sub}`, options.challenge);
+    storeChallenge(`reg:${user.tid}:${user.sub}`, options.challenge);
     return options;
   });
 
@@ -567,7 +580,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const user = request.user as any;
     const body = request.body as any;
 
-    const expectedChallenge = getChallenge(`reg:${user.sub}`);
+    const expectedChallenge = getChallenge(`reg:${user.tid}:${user.sub}`);
     if (!expectedChallenge) throw new ValidationError('Registration challenge expired. Please try again.');
 
     const verification = await verifyRegistrationResponse({
@@ -607,7 +620,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
     if (!email) throw new ValidationError('Email required');
 
     // Find contact by email
-    const [contact] = await fastify.db.select({ id: contacts.id })
+    const [contact] = await fastify.db.select({ id: contacts.id, tenantId: contacts.tenantId })
       .from(contacts).where(eq(contacts.email, email.toLowerCase().trim())).limit(1);
 
     if (!contact) {
@@ -628,7 +641,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
       })),
     });
 
-    storeChallenge(`auth:${contact.id}`, options.challenge);
+    storeChallenge(`auth:${contact.id}:${contact.tenantId || ''}`, options.challenge);
     return options;
   });
 
@@ -646,7 +659,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
     if (!cred) throw new ValidationError('Passkey not recognized');
 
-    const expectedChallenge = getChallenge(`auth:${cred.contactId}`);
+    const expectedChallenge = getChallenge(`auth:${cred.contactId}:${cred.tenantId}`);
     if (!expectedChallenge) throw new ValidationError('Authentication challenge expired. Please try again.');
 
     const verification = await verifyAuthenticationResponse({
@@ -664,10 +677,22 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
     if (!verification.verified) throw new ValidationError('Passkey verification failed');
 
-    // Update counter
-    await fastify.db.update(passkeyCredentials).set({
-      counter: verification.authenticationInfo.newCounter,
-    }).where(eq(passkeyCredentials.id, cred.id));
+    // Replay protection: reject if new counter is not strictly greater than stored counter
+    // (0 is allowed because some platform authenticators always report 0)
+    const newCounter = verification.authenticationInfo.newCounter;
+    if (newCounter !== 0 && newCounter <= cred.counter) {
+      throw new ValidationError('Passkey authentication failed (replay detected)');
+    }
+
+    // Update counter atomically — only if it hasn't been changed since we read it
+    const result = await fastify.db.update(passkeyCredentials)
+      .set({ counter: newCounter })
+      .where(and(eq(passkeyCredentials.id, cred.id), eq(passkeyCredentials.counter, cred.counter)))
+      .returning({ id: passkeyCredentials.id });
+
+    if (result.length === 0) {
+      throw new ValidationError('Passkey authentication failed (concurrent use detected)');
+    }
 
     // Get contact and issue JWT
     const [contact] = await fastify.db.select().from(contacts)

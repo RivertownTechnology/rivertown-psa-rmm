@@ -5,9 +5,12 @@ export async function aiRoutes(fastify: FastifyInstance) {
   // Summarize a ticket
   fastify.post('/api/v1/ai/summarize-ticket', {
     preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } } as any,
   }, async (request) => {
     const { ticketId } = request.body as { ticketId: string };
-    if (!ticketId) throw new Error('ticketId is required');
+    if (!ticketId || typeof ticketId !== 'string' || !/^[a-f0-9-]{36}$/i.test(ticketId)) {
+      throw new Error('Invalid ticketId');
+    }
 
     const { summarizeTicket } = await import('../../services/ai.js');
     const summary = await summarizeTicket(fastify.db, request.tenantId, ticketId);
@@ -17,9 +20,12 @@ export async function aiRoutes(fastify: FastifyInstance) {
   // Improve a reply draft
   fastify.post('/api/v1/ai/improve-reply', {
     preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } } as any,
   }, async (request) => {
     const { draftText, ticketSubject } = request.body as { draftText: string; ticketSubject: string };
-    if (!draftText) throw new Error('draftText is required');
+    if (!draftText || typeof draftText !== 'string') throw new Error('draftText is required');
+    if (draftText.length > 10000) throw new Error('draftText exceeds 10,000 characters');
+    if (ticketSubject && ticketSubject.length > 500) throw new Error('ticketSubject exceeds 500 characters');
 
     const { improveReply } = await import('../../services/ai.js');
     const improvedText = await improveReply(fastify.db, request.tenantId, draftText, ticketSubject || '');

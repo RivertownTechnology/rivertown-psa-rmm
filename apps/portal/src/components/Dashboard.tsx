@@ -654,7 +654,7 @@ function AdminTab() {
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setShowInvite(null)}>Cancel</Button>
-              <Button onClick={enableUser} disabled={saving || invitePassword.length < 8}>
+              <Button onClick={enableUser} disabled={saving || invitePassword.length < 12}>
                 {saving ? 'Saving...' : 'Grant Access'}
               </Button>
             </div>
