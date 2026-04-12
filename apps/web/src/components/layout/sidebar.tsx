@@ -69,7 +69,7 @@ export function Sidebar({ currentPath, onNavigate, mobileOpen, onClose }: Sideba
           <img src="/logo.png" alt="Rivertown Technology" className="h-8 w-8 rounded-lg object-contain" />
           <div>
             <h1 className="text-sm font-semibold">Rivertown PSA</h1>
-            <p className="text-xs text-muted-foreground">v0.1.0</p>
+            <p className="text-xs text-muted-foreground">v0.3.0</p>
           </div>
         </div>
         <button onClick={onClose} className="lg:hidden p-1 rounded-md hover:bg-accent">
