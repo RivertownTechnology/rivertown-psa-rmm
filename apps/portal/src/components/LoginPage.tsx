@@ -39,7 +39,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         </div>
 
         <div className="relative z-10">
-          <img src="/logo.png" alt="Rivertown Technology" className="h-14 w-auto mb-12" />
+          <div className="inline-block bg-white rounded-lg px-5 py-3 mb-12 shadow-lg">
+            <img src="/logo.png" alt="Rivertown Technology" className="h-12 w-auto" />
+          </div>
           <h1 className="text-4xl font-bold mb-4 leading-tight">Welcome to the<br />Customer Portal</h1>
           <p className="text-slate-300 text-lg max-w-md">
             Your direct line to IT support. Submit tickets, track progress, and manage your account — all in one place.
