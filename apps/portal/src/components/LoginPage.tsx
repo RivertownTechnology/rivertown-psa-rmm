@@ -39,8 +39,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         </div>
 
         <div className="relative z-10">
-          <div className="inline-block bg-white rounded-lg px-5 py-3 mb-12 shadow-lg">
-            <img src="/logo.png" alt="Rivertown Technology" className="h-12 w-auto" />
+          <div className="inline-block bg-white rounded-lg px-8 py-5 mb-12 shadow-lg">
+            <img src="/logo.png" alt="Rivertown Technology" className="h-20 w-auto" />
           </div>
           <h1 className="text-4xl font-bold mb-4 leading-tight">Welcome to the<br />Customer Portal</h1>
           <p className="text-slate-300 text-lg max-w-md">
@@ -68,7 +68,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="lg:hidden text-center mb-8">
-            <img src="/logo.png" alt="Rivertown Technology" className="h-12 w-auto mx-auto mb-3" />
+            <img src="/logo.png" alt="Rivertown Technology" className="h-16 w-auto mx-auto mb-3" />
             <h1 className="text-2xl font-bold">Customer Portal</h1>
           </div>
 

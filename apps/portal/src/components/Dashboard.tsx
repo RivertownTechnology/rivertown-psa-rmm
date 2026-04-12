@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Headset, LogOut, Ticket, FileText, Receipt, Monitor, Plus, User,
   MessageSquare, ChevronLeft, Send, Users, Shield, ShieldCheck, Check, X,
+  Settings as SettingsIcon, KeyRound, Fingerprint, Trash2, CreditCard,
 } from 'lucide-react';
 
 // ===== Types =====
@@ -33,7 +34,7 @@ interface PortalUserData {
 interface Category { id: string; name: string; subcategories: Array<{ id: string; name: string }> }
 interface Stats { tickets: { open: number; total: number }; invoices: { outstanding: number; outstandingCents: number } }
 
-type TabId = 'tickets' | 'invoices' | 'quotes' | 'assets' | 'admin';
+type TabId = 'tickets' | 'invoices' | 'quotes' | 'assets' | 'admin' | 'settings';
 
 // ===== Helpers =====
 
@@ -73,6 +74,7 @@ export function Dashboard({ userName, portalRole, portalPermissions, onLogout }:
     { id: 'quotes', label: 'Quotes', icon: FileText, visible: hasBilling },
     { id: 'assets', label: 'Assets', icon: Monitor, visible: true },
     { id: 'admin', label: 'Users', icon: Users, visible: isAdmin },
+    { id: 'settings', label: 'Settings', icon: SettingsIcon, visible: true },
   ];
 
   const visibleTabs = tabs.filter(t => t.visible);
@@ -140,6 +142,7 @@ export function Dashboard({ userName, portalRole, portalPermissions, onLogout }:
         {activeTab === 'quotes' && hasBilling && <QuotesTab />}
         {activeTab === 'assets' && <AssetsTab />}
         {activeTab === 'admin' && isAdmin && <AdminTab />}
+        {activeTab === 'settings' && <SettingsTab isAdmin={isAdmin} />}
       </main>
     </div>
   );
@@ -672,6 +675,241 @@ function EmptyState({ icon: Icon, title, description }: { icon: typeof Ticket; t
       </div>
       <h3 className="mb-1 text-sm font-medium">{title}</h3>
       <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+// ===== Settings Tab =====
+
+interface ProfileData {
+  id: string; firstName: string; lastName: string; email: string;
+  phone: string | null; jobTitle: string | null;
+}
+interface PasskeyData {
+  id: string; deviceType: string | null; backedUp: boolean; createdAt: string;
+}
+interface BillingData {
+  name: string; billingEmail: string | null; ccBillingEmail: string | null;
+  phone: string | null; address: string | null; city: string | null;
+  state: string | null; zip: string | null; creditBalanceCents: number;
+}
+
+function SettingsTab({ isAdmin }: { isAdmin: boolean }) {
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', phone: '', jobTitle: '' });
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileMsg, setProfileMsg] = useState('');
+
+  // Password
+  const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
+  const [savingPw, setSavingPw] = useState(false);
+  const [pwMsg, setPwMsg] = useState('');
+
+  // Passkeys
+  const [passkeys, setPasskeys] = useState<PasskeyData[]>([]);
+  const [passkeyMsg, setPasskeyMsg] = useState('');
+  const [registering, setRegistering] = useState(false);
+
+  // Billing (admin)
+  const [billing, setBilling] = useState<BillingData | null>(null);
+  const [billingForm, setBillingForm] = useState({ billingEmail: '', ccBillingEmail: '', phone: '', address: '', city: '', state: '', zip: '' });
+  const [savingBilling, setSavingBilling] = useState(false);
+  const [billingMsg, setBillingMsg] = useState('');
+
+  useEffect(() => {
+    api<ProfileData>('/portal/me').then(p => {
+      setProfile(p);
+      setProfileForm({
+        firstName: p.firstName || '', lastName: p.lastName || '',
+        phone: p.phone || '', jobTitle: p.jobTitle || '',
+      });
+    }).catch(() => {});
+
+    loadPasskeys();
+
+    if (isAdmin) {
+      api<BillingData>('/portal/billing').then(b => {
+        setBilling(b);
+        setBillingForm({
+          billingEmail: b.billingEmail || '', ccBillingEmail: b.ccBillingEmail || '',
+          phone: b.phone || '', address: b.address || '',
+          city: b.city || '', state: b.state || '', zip: b.zip || '',
+        });
+      }).catch(() => {});
+    }
+  }, [isAdmin]);
+
+  async function loadPasskeys() {
+    try {
+      const keys = await api<PasskeyData[]>('/portal/me/passkeys');
+      setPasskeys(keys);
+    } catch { /* ignore */ }
+  }
+
+  async function saveProfile(e: React.FormEvent) {
+    e.preventDefault(); setSavingProfile(true); setProfileMsg('');
+    try {
+      await api('/portal/me', { method: 'PATCH', body: JSON.stringify(profileForm) });
+      setProfileMsg('Profile updated');
+      const p = await api<ProfileData>('/portal/me');
+      setProfile(p);
+    } catch (err: any) { setProfileMsg(err.message || 'Failed to update'); }
+    finally { setSavingProfile(false); }
+  }
+
+  async function savePassword(e: React.FormEvent) {
+    e.preventDefault(); setSavingPw(true); setPwMsg('');
+    if (pwForm.next !== pwForm.confirm) { setPwMsg('Passwords do not match'); setSavingPw(false); return; }
+    if (pwForm.next.length < 15) { setPwMsg('Password must be at least 15 characters'); setSavingPw(false); return; }
+    try {
+      await api('/portal/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword: pwForm.current, newPassword: pwForm.next }),
+      });
+      setPwMsg('Password changed successfully');
+      setPwForm({ current: '', next: '', confirm: '' });
+    } catch (err: any) { setPwMsg(err.message || 'Failed to change password'); }
+    finally { setSavingPw(false); }
+  }
+
+  async function registerPasskey() {
+    setRegistering(true); setPasskeyMsg('');
+    try {
+      const { startRegistration } = await import('@simplewebauthn/browser');
+      const options = await api<any>('/portal/auth/passkey/register-options', { method: 'POST', body: JSON.stringify({}) });
+      const attResp = await startRegistration({ optionsJSON: options });
+      await api('/portal/auth/passkey/register', { method: 'POST', body: JSON.stringify(attResp) });
+      setPasskeyMsg('Passkey registered successfully');
+      await loadPasskeys();
+    } catch (err: any) {
+      setPasskeyMsg(err.message || 'Failed to register passkey');
+    } finally { setRegistering(false); }
+  }
+
+  async function deletePasskey(id: string) {
+    if (!confirm('Delete this passkey? You won\'t be able to use it to sign in anymore.')) return;
+    try {
+      await api(`/portal/me/passkeys/${id}`, { method: 'DELETE' });
+      await loadPasskeys();
+    } catch (err: any) { setPasskeyMsg(err.message || 'Failed to delete passkey'); }
+  }
+
+  async function saveBilling(e: React.FormEvent) {
+    e.preventDefault(); setSavingBilling(true); setBillingMsg('');
+    try {
+      await api('/portal/billing', { method: 'PATCH', body: JSON.stringify(billingForm) });
+      setBillingMsg('Billing info updated');
+      const b = await api<BillingData>('/portal/billing');
+      setBilling(b);
+    } catch (err: any) { setBillingMsg(err.message || 'Failed to update billing'); }
+    finally { setSavingBilling(false); }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Profile */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><User className="h-5 w-5" />My Profile</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {profileMsg && <div className="mb-3 rounded-md bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">{profileMsg}</div>}
+          <form onSubmit={saveProfile} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1"><Label>First Name</Label><Input value={profileForm.firstName} onChange={e => setProfileForm(f => ({ ...f, firstName: e.target.value }))} /></div>
+              <div className="space-y-1"><Label>Last Name</Label><Input value={profileForm.lastName} onChange={e => setProfileForm(f => ({ ...f, lastName: e.target.value }))} /></div>
+            </div>
+            <div className="space-y-1"><Label>Email</Label><Input value={profile?.email || ''} disabled /><p className="text-xs text-muted-foreground">Contact your account manager to change your email address.</p></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1"><Label>Phone</Label><Input value={profileForm.phone} onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))} placeholder="(555) 555-5555" /></div>
+              <div className="space-y-1"><Label>Job Title</Label><Input value={profileForm.jobTitle} onChange={e => setProfileForm(f => ({ ...f, jobTitle: e.target.value }))} placeholder="IT Manager" /></div>
+            </div>
+            <Button type="submit" disabled={savingProfile}>{savingProfile ? 'Saving...' : 'Save Profile'}</Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Password */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" />Change Password</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {pwMsg && <div className={`mb-3 rounded-md border px-3 py-2 text-sm ${pwMsg.includes('success') ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>{pwMsg}</div>}
+          <form onSubmit={savePassword} className="space-y-4">
+            <div className="space-y-1"><Label>Current Password</Label><Input type="password" value={pwForm.current} onChange={e => setPwForm(f => ({ ...f, current: e.target.value }))} required /></div>
+            <div className="space-y-1"><Label>New Password</Label><Input type="password" value={pwForm.next} onChange={e => setPwForm(f => ({ ...f, next: e.target.value }))} required minLength={15} /><p className="text-xs text-muted-foreground">At least 15 characters.</p></div>
+            <div className="space-y-1"><Label>Confirm New Password</Label><Input type="password" value={pwForm.confirm} onChange={e => setPwForm(f => ({ ...f, confirm: e.target.value }))} required /></div>
+            <Button type="submit" disabled={savingPw}>{savingPw ? 'Saving...' : 'Change Password'}</Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Passkeys */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2"><Fingerprint className="h-5 w-5" />Passkeys</CardTitle>
+            <Button size="sm" onClick={registerPasskey} disabled={registering}>
+              <Plus className="h-4 w-4 mr-1" />{registering ? 'Adding...' : 'Add Passkey'}
+            </Button>
+          </div>
+          <p className="text-sm text-muted-foreground mt-2">Passkeys let you sign in with your fingerprint, face, or security key — no password needed.</p>
+        </CardHeader>
+        <CardContent>
+          {passkeyMsg && <div className="mb-3 rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">{passkeyMsg}</div>}
+          {passkeys.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No passkeys yet. Add one to sign in without a password.</p>
+          ) : (
+            <div className="space-y-2">
+              {passkeys.map(pk => (
+                <div key={pk.id} className="flex items-center justify-between rounded-md border p-3">
+                  <div className="flex items-center gap-3">
+                    <Fingerprint className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <div className="text-sm font-medium">{pk.deviceType === 'multiDevice' ? 'Synced Passkey' : 'Device Passkey'}</div>
+                      <div className="text-xs text-muted-foreground">Added {fmtDate(pk.createdAt)}{pk.backedUp ? ' • Backed up' : ''}</div>
+                    </div>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => deletePasskey(pk.id)}>
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Billing (admin only) */}
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5" />Company Billing Information</CardTitle>
+            <p className="text-sm text-muted-foreground mt-2">Billing details for {billing?.name}. This is where invoices will be sent.</p>
+          </CardHeader>
+          <CardContent>
+            {billingMsg && <div className="mb-3 rounded-md bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">{billingMsg}</div>}
+            <form onSubmit={saveBilling} className="space-y-4">
+              <div className="space-y-1"><Label>Billing Email</Label><Input type="email" value={billingForm.billingEmail} onChange={e => setBillingForm(f => ({ ...f, billingEmail: e.target.value }))} placeholder="billing@company.com" /></div>
+              <div className="space-y-1"><Label>CC Billing Email</Label><Input type="email" value={billingForm.ccBillingEmail} onChange={e => setBillingForm(f => ({ ...f, ccBillingEmail: e.target.value }))} placeholder="accounting@company.com (optional)" /></div>
+              <div className="space-y-1"><Label>Billing Phone</Label><Input value={billingForm.phone} onChange={e => setBillingForm(f => ({ ...f, phone: e.target.value }))} placeholder="(555) 555-5555" /></div>
+              <div className="space-y-1"><Label>Address</Label><Input value={billingForm.address} onChange={e => setBillingForm(f => ({ ...f, address: e.target.value }))} /></div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1"><Label>City</Label><Input value={billingForm.city} onChange={e => setBillingForm(f => ({ ...f, city: e.target.value }))} /></div>
+                <div className="space-y-1"><Label>State</Label><Input value={billingForm.state} onChange={e => setBillingForm(f => ({ ...f, state: e.target.value }))} /></div>
+                <div className="space-y-1"><Label>ZIP</Label><Input value={billingForm.zip} onChange={e => setBillingForm(f => ({ ...f, zip: e.target.value }))} /></div>
+              </div>
+              {billing && billing.creditBalanceCents > 0 && (
+                <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm">
+                  <span className="font-medium text-green-800">Account Credit:</span> <span className="text-green-800">{formatCents(billing.creditBalanceCents)}</span>
+                </div>
+              )}
+              <Button type="submit" disabled={savingBilling}>{savingBilling ? 'Saving...' : 'Save Billing Info'}</Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

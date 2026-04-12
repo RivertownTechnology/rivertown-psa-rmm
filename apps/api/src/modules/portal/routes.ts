@@ -98,6 +98,129 @@ export async function portalRoutes(fastify: FastifyInstance) {
     return { success: true };
   });
 
+  // ===== USER PROFILE / SETTINGS =====
+
+  // Get current user profile
+  fastify.get('/api/v1/portal/me', async (request) => {
+    const user = request.user as any;
+    const [contact] = await fastify.db.select({
+      id: contacts.id,
+      firstName: contacts.firstName,
+      lastName: contacts.lastName,
+      email: contacts.email,
+      phone: contacts.phone,
+      jobTitle: contacts.jobTitle,
+      portalRole: contacts.portalRole,
+      portalPermissions: contacts.portalPermissions,
+      customerId: contacts.customerId,
+    }).from(contacts)
+      .where(and(eq(contacts.id, user.sub), eq(contacts.tenantId, user.tid)))
+      .limit(1);
+
+    if (!contact) throw new NotFoundError('Contact', user.sub);
+    return contact;
+  });
+
+  // Update own profile
+  fastify.patch('/api/v1/portal/me', async (request) => {
+    const user = request.user as any;
+    const body = request.body as { firstName?: string; lastName?: string; phone?: string; jobTitle?: string };
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (body.firstName !== undefined) updates.firstName = body.firstName.trim();
+    if (body.lastName !== undefined) updates.lastName = body.lastName.trim();
+    if (body.phone !== undefined) updates.phone = body.phone.trim() || null;
+    if (body.jobTitle !== undefined) updates.jobTitle = body.jobTitle.trim() || null;
+
+    await fastify.db.update(contacts).set(updates)
+      .where(and(eq(contacts.id, user.sub), eq(contacts.tenantId, user.tid)));
+
+    return { success: true };
+  });
+
+  // ===== PASSKEY MANAGEMENT =====
+
+  // List my passkeys
+  fastify.get('/api/v1/portal/me/passkeys', async (request) => {
+    const { passkeyCredentials } = await import('@rivertown/db');
+    const user = request.user as any;
+    const creds = await fastify.db.select({
+      id: passkeyCredentials.id,
+      deviceType: passkeyCredentials.deviceType,
+      backedUp: passkeyCredentials.backedUp,
+      createdAt: passkeyCredentials.createdAt,
+    }).from(passkeyCredentials)
+      .where(and(eq(passkeyCredentials.contactId, user.sub), eq(passkeyCredentials.tenantId, user.tid)))
+      .orderBy(desc(passkeyCredentials.createdAt));
+    return creds;
+  });
+
+  // Delete a passkey
+  fastify.delete('/api/v1/portal/me/passkeys/:id', async (request) => {
+    const { passkeyCredentials } = await import('@rivertown/db');
+    const user = request.user as any;
+    const { id } = request.params as { id: string };
+
+    await fastify.db.delete(passkeyCredentials)
+      .where(and(
+        eq(passkeyCredentials.id, id),
+        eq(passkeyCredentials.contactId, user.sub),
+        eq(passkeyCredentials.tenantId, user.tid),
+      ));
+
+    return { success: true };
+  });
+
+  // ===== CUSTOMER BILLING SETTINGS (admin only) =====
+
+  fastify.get('/api/v1/portal/billing', async (request) => {
+    const { customers } = await import('@rivertown/db');
+    const user = request.user as any;
+    if (user.portalRole !== 'admin') throw new ValidationError('Admin access required');
+
+    const [customer] = await fastify.db.select({
+      name: customers.name,
+      billingEmail: customers.billingEmail,
+      ccBillingEmail: customers.ccBillingEmail,
+      phone: customers.phone,
+      address: customers.address,
+      city: customers.city,
+      state: customers.state,
+      zip: customers.zip,
+      creditBalanceCents: customers.creditBalanceCents,
+    }).from(customers)
+      .where(and(eq(customers.id, user.cid), eq(customers.tenantId, user.tid)))
+      .limit(1);
+
+    if (!customer) throw new NotFoundError('Customer', user.cid);
+    return customer;
+  });
+
+  fastify.patch('/api/v1/portal/billing', async (request) => {
+    const { customers } = await import('@rivertown/db');
+    const user = request.user as any;
+    if (user.portalRole !== 'admin') throw new ValidationError('Admin access required');
+
+    const body = request.body as {
+      billingEmail?: string; ccBillingEmail?: string; phone?: string;
+      address?: string; city?: string; state?: string; zip?: string;
+    };
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (body.billingEmail !== undefined) updates.billingEmail = body.billingEmail.trim() || null;
+    if (body.ccBillingEmail !== undefined) updates.ccBillingEmail = body.ccBillingEmail.trim() || null;
+    if (body.phone !== undefined) updates.phone = body.phone.trim() || null;
+    if (body.address !== undefined) updates.address = body.address.trim() || null;
+    if (body.city !== undefined) updates.city = body.city.trim() || null;
+    if (body.state !== undefined) updates.state = body.state.trim() || null;
+    if (body.zip !== undefined) updates.zip = body.zip.trim() || null;
+
+    await fastify.db.update(customers).set(updates)
+      .where(and(eq(customers.id, user.cid), eq(customers.tenantId, user.tid)));
+
+    return { success: true };
+  });
+
   // ===== DASHBOARD STATS =====
 
   fastify.get('/api/v1/portal/stats', async (request) => {
