@@ -3,7 +3,8 @@ import type { FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Ticket, FileText, CreditCard, Shield, Phone, Mail } from 'lucide-react';
+import { Ticket, FileText, CreditCard, Shield, Phone, Mail, Fingerprint } from 'lucide-react';
+import { setTokens } from '@/lib/api';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string) => Promise<void>;
@@ -23,6 +24,45 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       await onLogin(email, password);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handlePasskeySignIn() {
+    setError(''); setLoading(true);
+    try {
+      if (!email) throw new Error('Enter your email address first');
+      const { startAuthentication } = await import('@simplewebauthn/browser');
+
+      const optsRes = await fetch('/api/v1/portal/auth/passkey/login-options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (!optsRes.ok) throw new Error('Failed to get passkey options');
+      const options = await optsRes.json();
+
+      const authResp = await startAuthentication({ optionsJSON: options });
+
+      const loginRes = await fetch('/api/v1/portal/auth/passkey/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(authResp),
+      });
+      if (!loginRes.ok) {
+        const e = await loginRes.json().catch(() => ({ message: 'Passkey sign-in failed' }));
+        throw new Error(e.message || 'Passkey sign-in failed');
+      }
+      const data = await loginRes.json();
+      setTokens(data.accessToken, data.refreshToken);
+      window.location.reload(); // simplest way to reinitialize app state
+    } catch (err: any) {
+      if (err.name === 'NotAllowedError') {
+        setError('Passkey prompt was cancelled');
+      } else {
+        setError(err.message || 'Passkey sign-in failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -112,6 +152,23 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
           </form>
+
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
+            <div className="relative flex justify-center text-xs uppercase"><span className="bg-background px-2 text-muted-foreground">Or</span></div>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full h-11 text-base gap-2"
+            onClick={handlePasskeySignIn}
+            disabled={loading}
+          >
+            <Fingerprint className="h-5 w-5" />
+            Sign in with Passkey
+          </Button>
+          <p className="text-xs text-center text-muted-foreground mt-2">Enter your email above, then click to use your fingerprint, face, or security key.</p>
 
           <div className="mt-8 pt-6 border-t text-center text-sm text-muted-foreground space-y-2">
             <p>Don't have an account? Contact your account manager at Rivertown Technology to get portal access.</p>
