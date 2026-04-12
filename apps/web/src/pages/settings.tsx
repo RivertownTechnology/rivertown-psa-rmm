@@ -29,9 +29,60 @@ const defaultEmail: EmailConfig = {
 export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
   const { user } = useAuth();
   const { mode, color, setMode, setColor } = useTheme();
-  const hashTab = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
-  const [tab, setTab] = useState(initialTab || hashTab || 'general');
-  function changeTab(t: string) { setTab(t); window.history.replaceState(null, '', `/settings#${t}`); }
+  // Parse hash: "#topTab" or "#topTab/subTab" or "#topTab/subTab/subSubTab"
+  const hashRaw = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
+  const hashParts = hashRaw.split('/');
+  const validTabs = ['account', 'company', 'operations', 'templates', 'catalog', 'integrations'];
+  const legacyMap: Record<string, string> = {
+    general: 'account',
+    email: 'integrations/email',
+    billing: 'integrations/accounting/tax-rates',
+    ai: 'integrations/ai',
+    security: 'account',
+  };
+  const rawTopTab = initialTab || hashParts[0] || 'account';
+  // Apply legacy mapping if the stored hash uses an old top-tab name
+  const legacyRedirect = !validTabs.includes(rawTopTab) ? legacyMap[rawTopTab] : undefined;
+  const resolvedHash = legacyRedirect || (validTabs.includes(rawTopTab) ? hashRaw : 'account');
+  const [resolvedTop, resolvedSub, resolvedSubSub] = resolvedHash.split('/');
+  const [tab, setTab] = useState(resolvedTop);
+  const [integrationsSubTab, setIntegrationsSubTab] = useState(
+    resolvedTop === 'integrations' ? (resolvedSub || 'email') : 'email',
+  );
+  const [accountingSubTab, setAccountingSubTab] = useState(
+    resolvedTop === 'integrations' && resolvedSub === 'accounting' ? (resolvedSubSub || 'quickbooks') : 'quickbooks',
+  );
+  const [rmmSubTab, setRmmSubTab] = useState(
+    resolvedTop === 'integrations' && resolvedSub === 'rmm' ? (resolvedSubSub || 'ninja') : 'ninja',
+  );
+
+  function writeHash(top: string, sub?: string, subSub?: string) {
+    let h = top;
+    if (sub) h += `/${sub}`;
+    if (subSub) h += `/${subSub}`;
+    window.history.replaceState(null, '', `/settings#${h}`);
+  }
+  function changeTab(t: string) {
+    setTab(t);
+    if (t === 'integrations') {
+      const sub = integrationsSubTab;
+      writeHash(t, sub, sub === 'accounting' ? accountingSubTab : sub === 'rmm' ? rmmSubTab : undefined);
+    } else {
+      writeHash(t);
+    }
+  }
+  function changeIntegrationsSub(s: string) {
+    setIntegrationsSubTab(s);
+    writeHash('integrations', s, s === 'accounting' ? accountingSubTab : s === 'rmm' ? rmmSubTab : undefined);
+  }
+  function changeAccountingSub(s: string) {
+    setAccountingSubTab(s);
+    writeHash('integrations', 'accounting', s);
+  }
+  function changeRmmSub(s: string) {
+    setRmmSubTab(s);
+    writeHash('integrations', 'rmm', s);
+  }
   const [sequences, setSequences] = useState<Record<string, number>>({});
   const [seqForm, setSeqForm] = useState({ ticket: '', invoice: '', quote: '' });
   const [seqSaving, setSeqSaving] = useState(false);
@@ -841,79 +892,12 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
 
         {/* OPERATIONS TAB */}
         <TabsContent value="operations">
+          <Tabs defaultValue="sla" className="mt-4">
+            <TabsList>
+              <TabsTrigger value="sla">SLA</TabsTrigger>
+            </TabsList>
+            <TabsContent value="sla">
           <div className="space-y-6 mt-4">
-            {/* Billing Rates */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><DollarSign className="h-5 w-5" />Billing Rates</CardTitle>
-                <CardDescription>Default internal cost and billable rates. Per-tech overrides apply when set.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {ratesSuccess && <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800">{ratesSuccess}</div>}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Default Internal Cost ($/hr)</Label>
-                    <Input type="number" step="0.01" min="0"
-                      value={(orgRates.internalCostCents / 100).toFixed(2)}
-                      onChange={e => setOrgRates({ ...orgRates, internalCostCents: Math.round(parseFloat(e.target.value || '0') * 100) })} />
-                    <p className="text-xs text-muted-foreground">What it costs you per hour of tech labor</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Default Billable Rate ($/hr)</Label>
-                    <Input type="number" step="0.01" min="0"
-                      value={(orgRates.billableRateCents / 100).toFixed(2)}
-                      onChange={e => setOrgRates({ ...orgRates, billableRateCents: Math.round(parseFloat(e.target.value || '0') * 100) })} />
-                    <p className="text-xs text-muted-foreground">What you charge customers per hour</p>
-                  </div>
-                </div>
-                <Button onClick={saveOrgRates} disabled={ratesSaving}>{ratesSaving ? 'Saving...' : 'Save Default Rates'}</Button>
-
-                <Separator />
-                <div className="space-y-2">
-                  <Label className="text-base">Per-Tech Rate Overrides</Label>
-                  <p className="text-xs text-muted-foreground">Leave blank to use org defaults. Set per-tech when individual rates differ.</p>
-                </div>
-                <div className="border rounded-md overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead><tr className="bg-muted/50 border-b">
-                      <th className="text-left p-3 font-medium">Tech</th>
-                      <th className="text-left p-3 font-medium">Role</th>
-                      <th className="text-right p-3 font-medium">Internal Cost ($/hr)</th>
-                      <th className="text-right p-3 font-medium">Billable Rate ($/hr)</th>
-                    </tr></thead>
-                    <tbody>
-                      {techs.map(t => (
-                        <tr key={t.id} className="border-b">
-                          <td className="p-3">
-                            <div className="font-medium">{t.displayName}</div>
-                            <div className="text-xs text-muted-foreground">{t.email}</div>
-                          </td>
-                          <td className="p-3 capitalize">{t.role}</td>
-                          <td className="p-2 text-right">
-                            <Input type="number" step="0.01" min="0" className="w-28 text-right ml-auto"
-                              placeholder={(orgRates.internalCostCents / 100).toFixed(2)}
-                              value={t.internalCostCents !== null ? (t.internalCostCents / 100).toFixed(2) : ''}
-                              onChange={e => {
-                                const val = e.target.value ? Math.round(parseFloat(e.target.value) * 100) : null;
-                                saveTechRate(t.id, val, t.billableRateCents);
-                              }} />
-                          </td>
-                          <td className="p-2 text-right">
-                            <Input type="number" step="0.01" min="0" className="w-28 text-right ml-auto"
-                              placeholder={(orgRates.billableRateCents / 100).toFixed(2)}
-                              value={t.billableRateCents !== null ? (t.billableRateCents / 100).toFixed(2) : ''}
-                              onChange={e => {
-                                const val = e.target.value ? Math.round(parseFloat(e.target.value) * 100) : null;
-                                saveTechRate(t.id, t.internalCostCents, val);
-                              }} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
 
             {/* SLA Policies */}
             <Card>
@@ -983,10 +967,10 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
               </DialogContent>
             </Dialog>
 
-            {/* Tax Rates (moved from Billing tab) */}
-            <BillingSettingsTab />
 
           </div>
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         {/* TEMPLATES TAB */}
@@ -998,7 +982,7 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
 
         {/* INTEGRATIONS TAB */}
         <TabsContent value="integrations">
-          <Tabs defaultValue="email" className="mt-4">
+          <Tabs value={integrationsSubTab} onValueChange={changeIntegrationsSub} className="mt-4">
             <TabsList className="flex-wrap h-auto">
               <TabsTrigger value="email">Email & Inbox</TabsTrigger>
               <TabsTrigger value="billing-email">Billing Email</TabsTrigger>
@@ -1160,15 +1144,104 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
 
         {/* ACCOUNTING SUB-TAB */}
         <TabsContent value="accounting">
-          <div className="space-y-6 mt-4 max-w-2xl">
-            {/* QuickBooks Online */}
-            <QuickBooksCard />
-          </div>
+          <Tabs value={accountingSubTab} onValueChange={changeAccountingSub} className="mt-4">
+            <TabsList>
+              <TabsTrigger value="quickbooks">QuickBooks</TabsTrigger>
+              <TabsTrigger value="tax-rates">Tax Rates</TabsTrigger>
+              <TabsTrigger value="billing-rates">Billing Rates</TabsTrigger>
+            </TabsList>
+            <TabsContent value="quickbooks">
+              <div className="space-y-6 mt-4 max-w-2xl">
+                <QuickBooksCard />
+              </div>
+            </TabsContent>
+            <TabsContent value="tax-rates">
+              <div className="mt-4">
+                <BillingSettingsTab />
+              </div>
+            </TabsContent>
+            <TabsContent value="billing-rates">
+              <div className="mt-4">
+                {/* Billing Rates */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><DollarSign className="h-5 w-5" />Billing Rates</CardTitle>
+                <CardDescription>Default internal cost and billable rates. Per-tech overrides apply when set.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {ratesSuccess && <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800">{ratesSuccess}</div>}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Default Internal Cost ($/hr)</Label>
+                    <Input type="number" step="0.01" min="0"
+                      value={(orgRates.internalCostCents / 100).toFixed(2)}
+                      onChange={e => setOrgRates({ ...orgRates, internalCostCents: Math.round(parseFloat(e.target.value || '0') * 100) })} />
+                    <p className="text-xs text-muted-foreground">What it costs you per hour of tech labor</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Default Billable Rate ($/hr)</Label>
+                    <Input type="number" step="0.01" min="0"
+                      value={(orgRates.billableRateCents / 100).toFixed(2)}
+                      onChange={e => setOrgRates({ ...orgRates, billableRateCents: Math.round(parseFloat(e.target.value || '0') * 100) })} />
+                    <p className="text-xs text-muted-foreground">What you charge customers per hour</p>
+                  </div>
+                </div>
+                <Button onClick={saveOrgRates} disabled={ratesSaving}>{ratesSaving ? 'Saving...' : 'Save Default Rates'}</Button>
+
+                <Separator />
+                <div className="space-y-2">
+                  <Label className="text-base">Per-Tech Rate Overrides</Label>
+                  <p className="text-xs text-muted-foreground">Leave blank to use org defaults. Set per-tech when individual rates differ.</p>
+                </div>
+                <div className="border rounded-md overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-muted/50 border-b">
+                      <th className="text-left p-3 font-medium">Tech</th>
+                      <th className="text-left p-3 font-medium">Role</th>
+                      <th className="text-right p-3 font-medium">Internal Cost ($/hr)</th>
+                      <th className="text-right p-3 font-medium">Billable Rate ($/hr)</th>
+                    </tr></thead>
+                    <tbody>
+                      {techs.map(t => (
+                        <tr key={t.id} className="border-b">
+                          <td className="p-3">
+                            <div className="font-medium">{t.displayName}</div>
+                            <div className="text-xs text-muted-foreground">{t.email}</div>
+                          </td>
+                          <td className="p-3 capitalize">{t.role}</td>
+                          <td className="p-2 text-right">
+                            <Input type="number" step="0.01" min="0" className="w-28 text-right ml-auto"
+                              placeholder={(orgRates.internalCostCents / 100).toFixed(2)}
+                              value={t.internalCostCents !== null ? (t.internalCostCents / 100).toFixed(2) : ''}
+                              onChange={e => {
+                                const val = e.target.value ? Math.round(parseFloat(e.target.value) * 100) : null;
+                                saveTechRate(t.id, val, t.billableRateCents);
+                              }} />
+                          </td>
+                          <td className="p-2 text-right">
+                            <Input type="number" step="0.01" min="0" className="w-28 text-right ml-auto"
+                              placeholder={(orgRates.billableRateCents / 100).toFixed(2)}
+                              value={t.billableRateCents !== null ? (t.billableRateCents / 100).toFixed(2) : ''}
+                              onChange={e => {
+                                const val = e.target.value ? Math.round(parseFloat(e.target.value) * 100) : null;
+                                saveTechRate(t.id, t.internalCostCents, val);
+                              }} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+              </div>
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         {/* RMM SUB-TAB */}
         <TabsContent value="rmm">
-          <Tabs defaultValue="ninja" className="mt-4">
+          <Tabs value={rmmSubTab} onValueChange={changeRmmSub} className="mt-4">
             <TabsList>
               <TabsTrigger value="ninja">NinjaOne</TabsTrigger>
             </TabsList>
@@ -1868,8 +1941,12 @@ function QBOPaymentsCard() {
       <CardContent>
         {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
         {!status.qboConnected ? (
-          <div className="bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 text-sm p-3 rounded-md border border-amber-200 dark:border-amber-800">
-            Connect QuickBooks Online first (under the Accounting sub-tab), then enable QBO Payments here.
+          <div className="bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 text-sm p-3 rounded-md border border-amber-200 dark:border-amber-800 space-y-3">
+            <p>QuickBooks Online must be connected before you can enable QuickBooks Payments.</p>
+            <Button size="sm" onClick={() => {
+              window.location.hash = 'integrations/accounting/quickbooks';
+              window.location.reload();
+            }}>Go to Accounting → QuickBooks</Button>
           </div>
         ) : (
           <div className="space-y-4">

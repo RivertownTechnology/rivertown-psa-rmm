@@ -15,6 +15,7 @@ import { QuotesPage } from '@/pages/quotes';
 import { TimeEntriesPage } from '@/pages/time-entries';
 import { QuoteDetailPage } from '@/pages/quote-detail';
 import { SettingsPage } from '@/pages/settings';
+import { ProductCatalogPage } from '@/pages/product-catalog';
 import { Pax8Page } from '@/pages/pax8';
 import { DispatchPage } from '@/pages/dispatch';
 import { SearchResultsPage } from '@/pages/search';
@@ -158,6 +159,9 @@ function AppRouter() {
   } else if (pathname === '/settings') {
     title = 'Settings';
     content = <SettingsPage />;
+  } else if (pathname === '/catalog') {
+    title = 'Product Catalog'; currentNav = '/catalog';
+    content = <ProductCatalogPage />;
   } else {
     title = 'Dashboard'; currentNav = '/';
     content = <DashboardPage />;

@@ -8,6 +8,7 @@ import {
   Receipt,
   Clock,
   Settings,
+  Package,
   X,
 } from 'lucide-react';
 
@@ -39,6 +40,12 @@ const navGroups: NavGroup[] = [
       { label: 'Quotes', icon: FileText, href: '/billing/quotes' },
       { label: 'Invoices', icon: Receipt, href: '/billing/invoices' },
       { label: 'Time Entries', icon: Clock, href: '/billing/time-entries' },
+    ],
+  },
+  {
+    label: 'Catalog',
+    items: [
+      { label: 'Product Catalog', icon: Package, href: '/catalog' },
     ],
   },
 ];
