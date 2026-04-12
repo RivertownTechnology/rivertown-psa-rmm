@@ -26,6 +26,11 @@ export const tenants = pgTable('tenants', {
   planTier: text('plan_tier').default('starter').notNull(), // starter | pro | enterprise
   pastDueAt: timestamp('past_due_at', { withTimezone: true }), // first failed renewal; 30-day grace before lockout
 
+  // Onboarding — drives product behavior (hide billing UI for Internal IT, seed catalog by billing model, etc.)
+  companyType: text('company_type').default('msp').notNull(), // 'msp' | 'internal_it'
+  billingModel: text('billing_model'), // 'per_user' | 'per_device' | 'flat_rate' | 'hybrid' | 'none'
+  currency: text('currency').default('USD').notNull(),
+
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

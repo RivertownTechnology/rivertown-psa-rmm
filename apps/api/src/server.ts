@@ -36,6 +36,7 @@ import publicApiModule from './modules/public-api/index.js';
 import { publicSignupRoutes } from './modules/public-signup/routes.js';
 import { adminRoutes } from './modules/admin/routes.js';
 import { saasBillingRoutes } from './modules/saas-billing/routes.js';
+import { supportRoutes } from './modules/support/routes.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -183,12 +184,15 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     const user = (request as any).user;
     if (!user?.tid) return; // unauthenticated; other middleware handles it
 
-    // Allow the user to log out, manage billing, or hit auth endpoints even in read-only mode
+    // Allow the user to log out, manage billing, reach support, or hit auth endpoints
+    // even in read-only mode. Support intake is intentionally available to locked-out
+    // tenants so they can ask us for help.
     const url = request.url.split('?')[0];
     if (
       url.startsWith('/api/v1/auth/') ||
       url.startsWith('/api/v1/billing/') ||
-      url.startsWith('/api/v1/admin/')
+      url.startsWith('/api/v1/admin/') ||
+      url.startsWith('/api/v1/support/')
     ) return;
 
     const { getTenantSubscriptionState } = await import('./common/tenant-subscription-cache.js');
@@ -268,6 +272,9 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
 
   // SaaS billing — platform-level Stripe for charging tenants
   await fastify.register(saasBillingRoutes);
+
+  // Customer support — ticket intake for ForgePSA customers
+  await fastify.register(supportRoutes);
 
   // Auth routes
   await fastify.register(authRoutes);

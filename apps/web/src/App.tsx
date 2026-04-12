@@ -18,6 +18,7 @@ import { SettingsPage } from '@/pages/settings';
 import { AccountPage } from '@/pages/account';
 import { BillingPage } from '@/pages/billing';
 import { AdminPage } from '@/pages/admin';
+import { SupportPage } from '@/pages/support';
 import { ProductCatalogPage } from '@/pages/product-catalog';
 import { Pax8Page } from '@/pages/pax8';
 import { DispatchPage } from '@/pages/dispatch';
@@ -89,8 +90,17 @@ function AppRouter() {
   if (!user) return <LoginPage />;
 
   // Hard lockout: trial ended with no subscription, past-due grace expired, or cancelled.
-  // Force the billing screen until a subscription is active.
+  // Force the billing screen until a subscription is active. Exception: /support is
+  // always reachable so locked-out customers can still talk to us.
   if (user.lockedOut) {
+    const pathname = window.location.pathname;
+    if (pathname === '/support') {
+      return (
+        <div className="min-h-screen bg-muted/30 p-4 sm:p-6 lg:p-8">
+          <SupportPage />
+        </div>
+      );
+    }
     return <BillingPage forced />;
   }
 
@@ -177,6 +187,9 @@ function AppRouter() {
   } else if (pathname === '/admin') {
     title = 'ForgePSA Admin';
     content = <AdminPage />;
+  } else if (pathname === '/support') {
+    title = 'Help & Support';
+    content = <SupportPage />;
   } else if (pathname === '/catalog') {
     title = 'Product Catalog'; currentNav = '/catalog';
     content = <ProductCatalogPage />;

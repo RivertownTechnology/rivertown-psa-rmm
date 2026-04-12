@@ -19,16 +19,18 @@ export function MarketingFooter({ navigate }: { navigate: (p: string) => void })
           <ul className="space-y-2 text-sm">
             <li><button onClick={() => navigate('/features')} className="hover:text-white">Features</button></li>
             <li><button onClick={() => navigate('/pricing')} className="hover:text-white">Pricing</button></li>
+            <li><button onClick={() => navigate('/faq')} className="hover:text-white">FAQ</button></li>
             <li><a href="https://app.forgepsa.com" className="hover:text-white">Sign in</a></li>
             <li><button onClick={() => navigate('/signup')} className="hover:text-white">Start free trial</button></li>
           </ul>
         </div>
 
         <div>
-          <h4 className="font-semibold text-white mb-3 text-sm">Company</h4>
+          <h4 className="font-semibold text-white mb-3 text-sm">Support</h4>
           <ul className="space-y-2 text-sm">
-            <li><a href="mailto:hello@forgepsa.com" className="hover:text-white">Contact</a></li>
-            <li><a href="mailto:support@forgepsa.com" className="hover:text-white">Support</a></li>
+            <li><button onClick={() => navigate('/support')} className="hover:text-white">Help Center</button></li>
+            <li><a href="mailto:support@forgepsa.com" className="hover:text-white">Email support</a></li>
+            <li><a href="mailto:hello@forgepsa.com" className="hover:text-white">Contact sales</a></li>
           </ul>
         </div>
 

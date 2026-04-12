@@ -4,15 +4,34 @@ import { eq, and, sql } from 'drizzle-orm';
 import { hash } from 'bcryptjs';
 import { z } from 'zod';
 import {
-  tenants, users, tenantSequences, slaPolicies, emailTemplates,
+  tenants, users, tenantSequences, slaPolicies, emailTemplates, serviceCatalogItems,
 } from '@rivertown/db';
 
+// Base schema — required for every signup. Kept minimal so older clients keep working.
 const signupSchema = z.object({
+  // Core identity (required)
   companyName: z.string().trim().min(2).max(120),
   firstName: z.string().trim().min(1).max(60),
   lastName: z.string().trim().min(1).max(60),
   email: z.string().trim().toLowerCase().email(),
   password: z.string().min(10).max(200),
+
+  // Enriched onboarding — all optional. Falls back to sensible defaults.
+  companyType: z.enum(['msp', 'internal_it']).optional(),
+  companySize: z.enum(['1-5', '6-20', '21-50', '50+']).optional(),
+  industry: z.string().trim().max(60).optional(),
+  phone: z.string().trim().max(30).optional(),
+
+  // MSP-specific config (ignored for Internal IT)
+  billsClients: z.boolean().optional(),
+  billingModel: z.enum(['per_user', 'per_device', 'flat_rate', 'hybrid', 'none']).optional(),
+  defaultHourlyRate: z.number().int().min(0).max(10000).optional(), // whole dollars
+  currency: z.string().trim().length(3).optional(), // ISO 4217
+  timezone: z.string().trim().max(60).optional(),
+
+  // Internal IT-specific config
+  supportedUsersRange: z.enum(['1-50', '51-200', '201-1000', '1000+']).optional(),
+  needs: z.array(z.enum(['ticketing', 'asset_tracking', 'change_management', 'knowledge_base'])).optional(),
 });
 
 const TRIAL_DAYS = 45;
@@ -25,6 +44,69 @@ function slugify(input: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40) || 'msp';
+}
+
+/**
+ * Seed a starter catalog item tailored to the customer's billing model so they
+ * have something to quote or invoice against on day one.
+ */
+function buildStarterCatalogItem(
+  billingModel: string,
+  billableRateCents: number,
+): Record<string, unknown> | null {
+  switch (billingModel) {
+    case 'per_user':
+      return {
+        name: 'Managed Services — Per User',
+        description: 'Monthly managed services fee per supported end user.',
+        sku: 'MS-USER',
+        category: 'Managed Services',
+        itemType: 'recurring',
+        defaultUnitPriceCents: 10000, // $100/user/mo — customer tweaks later
+        taxable: true,
+      };
+    case 'per_device':
+      return {
+        name: 'Managed Services — Per Device',
+        description: 'Monthly managed services fee per supported device.',
+        sku: 'MS-DEVICE',
+        category: 'Managed Services',
+        itemType: 'recurring',
+        defaultUnitPriceCents: 7500, // $75/device/mo
+        taxable: true,
+      };
+    case 'flat_rate':
+      return {
+        name: 'Managed Services — Flat Rate',
+        description: 'Flat monthly managed services agreement.',
+        sku: 'MS-FLAT',
+        category: 'Managed Services',
+        itemType: 'recurring',
+        defaultUnitPriceCents: 500000, // $5,000/mo starter
+        taxable: true,
+      };
+    case 'hybrid':
+      return {
+        name: 'Managed Services — Base Fee',
+        description: 'Monthly base fee for managed services, add-ons billed separately.',
+        sku: 'MS-BASE',
+        category: 'Managed Services',
+        itemType: 'recurring',
+        defaultUnitPriceCents: 150000, // $1,500/mo base
+        taxable: true,
+      };
+    default:
+      // Hourly labor catalog item — universal regardless of billing model
+      return {
+        name: 'Billable Hour',
+        description: 'Standard billable engineering hour.',
+        sku: 'LABOR-HR',
+        category: 'Labor',
+        itemType: 'one_time',
+        defaultUnitPriceCents: billableRateCents,
+        taxable: true,
+      };
+  }
 }
 
 async function findAvailableSlug(db: FastifyInstance['db'], base: string): Promise<string> {
@@ -71,6 +153,28 @@ export async function publicSignupRoutes(fastify: FastifyInstance) {
       const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
       const passwordHash = await hash(body.password, 12);
 
+      // Resolve onboarding defaults — callers without the enriched flow still work.
+      const companyType = body.companyType ?? 'msp';
+      const isMsp = companyType === 'msp';
+      const billsClients = body.billsClients ?? isMsp;
+      const billingModel = billsClients ? (body.billingModel ?? null) : 'none';
+      const currency = body.currency?.toUpperCase() ?? 'USD';
+      const timezone = body.timezone || 'America/New_York';
+      const billableRateCents = body.defaultHourlyRate != null
+        ? body.defaultHourlyRate * 100
+        : 15000; // $150/hr default
+
+      // Preserve the signup context in tenants.settings.onboarding for future
+      // product personalization + analytics. Non-hot-path fields live here so we
+      // don't add a schema column for every little survey answer.
+      const onboardingMeta = {
+        companySize: body.companySize ?? null,
+        industry: body.industry ?? null,
+        supportedUsersRange: body.supportedUsersRange ?? null,
+        needs: body.needs ?? [],
+        completedAt: new Date().toISOString(),
+      };
+
       // Fetch default templates outside transaction — purely read-only, and we
       // want to fail fast if something is wrong with the template module.
       let defaultTemplates: Array<Record<string, unknown>> = [];
@@ -93,6 +197,12 @@ export async function publicSignupRoutes(fastify: FastifyInstance) {
             subscriptionStatus: 'trial',
             planTier: 'starter',
             subscriptionTier: 'trial',
+            companyType,
+            billingModel,
+            currency,
+            timezone,
+            defaultBillableRateCents: billableRateCents,
+            settings: { onboarding: onboardingMeta },
           })
           .returning();
 
@@ -105,6 +215,7 @@ export async function publicSignupRoutes(fastify: FastifyInstance) {
             displayName: `${body.firstName} ${body.lastName}`.trim(),
             role: 'owner',
             isActive: true,
+            phone: body.phone || null,
           })
           .returning();
 
@@ -135,6 +246,15 @@ export async function publicSignupRoutes(fastify: FastifyInstance) {
           await tx.insert(emailTemplates).values(
             defaultTemplates.map((tmpl) => ({ tenantId: t.id, ...tmpl, isDefault: true }) as any),
           );
+        }
+
+        // Seed a starter service-catalog item so MSPs have something to quote
+        // immediately — tailored to the billing model they picked.
+        if (billsClients && billingModel && billingModel !== 'none') {
+          const starterItem = buildStarterCatalogItem(billingModel, billableRateCents);
+          if (starterItem) {
+            await tx.insert(serviceCatalogItems).values({ tenantId: t.id, ...starterItem } as any);
+          }
         }
 
         return { tenant: t, user: u };

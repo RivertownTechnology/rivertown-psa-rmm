@@ -31,6 +31,9 @@ export const users = pgTable(
     // ForgePSA internal super-admin (cross-tenant access for support/admin)
     isSuperAdmin: boolean('is_super_admin').default(false).notNull(),
 
+    // Contact
+    phone: text('phone'),
+
     timezone: text('user_timezone'),
     googleCalendarConnected: boolean('google_calendar_connected').default(false),
     googleCalendarToken: text('google_calendar_token'),

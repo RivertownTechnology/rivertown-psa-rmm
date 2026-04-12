@@ -5,6 +5,8 @@ import { Features } from './pages/Features';
 import { Signup } from './pages/Signup';
 import { Terms } from './pages/Terms';
 import { Privacy } from './pages/Privacy';
+import { FAQ } from './pages/FAQ';
+import { Support } from './pages/Support';
 import { MarketingHeader } from './components/MarketingHeader';
 import { MarketingFooter } from './components/MarketingFooter';
 
@@ -30,6 +32,10 @@ export function App() {
     content = <Pricing navigate={navigate} />;
   } else if (pathname === '/features') {
     content = <Features navigate={navigate} />;
+  } else if (pathname === '/faq') {
+    content = <FAQ navigate={navigate} />;
+  } else if (pathname === '/support') {
+    content = <Support navigate={navigate} />;
   } else if (pathname === '/terms') {
     content = <Terms navigate={navigate} />;
   } else if (pathname === '/privacy') {

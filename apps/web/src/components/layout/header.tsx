@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LogOut, User, Sun, Moon, Palette, Search, Menu, Settings as SettingsIcon, Shield } from 'lucide-react';
+import { LogOut, User, Sun, Moon, Palette, Search, Menu, Settings as SettingsIcon, Shield, LifeBuoy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface HeaderProps {
@@ -128,6 +128,10 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
             <DropdownMenuItem onClick={() => onNavigate('/settings')}>
               <SettingsIcon className="mr-2 h-4 w-4" />
               Settings
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onNavigate('/support')}>
+              <LifeBuoy className="mr-2 h-4 w-4" />
+              Help &amp; Support
             </DropdownMenuItem>
             {user?.isSuperAdmin && (
               <DropdownMenuItem onClick={() => onNavigate('/admin')}>
