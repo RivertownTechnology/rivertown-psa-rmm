@@ -374,6 +374,60 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== NINJAONE (RMM) =====
+
+  fastify.get(
+    '/api/v1/settings/ninjaone',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials } = await import('../../common/credentials.js');
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'ninjaone')))
+        .limit(1);
+      if (!config) return { isEnabled: false, clientId: '', clientSecret: '', region: 'us' };
+      const creds = readCredentials(config.credentials) as Record<string, string>;
+      const settings = (config.settings ?? {}) as Record<string, string>;
+      return {
+        isEnabled: config.isEnabled,
+        clientId: creds.clientId ? '••••••••' + String(creds.clientId).slice(-4) : '',
+        clientSecret: creds.clientSecret ? '••••••••' : '',
+        region: settings.region || 'us',
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/ninjaone',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
+      const body = request.body as { isEnabled: boolean; clientId?: string; clientSecret?: string; region?: string };
+
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'ninjaone')))
+        .limit(1);
+
+      const prevCreds = existing ? (readCredentials(existing.credentials) as Record<string, string>) : {};
+      const credentials = writeCredentials({
+        clientId: body.clientId?.startsWith('••') ? prevCreds.clientId : (body.clientId || prevCreds.clientId || ''),
+        clientSecret: body.clientSecret?.startsWith('••') ? prevCreds.clientSecret : (body.clientSecret || prevCreds.clientSecret || ''),
+      });
+      const settings = { region: body.region || 'us' };
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, credentials, settings, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'ninjaone',
+          isEnabled: body.isEnabled, credentials, settings,
+        });
+      }
+      return { success: true };
+    },
+  );
+
   // ===== TWILIO (SMS MFA) =====
 
   fastify.get(

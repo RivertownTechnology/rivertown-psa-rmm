@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { User, Building, Bell, Hash, Mail, Send, CheckCircle, DollarSign, Shield, ShieldAlert, X, Package, Plus, Pencil, Trash2, Search, Sparkles, MessageSquare } from 'lucide-react';
+import { User, Building, Bell, Hash, Mail, Send, CheckCircle, DollarSign, Shield, ShieldAlert, X, Package, Plus, Pencil, Trash2, Search, Sparkles, MessageSquare, Monitor } from 'lucide-react';
 import { BusinessProfileCard } from '@/components/business-profile-card';
 import { SecurityPage } from './security';
 import { ProductCatalogPage } from './product-catalog';
@@ -1040,6 +1040,7 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
               <TabsTrigger value="payments">Payments</TabsTrigger>
               <TabsTrigger value="accounting">Accounting</TabsTrigger>
               <TabsTrigger value="vendors">Vendors</TabsTrigger>
+              <TabsTrigger value="rmm">RMM</TabsTrigger>
               <TabsTrigger value="communication">Communication</TabsTrigger>
             </TabsList>
 
@@ -1173,6 +1174,20 @@ export function SettingsPage({ initialTab }: { initialTab?: string } = {}) {
             {/* QuickBooks Online */}
             <QuickBooksCard />
           </div>
+        </TabsContent>
+
+        {/* RMM SUB-TAB */}
+        <TabsContent value="rmm">
+          <Tabs defaultValue="ninja" className="mt-4">
+            <TabsList>
+              <TabsTrigger value="ninja">NinjaOne</TabsTrigger>
+            </TabsList>
+            <TabsContent value="ninja">
+              <div className="space-y-6 mt-4 max-w-2xl">
+                <NinjaOneCard />
+              </div>
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         {/* COMMUNICATION SUB-TAB */}
@@ -1901,6 +1916,70 @@ function QBOPaymentsCard() {
             <p className="text-xs text-muted-foreground">Integration coming soon. Setup activates the feature flag only.</p>
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ===== NINJAONE RMM CARD =====
+
+function NinjaOneCard() {
+  const [config, setConfig] = useState({ isEnabled: false, clientId: '', clientSecret: '', region: 'us' });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    api<typeof config>('/settings/ninjaone').then(setConfig).catch(() => {});
+  }, []);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true); setMessage('');
+    try {
+      await api('/settings/ninjaone', { method: 'PUT', body: JSON.stringify(config) });
+      setMessage('NinjaOne settings saved');
+      const updated = await api<typeof config>('/settings/ninjaone');
+      setConfig(updated);
+    } catch (err: unknown) { setMessage(err instanceof Error ? err.message : 'Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Monitor className="h-5 w-5" />NinjaOne (NinjaRMM)</CardTitle>
+        <CardDescription>Sync devices, alerts, and organizations from NinjaOne. Get API credentials in NinjaOne: Administration → Apps → API.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input type="checkbox" checked={config.isEnabled} onChange={e => setConfig(c => ({ ...c, isEnabled: e.target.checked }))} className="rounded" />
+              Enable NinjaOne Integration
+            </label>
+          </div>
+          <div>
+            <Label>Region</Label>
+            <select value={config.region} onChange={e => setConfig(c => ({ ...c, region: e.target.value }))}
+              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <option value="us">US (app.ninjarmm.com)</option>
+              <option value="us2">US2 (us2.ninjarmm.com)</option>
+              <option value="eu">EU (eu.ninjarmm.com)</option>
+              <option value="ca">Canada (ca.ninjarmm.com)</option>
+              <option value="oc">Oceania (oc.ninjarmm.com)</option>
+            </select>
+          </div>
+          <div>
+            <Label>Client ID</Label>
+            <Input value={config.clientId} onChange={e => setConfig(c => ({ ...c, clientId: e.target.value }))} placeholder="Your NinjaOne API client ID" />
+          </div>
+          <div>
+            <Label>Client Secret</Label>
+            <Input type="password" value={config.clientSecret} onChange={e => setConfig(c => ({ ...c, clientSecret: e.target.value }))} placeholder="Your NinjaOne API client secret" />
+          </div>
+          <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save NinjaOne Settings'}</Button>
+          <p className="text-xs text-muted-foreground">Full device/alert sync coming soon. Credentials are stored encrypted.</p>
+        </form>
       </CardContent>
     </Card>
   );
