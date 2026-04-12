@@ -26,6 +26,11 @@ const envSchema = z.object({
   // AI (Anthropic Claude)
   ANTHROPIC_API_KEY: z.string().optional(),
 
+  // Twilio (for portal SMS MFA)
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_PHONE_NUMBER: z.string().optional(), // from number for SMS
+
   // Passkeys (WebAuthn)
   PASSKEY_RP_ID: z.string().default('portal.rivertowntechnology.com'),
   PASSKEY_ORIGIN: z.string().default('https://portal.rivertowntechnology.com'),

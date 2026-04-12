@@ -40,6 +40,55 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const portalRole = (contact.portalRole as string) ?? 'user';
     const portalPerms = (contact.portalPermissions as string[]) ?? ['tickets'];
 
+    // Check if user has passkey or MFA set up
+    const { passkeyCredentials } = await import('@rivertown/db');
+    const [hasPasskey] = await fastify.db.select({ id: passkeyCredentials.id })
+      .from(passkeyCredentials).where(eq(passkeyCredentials.contactId, contact.id)).limit(1);
+
+    const hasMfa = contact.portalMfaEnabled;
+    const hasSecondFactor = !!hasPasskey || hasMfa;
+
+    // If MFA is enabled, require SMS code verification before issuing tokens
+    if (hasMfa && contact.portalMfaMethod === 'sms' && contact.portalMfaPhone) {
+      // Issue a short-lived MFA challenge token (not a real access token)
+      const mfaToken = fastify.jwt.sign(
+        { jti: randomUUID(), sub: contact.id, tid: contact.tenantId, cid: contact.customerId, role: 'portal_user', type: 'mfa_challenge' as const },
+        { expiresIn: '5m' },
+      );
+
+      // Generate and send SMS code (placeholder if Twilio not configured)
+      const { generateSmsCode, sendSms } = await import('../../services/sms.js');
+      const { portalMfaCodes } = await import('@rivertown/db');
+      const { hash: hashPw } = await import('bcryptjs');
+      const code = generateSmsCode();
+      const codeHash = await hashPw(code, 10);
+      await fastify.db.insert(portalMfaCodes).values({
+        tenantId: contact.tenantId, contactId: contact.id, codeHash,
+        purpose: 'login', expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      sendSms({ to: contact.portalMfaPhone, message: `Your Rivertown Technology verification code is ${code}. Expires in 10 minutes.` })
+        .catch(e => console.error('[SMS] Send failed:', e));
+
+      return reply.send({
+        mfaRequired: true,
+        mfaToken,
+        mfaMethod: 'sms',
+        phoneHint: '***-***-' + contact.portalMfaPhone.slice(-4),
+      });
+    }
+
+    // No MFA — issue tokens. Increment counter if no second factor.
+    let loginsWithoutMfa = contact.portalLoginsWithoutMfa;
+    if (!hasSecondFactor) {
+      loginsWithoutMfa = (loginsWithoutMfa ?? 0) + 1;
+      await fastify.db.update(contacts).set({
+        portalLoginsWithoutMfa: loginsWithoutMfa,
+        updatedAt: new Date(),
+      }).where(eq(contacts.id, contact.id));
+    }
+
+    const mustSetupMfa = !hasSecondFactor && loginsWithoutMfa > 3;
+
     const accessToken = fastify.jwt.sign(
       { jti: randomUUID(), sub: contact.id, tid: contact.tenantId, cid: contact.customerId, role: 'portal_user', portalRole, perms: portalPerms, type: 'access' as const },
       { expiresIn: '4h' },
@@ -58,7 +107,165 @@ export async function portalRoutes(fastify: FastifyInstance) {
       portalRole,
       portalPermissions: portalPerms,
       mustChangePassword: contact.mustChangePassword,
+      mustSetupMfa,
+      loginsWithoutMfa,
+      hasSecondFactor,
     };
+  });
+
+  // ===== PORTAL SMS MFA =====
+
+  // Verify SMS code during login (exchanges mfaToken for real access tokens)
+  fastify.post('/api/v1/portal/auth/mfa/verify', {
+    config: { public: true, rateLimit: { max: 5, timeWindow: '5 minutes' } } as any,
+  }, async (request, reply) => {
+    const { mfaToken, code } = request.body as { mfaToken: string; code: string };
+    if (!mfaToken || !code) throw new ValidationError('mfaToken and code are required');
+    if (!/^\d{6}$/.test(code)) throw new ValidationError('Invalid code format');
+
+    let payload: any;
+    try { payload = fastify.jwt.verify(mfaToken); }
+    catch { return reply.code(401).send({ error: 'Invalid or expired MFA token' }); }
+    if (payload.type !== 'mfa_challenge') return reply.code(401).send({ error: 'Invalid token type' });
+
+    const { portalMfaCodes } = await import('@rivertown/db');
+    const { desc: descOrder } = await import('drizzle-orm');
+    const [codeRow] = await fastify.db.select().from(portalMfaCodes)
+      .where(and(
+        eq(portalMfaCodes.contactId, payload.sub),
+        eq(portalMfaCodes.tenantId, payload.tid),
+        eq(portalMfaCodes.purpose, 'login'),
+      ))
+      .orderBy(descOrder(portalMfaCodes.createdAt)).limit(1);
+
+    if (!codeRow || codeRow.expiresAt < new Date()) throw new ValidationError('Code expired or not found');
+    if (codeRow.attempts >= 5) throw new ValidationError('Too many attempts. Request a new code.');
+
+    const codeValid = await compare(code, codeRow.codeHash);
+    if (!codeValid) {
+      await fastify.db.update(portalMfaCodes).set({ attempts: codeRow.attempts + 1 }).where(eq(portalMfaCodes.id, codeRow.id));
+      throw new ValidationError('Invalid code');
+    }
+
+    // Consume the code
+    await fastify.db.delete(portalMfaCodes).where(eq(portalMfaCodes.id, codeRow.id));
+
+    // Load contact, issue real tokens
+    const [contact] = await fastify.db.select().from(contacts)
+      .where(and(eq(contacts.id, payload.sub), eq(contacts.tenantId, payload.tid))).limit(1);
+    if (!contact || !contact.portalEnabled) throw new ValidationError('Account disabled');
+
+    // Reset counter (MFA was completed)
+    await fastify.db.update(contacts).set({
+      portalLoginsWithoutMfa: 0, updatedAt: new Date(),
+    }).where(eq(contacts.id, contact.id));
+
+    const portalRole = (contact.portalRole as string) ?? 'user';
+    const portalPerms = (contact.portalPermissions as string[]) ?? ['tickets'];
+
+    const accessToken = fastify.jwt.sign(
+      { jti: randomUUID(), sub: contact.id, tid: contact.tenantId, cid: contact.customerId, role: 'portal_user', portalRole, perms: portalPerms, type: 'access' as const },
+      { expiresIn: '4h' },
+    );
+    const refreshToken = fastify.jwt.sign(
+      { jti: randomUUID(), sub: contact.id, tid: contact.tenantId, cid: contact.customerId, role: 'portal_user', portalRole, perms: portalPerms, type: 'refresh' as const },
+      { expiresIn: '7d' },
+    );
+
+    return {
+      accessToken, refreshToken,
+      user: { id: contact.id, name: `${contact.firstName} ${contact.lastName}`, email: contact.email },
+      customerId: contact.customerId, portalRole, portalPermissions: portalPerms,
+      hasSecondFactor: true,
+    };
+  });
+
+  // Set up SMS MFA — step 1: save phone + send verification code
+  fastify.post('/api/v1/portal/me/mfa/sms/setup', async (request) => {
+    const user = request.user as any;
+    const { phone } = request.body as { phone: string };
+
+    // Normalize to E.164 (basic)
+    const digits = phone.replace(/\D/g, '');
+    const e164 = digits.startsWith('1') ? `+${digits}` : `+1${digits}`;
+    if (!/^\+1\d{10}$/.test(e164)) throw new ValidationError('Invalid US phone number');
+
+    const { generateSmsCode, sendSms } = await import('../../services/sms.js');
+    const { hash: hashPw } = await import('bcryptjs');
+    const code = generateSmsCode();
+    const codeHash = await hashPw(code, 10);
+
+    const { portalMfaCodes } = await import('@rivertown/db');
+    await fastify.db.insert(portalMfaCodes).values({
+      tenantId: user.tid, contactId: user.sub, codeHash,
+      purpose: 'setup', expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+
+    // Store phone temporarily (not yet enabled)
+    await fastify.db.update(contacts).set({
+      portalMfaPhone: e164, updatedAt: new Date(),
+    }).where(and(eq(contacts.id, user.sub), eq(contacts.tenantId, user.tid)));
+
+    const result = await sendSms({ to: e164, message: `Your Rivertown Technology setup code is ${code}. Expires in 10 minutes.` });
+    if (!result.success) throw new ValidationError(result.error || 'Failed to send SMS');
+
+    return { success: true, phoneHint: '***-***-' + e164.slice(-4) };
+  });
+
+  // Set up SMS MFA — step 2: verify code and enable
+  fastify.post('/api/v1/portal/me/mfa/sms/verify', async (request) => {
+    const user = request.user as any;
+    const { code } = request.body as { code: string };
+    if (!/^\d{6}$/.test(code)) throw new ValidationError('Invalid code format');
+
+    const { portalMfaCodes } = await import('@rivertown/db');
+    const { desc: descOrder } = await import('drizzle-orm');
+    const [codeRow] = await fastify.db.select().from(portalMfaCodes)
+      .where(and(
+        eq(portalMfaCodes.contactId, user.sub),
+        eq(portalMfaCodes.tenantId, user.tid),
+        eq(portalMfaCodes.purpose, 'setup'),
+      ))
+      .orderBy(descOrder(portalMfaCodes.createdAt)).limit(1);
+
+    if (!codeRow || codeRow.expiresAt < new Date()) throw new ValidationError('Code expired. Request a new one.');
+    const valid = await compare(code, codeRow.codeHash);
+    if (!valid) throw new ValidationError('Invalid code');
+
+    await fastify.db.delete(portalMfaCodes).where(eq(portalMfaCodes.id, codeRow.id));
+
+    await fastify.db.update(contacts).set({
+      portalMfaEnabled: true,
+      portalMfaMethod: 'sms',
+      portalMfaVerifiedAt: new Date(),
+      portalLoginsWithoutMfa: 0,
+      updatedAt: new Date(),
+    }).where(and(eq(contacts.id, user.sub), eq(contacts.tenantId, user.tid)));
+
+    return { success: true };
+  });
+
+  // Disable SMS MFA
+  fastify.post('/api/v1/portal/me/mfa/sms/disable', async (request) => {
+    const user = request.user as any;
+    const { password } = request.body as { password: string };
+
+    const [contact] = await fastify.db.select().from(contacts)
+      .where(and(eq(contacts.id, user.sub), eq(contacts.tenantId, user.tid))).limit(1);
+    if (!contact?.portalPasswordHash) throw new ValidationError('Account error');
+
+    const valid = await compare(password, contact.portalPasswordHash);
+    if (!valid) throw new ValidationError('Invalid password');
+
+    await fastify.db.update(contacts).set({
+      portalMfaEnabled: false,
+      portalMfaMethod: null,
+      portalMfaPhone: null,
+      portalMfaVerifiedAt: null,
+      updatedAt: new Date(),
+    }).where(eq(contacts.id, user.sub));
+
+    return { success: true };
   });
 
   // ===== CHANGE PASSWORD =====
@@ -113,12 +320,18 @@ export async function portalRoutes(fastify: FastifyInstance) {
       portalRole: contacts.portalRole,
       portalPermissions: contacts.portalPermissions,
       customerId: contacts.customerId,
+      portalMfaEnabled: contacts.portalMfaEnabled,
+      portalMfaMethod: contacts.portalMfaMethod,
+      portalMfaPhone: contacts.portalMfaPhone,
+      portalLoginsWithoutMfa: contacts.portalLoginsWithoutMfa,
     }).from(contacts)
       .where(and(eq(contacts.id, user.sub), eq(contacts.tenantId, user.tid)))
       .limit(1);
 
     if (!contact) throw new NotFoundError('Contact', user.sub);
-    return contact;
+    // Mask phone number
+    const phoneHint = contact.portalMfaPhone ? '***-***-' + contact.portalMfaPhone.slice(-4) : null;
+    return { ...contact, portalMfaPhone: phoneHint };
   });
 
   // Update own profile
@@ -517,7 +730,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
   // ===== PASSKEY (WebAuthn) AUTHENTICATION =====
 
-  const RP_NAME = 'Rivertown Customer Portal';
+  const RP_NAME = 'Rivertown Technology Portal';
   const RP_ID = process.env.PASSKEY_RP_ID || 'portal.rivertowntechnology.com';
   const ORIGIN = process.env.PASSKEY_ORIGIN || `https://${RP_ID}`;
 
@@ -554,13 +767,22 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const { generateRegistrationOptions } = await import('@simplewebauthn/server');
     const user = request.user as any;
 
+    // Load the contact's real name + email so the browser shows something friendly
+    const [contact] = await fastify.db.select({
+      firstName: contacts.firstName, lastName: contacts.lastName, email: contacts.email,
+    }).from(contacts).where(and(eq(contacts.id, user.sub), eq(contacts.tenantId, user.tid))).limit(1);
+    if (!contact) throw new ValidationError('Contact not found');
+
+    const displayName = `${contact.firstName} ${contact.lastName}`.trim() || contact.email;
+
     const existing = await fastify.db.select({ credentialId: passkeyCredentials.credentialId })
       .from(passkeyCredentials).where(eq(passkeyCredentials.contactId, user.sub));
 
     const options = await generateRegistrationOptions({
       rpName: RP_NAME,
       rpID: RP_ID,
-      userName: user.sub,
+      userName: contact.email,
+      userDisplayName: displayName,
       attestationType: 'none',
       excludeCredentials: existing.map(c => ({ id: c.credentialId })),
       authenticatorSelection: {

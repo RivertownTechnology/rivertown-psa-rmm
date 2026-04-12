@@ -18,3 +18,4 @@ export * from './email-templates.js';
 export * from './audit-log.js';
 export * from './tax-rates.js';
 export * from './passkeys.js';
+export * from './portal-mfa.js';
