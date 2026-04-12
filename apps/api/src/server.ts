@@ -76,25 +76,34 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     }
   });
 
-  // CORS — keep dev-only origins strictly out of production to prevent
-  // an attacker's localhost page from exercising the prod API.
-  const prodOrigins = [
+  // CORS — explicit allowlist for production domains, plus a regex escape hatch
+  // for Railway's auto-generated URLs (used before custom DNS is bound).
+  const prodOrigins = new Set([
     'https://psa.rivertowntechnology.com',
-    'https://rivertown-psa-rmm-production.up.railway.app',
     'https://forgepsa.com',
     'https://www.forgepsa.com',
     'https://app.forgepsa.com',
     'https://portal.forgepsa.com',
     'https://forgeadmin.forgepsa.com',
-  ];
-  const devOrigins = [
+  ]);
+  const devOrigins = new Set([
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:5175',
     'http://localhost:5176',
-  ];
+  ]);
+  // Railway edge URLs: <service>-production.up.railway.app and <service>-production-<random>.up.railway.app
+  const railwayPreviewPattern = /^https:\/\/[a-z0-9-]+(-production)?(-[a-z0-9]+)?\.up\.railway\.app$/;
+
   await fastify.register(cors, {
-    origin: config.NODE_ENV === 'development' ? [...prodOrigins, ...devOrigins] : prodOrigins,
+    origin: (origin, cb) => {
+      // No origin header (same-origin, server-to-server, curl) — allow.
+      if (!origin) return cb(null, true);
+      if (prodOrigins.has(origin)) return cb(null, true);
+      if (railwayPreviewPattern.test(origin)) return cb(null, true);
+      if (config.NODE_ENV === 'development' && devOrigins.has(origin)) return cb(null, true);
+      cb(new Error(`CORS: origin not allowed: ${origin}`), false);
+    },
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
     credentials: true,
