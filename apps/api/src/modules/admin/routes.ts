@@ -470,52 +470,72 @@ export async function adminRoutes(fastify: FastifyInstance) {
     { preHandler: [fastify.authenticate, superAdmin] },
     async (request, reply) => {
       const { tenantId } = request.params as { tenantId: string };
-
-      // Impersonate the earliest-created owner of the target tenant
-      const [target] = await fastify.db
-        .select({ id: users.id, tenantId: users.tenantId, role: users.role, email: users.email })
-        .from(users)
-        .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), inArray(users.role, ['owner', 'admin'])))
-        .orderBy(users.createdAt)
-        .limit(1);
-
-      if (!target) {
-        reply.code(404);
-        return { error: 'NO_TARGET_USER', message: 'No active owner/admin on this tenant.' };
-      }
-
-      // Short-lived impersonation tokens — 30-minute access, no refresh (forces explicit re-impersonate)
       const realSuperAdminId = request.user.sub;
-      const accessToken = fastify.jwt.sign(
-        {
-          jti: randomUUID(),
-          sub: target.id,
-          tid: target.tenantId,
-          role: target.role,
-          type: 'access' as const,
-          imp: realSuperAdminId,
-        },
-        { expiresIn: '30m' },
-      );
 
-      await logAudit(fastify.db, {
-        tenantId,
-        actorType: 'super_admin',
-        actorId: realSuperAdminId,
-        action: 'tenant.impersonate',
-        entityType: 'user',
-        entityId: target.id,
-        changes: { target: { old: null, new: target.email } },
-      });
+      try {
+        // Impersonate the earliest-created active owner/admin of the target tenant
+        const [target] = await fastify.db
+          .select({ id: users.id, tenantId: users.tenantId, role: users.role, email: users.email })
+          .from(users)
+          .where(and(
+            eq(users.tenantId, tenantId),
+            eq(users.isActive, true),
+            inArray(users.role, ['owner', 'admin']),
+          ))
+          .orderBy(users.createdAt)
+          .limit(1);
 
-      request.log.warn({
-        tenantId, targetUserId: target.id, by: realSuperAdminId,
-      }, '[ADMIN] Impersonation session started');
+        if (!target) {
+          reply.code(404);
+          return { error: 'NO_TARGET_USER', message: 'No active owner/admin on this tenant.' };
+        }
 
-      return {
-        accessToken,
-        user: { id: target.id, email: target.email, role: target.role },
-      };
+        // Short-lived impersonation tokens — 30-minute access, no refresh.
+        // Use an explicit seconds value to avoid any parser quirks with '30m'.
+        const accessToken = fastify.jwt.sign(
+          {
+            jti: randomUUID(),
+            sub: target.id,
+            tid: target.tenantId,
+            role: target.role,
+            type: 'access' as const,
+            imp: realSuperAdminId,
+          },
+          { expiresIn: 60 * 30 },
+        );
+
+        // Audit — wrap separately so a DB hiccup here doesn't block the token
+        try {
+          await logAudit(fastify.db, {
+            tenantId,
+            actorType: 'super_admin',
+            actorId: realSuperAdminId,
+            action: 'tenant.impersonate',
+            entityType: 'user',
+            entityId: target.id,
+            changes: { target: { old: null, new: target.email } },
+          });
+        } catch (auditErr) {
+          request.log.error({ err: auditErr, tenantId, targetUserId: target.id }, '[ADMIN] Audit write failed during impersonate');
+        }
+
+        request.log.warn({
+          tenantId, targetUserId: target.id, by: realSuperAdminId,
+        }, '[ADMIN] Impersonation session started');
+
+        return {
+          accessToken,
+          user: { id: target.id, email: target.email, role: target.role },
+        };
+      } catch (err) {
+        // Surface the actual failure in logs so we can see it even through Railway's error passthrough
+        request.log.error({ err, tenantId, by: realSuperAdminId }, '[ADMIN] Impersonation failed');
+        reply.code(500);
+        return {
+          error: 'IMPERSONATION_FAILED',
+          message: err instanceof Error ? err.message : 'Impersonation failed — see server logs',
+        };
+      }
     },
   );
 
