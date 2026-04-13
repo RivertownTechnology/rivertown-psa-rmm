@@ -76,6 +76,19 @@
         ]
       }
     </script>
+    <!-- Theme bootstrap — apply dark class before first paint to avoid FOUC -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('forgepsa.theme');
+          var resolved = saved === 'dark' ? 'dark'
+            : saved === 'light' ? 'light'
+            : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          if (resolved === 'dark') document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
+
     <!--
       Google Analytics 4 with Consent Mode v2.
       Replace G-XXXXXXXXXX with your real Measurement ID after creating a GA4 property.

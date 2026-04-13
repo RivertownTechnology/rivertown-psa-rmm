@@ -10,8 +10,17 @@ import { Support } from './pages/Support';
 import { MarketingHeader } from './components/MarketingHeader';
 import { MarketingFooter } from './components/MarketingFooter';
 import { CookieConsent } from './components/CookieConsent';
+import { ThemeProvider } from './lib/theme';
 
 export function App() {
+  return (
+    <ThemeProvider>
+      <AppInner />
+    </ThemeProvider>
+  );
+}
+
+function AppInner() {
   const [pathname, setPathname] = useState(window.location.pathname);
 
   useEffect(() => {

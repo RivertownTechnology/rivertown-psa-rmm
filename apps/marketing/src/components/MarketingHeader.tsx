@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Sun, Moon } from 'lucide-react';
+import { useTheme } from '@/lib/theme';
 
 export function MarketingHeader({ pathname, navigate }: { pathname: string; navigate: (p: string) => void }) {
   const [open, setOpen] = useState(false);
+  const { resolved, toggle } = useTheme();
 
   const navItem = (label: string, path: string) => (
     <button
@@ -48,16 +50,33 @@ export function MarketingHeader({ pathname, navigate }: { pathname: string; navi
           >
             Start free trial
           </button>
+          <button
+            onClick={toggle}
+            aria-label={resolved === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={resolved === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="ml-1 inline-flex items-center justify-center h-9 w-9 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
+          >
+            {resolved === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
         </div>
 
-        {/* Mobile menu toggle */}
-        <button
-          onClick={() => setOpen(!open)}
-          className="sm:hidden inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-          aria-label={open ? 'Close menu' : 'Open menu'}
-        >
-          {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
+        {/* Mobile: theme toggle + menu */}
+        <div className="sm:hidden flex items-center gap-1">
+          <button
+            onClick={toggle}
+            aria-label={resolved === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            {resolved === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          </button>
+          <button
+            onClick={() => setOpen(!open)}
+            className="inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            aria-label={open ? 'Close menu' : 'Open menu'}
+          >
+            {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile dropdown */}

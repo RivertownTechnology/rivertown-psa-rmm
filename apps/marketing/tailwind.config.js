@@ -1,8 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
-  // Auto-follow OS preference for marketing (no manual toggle).
-  darkMode: 'media',
+  // Manual toggle via the `dark` class on <html>, defaulting to OS preference on first visit
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
