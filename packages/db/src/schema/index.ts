@@ -21,3 +21,4 @@ export * from './passkeys.js';
 export * from './portal-mfa.js';
 export * from './system-configs.js';
 export * from './support-tickets.js';
+export * from './tenant-lookup-values.js';

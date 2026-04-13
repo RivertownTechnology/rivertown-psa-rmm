@@ -6,7 +6,7 @@ import { FastifyInstance } from 'fastify';
 import { eq, and, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
-  customers, importJobs, tenantCustomFieldDefs,
+  customers, importJobs, tenantCustomFieldDefs, tenantLookupValues,
 } from '@rivertown/db';
 import { requireFeature } from '../../auth/entitlements.js';
 import { requirePermission } from '../../auth/rbac.js';
@@ -171,6 +171,16 @@ export async function importsRoutes(fastify: FastifyInstance) {
       let updated = 0;
       const runtimeErrors: { row: number; message: string }[] = [...errors];
 
+      // Collect discovered lookup values — customer_type, status, and every custom field
+      // gets a counted distinct-value tally for dropdown UIs later.
+      const lookupCounts = new Map<string, number>(); // key = 'entity:field:value' -> count
+      const bump = (field: string, raw: unknown) => {
+        const value = String(raw ?? '').trim();
+        if (!value) return;
+        const key = `customer::${field}::${value}`;
+        lookupCounts.set(key, (lookupCounts.get(key) ?? 0) + 1);
+      };
+
       // Auto-register any custom fields we see on the fly (per-tenant)
       const customFieldKeys = new Set<string>();
       for (const r of rows) {
@@ -201,6 +211,11 @@ export async function importsRoutes(fastify: FastifyInstance) {
       }
 
       for (const r of rows) {
+        // Record lookup values for dropdown discovery
+        bump('status', r.customer.status);
+        bump('customer_type', r.customer.customerType);
+        for (const [k, v] of Object.entries(r.customer.customFields)) bump(k, v);
+
         try {
           const values = {
             tenantId: request.tenantId,
@@ -263,6 +278,40 @@ export async function importsRoutes(fastify: FastifyInstance) {
             row: r.rowNumber,
             message: err instanceof Error ? err.message.slice(0, 200) : 'Database error',
           });
+        }
+      }
+
+      // Upsert discovered lookup values so the UI can offer them as dropdowns later.
+      // Upsert increments usage_count and bumps last_seen_at.
+      if (lookupCounts.size > 0) {
+        const now = new Date();
+        const values = Array.from(lookupCounts.entries()).map(([key, count]) => {
+          const [, field, value] = key.split('::');
+          return {
+            tenantId: request.tenantId,
+            entityType: 'customer',
+            field: field!,
+            value: value!,
+            usageCount: count,
+            source: 'connectwise',
+            firstSeenAt: now,
+            lastSeenAt: now,
+          };
+        });
+        // Chunk to keep each insert statement under driver limits
+        const CHUNK = 500;
+        for (let i = 0; i < values.length; i += CHUNK) {
+          const slice = values.slice(i, i + CHUNK);
+          await fastify.db
+            .insert(tenantLookupValues)
+            .values(slice)
+            .onConflictDoUpdate({
+              target: [tenantLookupValues.tenantId, tenantLookupValues.entityType, tenantLookupValues.field, tenantLookupValues.value],
+              set: {
+                usageCount: sql`${tenantLookupValues.usageCount} + excluded.usage_count`,
+                lastSeenAt: now,
+              },
+            });
         }
       }
 
@@ -386,6 +435,30 @@ export async function importsRoutes(fastify: FastifyInstance) {
           eq(tenantCustomFieldDefs.tenantId, request.tenantId),
         ));
       reply.code(204).send();
+    },
+  );
+
+  // ===== Discovered lookup values (for dropdown UIs) =====
+  // GET /api/v1/lookup-values/customer/territory → all distinct territories sorted by usage
+  fastify.get(
+    '/api/v1/lookup-values/:entity/:field',
+    { preHandler: [fastify.authenticate] },
+    async (request) => {
+      const { entity, field } = request.params as { entity: string; field: string };
+      return fastify.db
+        .select({
+          value: tenantLookupValues.value,
+          usageCount: tenantLookupValues.usageCount,
+          lastSeenAt: tenantLookupValues.lastSeenAt,
+        })
+        .from(tenantLookupValues)
+        .where(and(
+          eq(tenantLookupValues.tenantId, request.tenantId),
+          eq(tenantLookupValues.entityType, entity),
+          eq(tenantLookupValues.field, field),
+        ))
+        .orderBy(sql`${tenantLookupValues.usageCount} DESC`)
+        .limit(500);
     },
   );
 }

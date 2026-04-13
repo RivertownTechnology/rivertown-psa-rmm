@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, date, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants.js';
 import { customers } from './customers.js';
 import { sites } from './sites.js';
@@ -27,13 +27,23 @@ export const assets = pgTable(
     macAddress: text('mac_address'),
     notes: text('notes'),
     status: text('status').default('active').notNull(),
-    // RMM integration fields (populated by external RMM like N-able or NinjaRMM)
-    externalRmmId: text('external_rmm_id'), // Device ID in external RMM
+    // RMM integration (N-able / NinjaRMM)
+    externalRmmId: text('external_rmm_id'),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+    // ConnectWise-style configuration fields
+    warrantyExpiration: date('warranty_expiration'),
+    purchaseDate: date('purchase_date'),
+    vendor: text('vendor'),
+    // Generic import tracking (ConnectWise / Autotask / CSV — distinct from the RMM path)
+    externalId: text('external_id'),
+    externalSource: text('external_source'),
+    externalNumber: text('external_number'),
+    customFields: jsonb('custom_fields').default({}).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index('assets_tenant_customer_idx').on(table.tenantId, table.customerId),
+    uniqueIndex('assets_tenant_external_uniq').on(table.tenantId, table.externalSource, table.externalId),
   ],
 );

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, numeric, boolean, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, numeric, boolean, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants.js';
 
 export const serviceCatalogItems = pgTable(
@@ -30,6 +30,11 @@ export const serviceCatalogItems = pgTable(
 
     taxable: boolean('taxable').default(true).notNull(),
     isActive: boolean('is_active').default(true).notNull(),
+    // Generic import tracking (distinct from Pax8/QBO which have their own columns)
+    externalId: text('external_id'),
+    externalSource: text('external_source'),
+    externalNumber: text('external_number'),
+    customFields: jsonb('custom_fields').default({}).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -37,6 +42,7 @@ export const serviceCatalogItems = pgTable(
     index('service_catalog_items_tenant_idx').on(table.tenantId, table.isActive),
     index('service_catalog_items_category_idx').on(table.tenantId, table.category),
     index('service_catalog_items_sku_idx').on(table.tenantId, table.sku),
+    uniqueIndex('service_catalog_items_tenant_external_uniq').on(table.tenantId, table.externalSource, table.externalId),
   ],
 );
 

@@ -6,6 +6,7 @@ import {
 import { api } from '../lib/api';
 import { navigate } from '../App';
 import { StatusBadge } from './Tenants';
+import { confirm } from '../components/ConfirmDialog';
 
 interface TenantDetail {
   tenant: {
@@ -91,7 +92,20 @@ export function TenantDetailPage({ tenantId }: { tenantId: string }) {
   }
 
   async function impersonate() {
-    if (!confirm(`Impersonate ${data!.tenant.name}? An audit log entry will be created and your actions on app.forgepsa.com will be attributed to their owner (but flagged as impersonation).`)) return;
+    const ok = await confirm({
+      title: `Impersonate ${data!.tenant.name}?`,
+      description: (
+        <>
+          You'll be signed in to <strong className="text-slate-200">app.forgepsa.com</strong> in a new tab
+          as that tenant's owner. Every action during the session is recorded in the audit log,
+          flagged as impersonation, and the session expires in 30 minutes.
+        </>
+      ),
+      confirmLabel: 'Start impersonation',
+      tone: 'warning',
+    });
+    if (!ok) return;
+
     setWorking(true);
     setMsg(null);
     try {
@@ -194,7 +208,16 @@ export function TenantDetailPage({ tenantId }: { tenantId: string }) {
   async function submitRefund() {
     if (!refundAmount || parseFloat(refundAmount) <= 0) return;
     const cents = Math.round(parseFloat(refundAmount) * 100);
-    if (!confirm(`Refund $${(cents / 100).toFixed(2)} to ${data!.tenant.name}?`)) return;
+    const ok = await confirm({
+      title: `Refund $${(cents / 100).toFixed(2)} to ${data!.tenant.name}?`,
+      description: refundReason
+        ? <>Reason logged: <em>{refundReason}</em>. Refund hits Stripe immediately and is non-reversible.</>
+        : 'Refund hits Stripe immediately and is non-reversible. You can optionally add a reason for the audit log before confirming.',
+      confirmLabel: `Refund $${(cents / 100).toFixed(2)}`,
+      tone: 'danger',
+    });
+    if (!ok) return;
+
     setWorking(true);
     setMsg(null);
     try {

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants.js';
 import { customers } from './customers.js';
 
@@ -20,10 +20,15 @@ export const sites = pgTable(
     postalCode: text('postal_code'),
     country: text('country').default('US'),
     timezone: text('timezone').default('America/New_York'),
+    // Import tracking
+    externalId: text('external_id'),
+    externalSource: text('external_source'),
+    customFields: jsonb('custom_fields').default({}).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index('sites_tenant_customer_idx').on(table.tenantId, table.customerId),
+    uniqueIndex('sites_tenant_external_uniq').on(table.tenantId, table.externalSource, table.externalId),
   ],
 );

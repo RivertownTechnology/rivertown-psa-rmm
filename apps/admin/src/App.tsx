@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { AuthProvider, useAuth } from './lib/auth';
+import { ConfirmDialogProvider } from './components/ConfirmDialog';
 import { LoginPage } from './pages/Login';
 import { DashboardPage } from './pages/Dashboard';
 import { TenantsPage } from './pages/Tenants';
@@ -76,7 +77,9 @@ function Router() {
 export function App() {
   return (
     <AuthProvider>
-      <Router />
+      <ConfirmDialogProvider>
+        <Router />
+      </ConfirmDialogProvider>
     </AuthProvider>
   );
 }
