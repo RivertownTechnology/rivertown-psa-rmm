@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { formatCents } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,8 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog';
+import {
   ArrowLeft, Clock, MessageSquare, Pencil, Check, X, ChevronDown, ChevronUp,
   Eye, EyeOff, Plus, Timer, User, Users, AlertCircle, Send, Trash2, Sparkles,
+  Play, Square, MessageCircle,
 } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 
@@ -44,10 +48,54 @@ interface TimeEntry {
   id: string; userId: string; startedAt: string; endedAt: string | null;
   durationMinutes: number | null; isBillable: boolean; isBilled: boolean;
   rateCents: number | null; notes: string | null; createdAt: string;
+  contractId: string | null;
+  contractLineItemId: string | null;
+  classification: 'covered' | 'billable' | 'overage' | 'internal';
+  internalCategory: string | null;
+  nonBillableReason: 'communication' | 'goodwill' | 'rework' | 'travel' | null;
+  costRateCents: number | null;
+  billRateCents: number | null;
+  costCents: number | null;
+  billableCents: number | null;
 }
 
 interface Contract { id: string; name: string; contractType: string; }
 interface Customer { id: string; name: string; }
+
+interface ChargeOption {
+  contractId: string;
+  contractName: string;
+  lineItemId: string;
+  lineItemDescription: string;
+  coveragePolicy: 'inclusive' | 'block' | 'billable';
+  isContractDefault: boolean;
+  isInternal: boolean;
+  rateCents: number | null;
+  overageRateCents: number | null;
+  blockHoursTotal: number | null;
+  blockHoursRemaining: number | null;
+  expiresAt: string | null;
+  warnAtPct: number;
+}
+
+interface ChargeOptionsResponse {
+  ticketContractId: string | null;
+  suggestedLineItemId: string | null;
+  options: ChargeOption[];
+}
+
+const INTERNAL_CATEGORIES = [
+  { value: 'admin', label: 'Internal · Admin' },
+  { value: 'training', label: 'Internal · Training' },
+  { value: 'sales', label: 'Internal · Sales' },
+  { value: 'rnd', label: 'Internal · R&D' },
+  { value: 'pto', label: 'Internal · PTO' },
+  { value: 'travel_unbillable', label: 'Internal · Travel (unbilled)' },
+] as const;
+
+// Quick comms is auto-suggested when duration is at or below this threshold (and the
+// line is otherwise billable). Tech can always uncheck.
+const COMMS_AUTO_THRESHOLD_MIN = 5;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -167,13 +215,34 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
   const [aiImprovedText, setAiImprovedText] = useState('');
   const [showAiPreview, setShowAiPreview] = useState(false);
 
-  // Time entry form
-  const [timeForm, setTimeForm] = useState({ durationMinutes: '', notes: '', isBillable: true });
+  // Charge-to options (eligible contract line items + Internal overhead)
+  const [chargeOptions, setChargeOptions] = useState<ChargeOption[]>([]);
+  const [suggestedLineItemId, setSuggestedLineItemId] = useState<string | null>(null);
+
+  // Time entry form (manual log + stop-timer dialog share this state)
+  const [timeForm, setTimeForm] = useState<{
+    durationMinutes: string;
+    notes: string;
+    target: string;            // chargeOption.lineItemId, or `internal:<category>`, or '' (none yet)
+    nonBillableComms: boolean; // checkbox in form
+  }>({ durationMinutes: '', notes: '', target: '', nonBillableComms: false });
   const [submittingTime, setSubmittingTime] = useState(false);
+  const [timeError, setTimeError] = useState<string | null>(null);
+  const [lastAction, setLastAction] = useState<string | null>(null);
+
+  // Live timer (one running timer per ticket detail view)
+  const [timerStartedAt, setTimerStartedAt] = useState<Date | null>(null);
+  const [timerElapsedSeconds, setTimerElapsedSeconds] = useState(0);
+  const [stopDialogOpen, setStopDialogOpen] = useState(false);
 
   // Time entry editing
   const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
-  const [editTimeForm, setEditTimeForm] = useState({ durationMinutes: '', notes: '', isBillable: true });
+  const [editTimeForm, setEditTimeForm] = useState<{
+    durationMinutes: string;
+    notes: string;
+    target: string;
+    nonBillableComms: boolean;
+  }>({ durationMinutes: '', notes: '', target: '', nonBillableComms: false });
 
   // Saving states
   const [savingField, setSavingField] = useState<string | null>(null);
@@ -218,6 +287,18 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
     }
   }, []);
 
+  const loadChargeOptions = useCallback(async () => {
+    try {
+      const data = await api<ChargeOptionsResponse>(`/tickets/${ticketId}/charge-to-options`);
+      setChargeOptions(data.options);
+      setSuggestedLineItemId(data.suggestedLineItemId);
+      // Pre-select the suggested line item if the form hasn't been touched.
+      setTimeForm((prev) => (prev.target ? prev : { ...prev, target: data.suggestedLineItemId ?? '' }));
+    } catch {
+      setChargeOptions([]);
+    }
+  }, [ticketId]);
+
   // Live tick counter for SLA countdown
   const [, setTick] = useState(0);
 
@@ -228,6 +309,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
       loadTimeEntries();
       loadCustomerName(t.customerId);
       loadContracts(t.customerId);
+      loadChargeOptions();
       api<Array<{ id: string; displayName: string }>>('/dispatch/techs').then(setTechs).catch(() => {});
       api<TicketCategory[]>('/ticket-categories').then(setCategories).catch(() => {});
       // Auto-open new tickets when a tech views them
@@ -252,7 +334,16 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
       clearInterval(dataInterval);
       clearInterval(tickInterval);
     };
-  }, [loadTicket, loadComments, loadTimeEntries, loadCustomerName, loadContracts]);
+  }, [loadTicket, loadComments, loadTimeEntries, loadCustomerName, loadContracts, loadChargeOptions]);
+
+  // Live timer ticker — updates every second while running, stops cleanly otherwise.
+  useEffect(() => {
+    if (!timerStartedAt) return;
+    const id = setInterval(() => {
+      setTimerElapsedSeconds(Math.floor((Date.now() - timerStartedAt.getTime()) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [timerStartedAt]);
 
   // -------------------------------------------------------------------------
   // Ticket field updates
@@ -300,28 +391,192 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
   // Time entries
   // -------------------------------------------------------------------------
 
+  // Build the resolver payload from a (target, comms, notes, duration, startedAt) tuple.
+  function buildTimeEntryBody(args: {
+    target: string;
+    durationMinutes: number;
+    startedAt: Date;
+    notes: string | null;
+    nonBillableComms: boolean;
+  }) {
+    const startedAtIso = args.startedAt.toISOString();
+    const endedAt = new Date(args.startedAt.getTime() + args.durationMinutes * 60_000).toISOString();
+    const base = {
+      ticketId,
+      startedAt: startedAtIso,
+      endedAt,
+      durationMinutes: args.durationMinutes,
+      notes: args.notes,
+    };
+    if (args.target.startsWith('internal:')) {
+      const internalCategory = args.target.slice('internal:'.length);
+      return { ...base, classification: 'internal', internalCategory };
+    }
+    return {
+      ...base,
+      contractLineItemId: args.target || undefined,
+      nonBillableReason: args.nonBillableComms ? 'communication' : undefined,
+    };
+  }
+
+  // Friendly toast text after a successful save.
+  function describeSaveResult(result: {
+    entries: TimeEntry[];
+    billingReason?: string;
+    warning?: { type: string; remainingHours: number };
+  }, target: string) {
+    const totalMins = result.entries.reduce((s, e) => s + (e.durationMinutes ?? 0), 0);
+    const opt = chargeOptions.find((o) => o.lineItemId === target);
+    const where = target.startsWith('internal:')
+      ? 'Internal · ' + target.slice('internal:'.length)
+      : opt
+        ? `${opt.contractName} — ${opt.lineItemDescription}`
+        : 'time entry';
+    const dur = formatDuration(totalMins);
+
+    if (result.warning?.type === 'block_exhausted') {
+      return `Logged ${dur} to ${where}. Block exhausted — overage billed.`;
+    }
+    if (result.billingReason === 'block_covered' && opt?.blockHoursTotal) {
+      const remaining = (opt.blockHoursRemaining ?? 0) - totalMins / 60;
+      return `Logged ${dur} to ${where}. ${remaining.toFixed(1)}h remaining.`;
+    }
+    if (result.billingReason === 'internal') {
+      return `Logged ${dur} as ${where}.`;
+    }
+    return `Logged ${dur} to ${where}.`;
+  }
+
   async function submitTimeEntry(e: React.FormEvent) {
     e.preventDefault();
+    setTimeError(null);
     const mins = parseInt(timeForm.durationMinutes, 10);
-    if (!mins || mins <= 0) return;
+    if (!mins || mins <= 0) {
+      setTimeError('Duration must be greater than 0.');
+      return;
+    }
+    if (!timeForm.target) {
+      setTimeError('Pick what to charge this time to.');
+      return;
+    }
     setSubmittingTime(true);
     try {
-      const now = new Date().toISOString();
-      await api(`/tickets/${ticketId}/time-entries`, {
-        method: 'POST',
-        body: JSON.stringify({
-          ticketId,
-          startedAt: now,
-          endedAt: now,
-          durationMinutes: mins,
-          isBillable: timeForm.isBillable,
-          rateCents: null,
-          notes: timeForm.notes || null,
-        }),
+      const body = buildTimeEntryBody({
+        target: timeForm.target,
+        durationMinutes: mins,
+        startedAt: new Date(),
+        notes: timeForm.notes || null,
+        nonBillableComms: timeForm.nonBillableComms,
       });
-      setTimeForm({ durationMinutes: '', notes: '', isBillable: true });
+      const res = await api<{ entries: TimeEntry[]; billingReason?: string; warning?: { type: string; remainingHours: number } }>(
+        `/tickets/${ticketId}/time-entries`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+      setLastAction(describeSaveResult(res, timeForm.target));
+      setTimeForm({ durationMinutes: '', notes: '', target: suggestedLineItemId ?? '', nonBillableComms: false });
       setShowTimeForm(false);
-      loadTimeEntries();
+      await Promise.all([loadTimeEntries(), loadChargeOptions()]);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setTimeError(err.message);
+      } else {
+        setTimeError('Failed to log time entry.');
+      }
+    } finally {
+      setSubmittingTime(false);
+    }
+  }
+
+  // Quick Reply: instant 2-minute non-billable comms entry. No modal, no friction.
+  async function logQuickReply(durationMinutes = 2) {
+    setTimeError(null);
+    const target = suggestedLineItemId ?? timeForm.target;
+    if (!target) {
+      // No contract attached — open the form so the tech picks Internal · Admin or a contract.
+      setTimeForm({ durationMinutes: String(durationMinutes), notes: 'Quick communication', target: '', nonBillableComms: true });
+      setShowTimeForm(true);
+      setTimeError('Pick a contract or Internal category for this quick reply.');
+      return;
+    }
+    setSubmittingTime(true);
+    try {
+      const body = buildTimeEntryBody({
+        target,
+        durationMinutes,
+        startedAt: new Date(),
+        notes: 'Quick communication',
+        nonBillableComms: true,
+      });
+      const res = await api<{ entries: TimeEntry[]; billingReason?: string; warning?: { type: string; remainingHours: number } }>(
+        `/tickets/${ticketId}/time-entries`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+      setLastAction(`Logged ${durationMinutes}m comms (non-billable).` + (res.warning ? ' [' + res.warning.type + ']' : ''));
+      await Promise.all([loadTimeEntries(), loadChargeOptions()]);
+    } catch (err) {
+      setTimeError(err instanceof ApiError ? err.message : 'Failed to log quick reply.');
+    } finally {
+      setSubmittingTime(false);
+    }
+  }
+
+  // Stop-timer flow: opens the modal with prefilled duration, charge-to, and auto-comms suggestion.
+  function startTimer() {
+    setTimerStartedAt(new Date());
+    setTimerElapsedSeconds(0);
+  }
+
+  function stopTimer() {
+    if (!timerStartedAt) return;
+    const minutes = Math.max(1, Math.round((Date.now() - timerStartedAt.getTime()) / 60000));
+    setTimeForm({
+      durationMinutes: String(minutes),
+      notes: '',
+      target: suggestedLineItemId ?? timeForm.target ?? '',
+      // Auto-suggest comms checkbox for short bursts.
+      nonBillableComms: minutes <= COMMS_AUTO_THRESHOLD_MIN,
+    });
+    setStopDialogOpen(true);
+  }
+
+  function discardTimer() {
+    setTimerStartedAt(null);
+    setTimerElapsedSeconds(0);
+  }
+
+  async function saveStopDialog() {
+    setTimeError(null);
+    const mins = parseInt(timeForm.durationMinutes, 10);
+    if (!mins || mins <= 0) {
+      setTimeError('Duration must be greater than 0.');
+      return;
+    }
+    if (!timeForm.target) {
+      setTimeError('Pick what to charge this time to.');
+      return;
+    }
+    setSubmittingTime(true);
+    try {
+      const startedAt = timerStartedAt ?? new Date(Date.now() - mins * 60_000);
+      const body = buildTimeEntryBody({
+        target: timeForm.target,
+        durationMinutes: mins,
+        startedAt,
+        notes: timeForm.notes || null,
+        nonBillableComms: timeForm.nonBillableComms,
+      });
+      const res = await api<{ entries: TimeEntry[]; billingReason?: string; warning?: { type: string; remainingHours: number } }>(
+        `/tickets/${ticketId}/time-entries`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+      setLastAction(describeSaveResult(res, timeForm.target));
+      setTimerStartedAt(null);
+      setTimerElapsedSeconds(0);
+      setStopDialogOpen(false);
+      setTimeForm({ durationMinutes: '', notes: '', target: suggestedLineItemId ?? '', nonBillableComms: false });
+      await Promise.all([loadTimeEntries(), loadChargeOptions()]);
+    } catch (err) {
+      setTimeError(err instanceof ApiError ? err.message : 'Failed to log time entry.');
     } finally {
       setSubmittingTime(false);
     }
@@ -332,31 +587,65 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
   // -------------------------------------------------------------------------
 
   function openEditTime(entry: TimeEntry) {
+    if (entry.isBilled) return; // server enforces too, but bail early in UI
     setEditingTimeId(entry.id);
+    const target =
+      entry.classification === 'internal'
+        ? `internal:${entry.internalCategory ?? 'admin'}`
+        : entry.contractLineItemId ?? '';
     setEditTimeForm({
       durationMinutes: String(entry.durationMinutes ?? ''),
       notes: entry.notes ?? '',
-      isBillable: entry.isBillable,
+      target,
+      nonBillableComms: entry.nonBillableReason === 'communication',
     });
   }
 
   async function saveTimeEdit() {
     if (!editingTimeId) return;
-    await api(`/time-entries/${editingTimeId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        durationMinutes: parseInt(editTimeForm.durationMinutes, 10),
-        notes: editTimeForm.notes || null,
-        isBillable: editTimeForm.isBillable,
-      }),
-    });
-    setEditingTimeId(null);
-    await loadTimeEntries();
+    const mins = parseInt(editTimeForm.durationMinutes, 10);
+    if (!mins || mins <= 0) {
+      setTimeError('Duration must be greater than 0.');
+      return;
+    }
+    if (!editTimeForm.target) {
+      setTimeError('Pick what to charge this time to.');
+      return;
+    }
+    const isInternal = editTimeForm.target.startsWith('internal:');
+    const body: Record<string, unknown> = {
+      durationMinutes: mins,
+      notes: editTimeForm.notes || null,
+    };
+    if (isInternal) {
+      body.classification = 'internal';
+      body.internalCategory = editTimeForm.target.slice('internal:'.length);
+      body.nonBillableReason = null;
+    } else {
+      body.classification = 'covered'; // resolver will recompute based on the line's policy
+      body.contractLineItemId = editTimeForm.target;
+      body.nonBillableReason = editTimeForm.nonBillableComms ? 'communication' : null;
+    }
+    try {
+      await api(`/time-entries/${editingTimeId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      setEditingTimeId(null);
+      setTimeError(null);
+      await Promise.all([loadTimeEntries(), loadChargeOptions()]);
+    } catch (err) {
+      setTimeError(err instanceof ApiError ? err.message : 'Failed to update entry.');
+    }
   }
 
   async function deleteTimeEntry(entryId: string) {
-    await api(`/time-entries/${entryId}`, { method: 'DELETE' });
-    await loadTimeEntries();
+    try {
+      await api(`/time-entries/${entryId}`, { method: 'DELETE' });
+      await Promise.all([loadTimeEntries(), loadChargeOptions()]);
+    } catch (err) {
+      setTimeError(err instanceof ApiError ? err.message : 'Failed to delete entry.');
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -859,7 +1148,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
       {/* ================================================================== */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Timer className="h-4 w-4" />
               Time Entries
@@ -869,22 +1158,61 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                 </span>
               )}
             </CardTitle>
-            <Button size="sm" onClick={() => setShowTimeForm(!showTimeForm)}>
-              {showTimeForm ? (
-                <><X className="h-4 w-4 mr-1" />Cancel</>
+            {/* Timer bar — start/stop + Quick Reply + manual log toggle */}
+            <div className="flex items-center gap-2">
+              {timerStartedAt ? (
+                <>
+                  <span className="font-mono text-sm tabular-nums px-2 py-1 rounded bg-red-50 text-red-700 border border-red-200">
+                    {String(Math.floor(timerElapsedSeconds / 3600)).padStart(2, '0')}:
+                    {String(Math.floor((timerElapsedSeconds % 3600) / 60)).padStart(2, '0')}:
+                    {String(timerElapsedSeconds % 60).padStart(2, '0')}
+                  </span>
+                  <Button size="sm" variant="destructive" onClick={stopTimer}>
+                    <Square className="h-4 w-4 mr-1" /> Stop
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={discardTimer} title="Discard timer">
+                    <X className="h-4 w-4" />
+                  </Button>
+                </>
               ) : (
-                <><Plus className="h-4 w-4 mr-1" />Log Time</>
+                <Button size="sm" variant="outline" onClick={startTimer}>
+                  <Play className="h-4 w-4 mr-1" /> Start timer
+                </Button>
               )}
-            </Button>
+              <Button size="sm" variant="outline" onClick={() => logQuickReply(2)} disabled={submittingTime} title="Log a 2-minute non-billable comms entry">
+                <MessageCircle className="h-4 w-4 mr-1" /> Quick reply
+              </Button>
+              <Button size="sm" onClick={() => setShowTimeForm(!showTimeForm)}>
+                {showTimeForm ? (
+                  <><X className="h-4 w-4 mr-1" />Cancel</>
+                ) : (
+                  <><Plus className="h-4 w-4 mr-1" />Log time</>
+                )}
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Time entry form */}
+          {/* Last-action banner — confirms saves with balance info, replaces toast */}
+          {lastAction && (
+            <div className="flex items-center justify-between gap-2 rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+              <span>{lastAction}</span>
+              <button onClick={() => setLastAction(null)} className="text-green-700 hover:text-green-900"><X className="h-3 w-3" /></button>
+            </div>
+          )}
+          {timeError && (
+            <div className="flex items-center justify-between gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <span>{timeError}</span>
+              <button onClick={() => setTimeError(null)} className="text-red-700 hover:text-red-900"><X className="h-3 w-3" /></button>
+            </div>
+          )}
+
+          {/* Manual time entry form (Log time button) */}
           {showTimeForm && (
             <form onSubmit={submitTimeEntry} className="border rounded-lg p-4 bg-muted/30 space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-sm">Duration (minutes)</Label>
+                  <Label className="text-sm">Duration (min)</Label>
                   <Input
                     type="number"
                     min="1"
@@ -892,33 +1220,46 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                     required
                     placeholder="30"
                     value={timeForm.durationMinutes}
-                    onChange={e => setTimeForm({ ...timeForm, durationMinutes: e.target.value })}
+                    onChange={e => {
+                      const v = e.target.value;
+                      const mins = parseInt(v, 10);
+                      // Auto-suggest comms checkbox for short bursts on billable lines.
+                      const opt = chargeOptions.find((o) => o.lineItemId === timeForm.target);
+                      const autoComms = mins > 0 && mins <= COMMS_AUTO_THRESHOLD_MIN && opt && (opt.coveragePolicy === 'billable' || opt.coveragePolicy === 'block');
+                      setTimeForm({ ...timeForm, durationMinutes: v, nonBillableComms: autoComms ? true : timeForm.nonBillableComms });
+                    }}
                   />
                 </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label className="text-sm">Notes</Label>
-                  <Input
-                    placeholder="What did you work on?"
-                    value={timeForm.notes}
-                    onChange={e => setTimeForm({ ...timeForm, notes: e.target.value })}
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Charge to</Label>
+                  <ChargeToSelect
+                    value={timeForm.target}
+                    options={chargeOptions}
+                    onChange={(v) => setTimeForm({ ...timeForm, target: v })}
                   />
                 </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm">Notes</Label>
+                <Input
+                  placeholder="What did you work on?"
+                  value={timeForm.notes}
+                  onChange={e => setTimeForm({ ...timeForm, notes: e.target.value })}
+                />
               </div>
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
-                    checked={timeForm.isBillable}
-                    onChange={e => setTimeForm({ ...timeForm, isBillable: e.target.checked })}
+                    checked={timeForm.nonBillableComms}
+                    onChange={e => setTimeForm({ ...timeForm, nonBillableComms: e.target.checked })}
                     className="rounded border-gray-300"
+                    disabled={timeForm.target.startsWith('internal:')}
                   />
-                  <span className="text-sm text-muted-foreground">Billable</span>
-                  {ticket.contractId && (
-                    <span className="text-xs text-muted-foreground">(contract covers this work)</span>
-                  )}
+                  <span className="text-sm text-muted-foreground">Don't bill — quick communication</span>
                 </label>
                 <Button type="submit" size="sm" disabled={submittingTime}>
-                  {submittingTime ? 'Logging...' : 'Log Entry'}
+                  {submittingTime ? 'Logging...' : 'Log entry'}
                 </Button>
               </div>
             </form>
@@ -953,9 +1294,10 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                   <tr className="border-b bg-muted/50">
                     <th className="text-left p-3 font-medium">Date</th>
                     <th className="text-right p-3 font-medium">Duration</th>
+                    <th className="text-left p-3 font-medium">Charged to</th>
                     <th className="text-left p-3 font-medium">Notes</th>
-                    <th className="text-center p-3 font-medium">Billable</th>
-                    <th className="text-right p-3 font-medium">Rate</th>
+                    <th className="text-center p-3 font-medium">Status</th>
+                    <th className="text-right p-3 font-medium">Amount</th>
                     <th className="w-20"></th>
                   </tr>
                 </thead>
@@ -963,9 +1305,17 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                   {timeEntries.map(entry => (
                     editingTimeId === entry.id ? (
                       <tr key={entry.id} className="border-b bg-muted/30">
-                        <td className="p-2" colSpan={2}>
+                        <td className="p-2" colSpan={1}>
                           <Input type="number" min="1" className="w-24 h-8" value={editTimeForm.durationMinutes}
                             onChange={e => setEditTimeForm({...editTimeForm, durationMinutes: e.target.value})} />
+                        </td>
+                        <td className="p-2"></td>
+                        <td className="p-2">
+                          <ChargeToSelect
+                            value={editTimeForm.target}
+                            options={chargeOptions}
+                            onChange={(v) => setEditTimeForm({ ...editTimeForm, target: v })}
+                          />
                         </td>
                         <td className="p-2">
                           <Input className="h-8" value={editTimeForm.notes}
@@ -973,9 +1323,10 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                         </td>
                         <td className="p-2 text-center">
                           <label className="flex items-center gap-1 justify-center">
-                            <input type="checkbox" checked={editTimeForm.isBillable}
-                              onChange={e => setEditTimeForm({...editTimeForm, isBillable: e.target.checked})} />
-                            <span className="text-xs">Billable</span>
+                            <input type="checkbox" checked={editTimeForm.nonBillableComms}
+                              disabled={editTimeForm.target.startsWith('internal:')}
+                              onChange={e => setEditTimeForm({...editTimeForm, nonBillableComms: e.target.checked})} />
+                            <span className="text-xs">Comms</span>
                           </label>
                         </td>
                         <td className="p-2"></td>
@@ -997,26 +1348,38 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                         <td className="p-3 text-right font-medium whitespace-nowrap">
                           {entry.durationMinutes ? formatDuration(entry.durationMinutes) : '-'}
                         </td>
+                        <td className="p-3 text-xs text-muted-foreground max-w-[220px] truncate">
+                          {chargedToLabel(entry, chargeOptions)}
+                        </td>
                         <td className="p-3 text-muted-foreground max-w-xs truncate">
                           {entry.notes || <span className="italic">No notes</span>}
+                          {entry.nonBillableReason === 'communication' && (
+                            <Badge variant="outline" className="ml-2 text-[10px]">comms</Badge>
+                          )}
                         </td>
                         <td className="p-3 text-center">
-                          {entry.isBillable ? (
-                            <Badge className="bg-green-100 text-green-800 border-green-200 hover:bg-green-100">Billable</Badge>
-                          ) : (
-                            <Badge variant="secondary">Non-billable</Badge>
-                          )}
+                          <ClassificationBadge entry={entry} />
                           {entry.isBilled && (
                             <Badge variant="outline" className="ml-1 text-xs">Billed</Badge>
                           )}
                         </td>
                         <td className="p-3 text-right text-muted-foreground">
-                          {entry.rateCents ? formatCents(entry.rateCents) + '/hr' : '-'}
+                          {entry.billableCents != null && entry.billableCents > 0
+                            ? formatCents(entry.billableCents)
+                            : '—'}
                         </td>
                         <td className="p-3">
                           <div className="flex gap-1 justify-end">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditTime(entry)}><Pencil className="h-3 w-3" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteTimeEntry(entry.id)}><Trash2 className="h-3 w-3" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={entry.isBilled}
+                              title={entry.isBilled ? 'Already billed — cannot edit' : 'Edit'}
+                              onClick={() => openEditTime(entry)}>
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" disabled={entry.isBilled}
+                              title={entry.isBilled ? 'Already billed — cannot delete' : 'Delete'}
+                              onClick={() => deleteTimeEntry(entry.id)}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -1028,11 +1391,132 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
           ) : !showTimeForm ? (
             <div className="text-center text-muted-foreground py-6 text-sm">
               <Clock className="h-6 w-6 mx-auto mb-2 opacity-50" />
-              No time logged yet. Click "Log Time" to add an entry.
+              No time logged yet. Start a timer or click "Log time" to add an entry.
             </div>
           ) : null}
         </CardContent>
       </Card>
+
+      {/* Stop-timer dialog */}
+      <Dialog open={stopDialogOpen} onOpenChange={(open) => { if (!open) setStopDialogOpen(false); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Logged {timeForm.durationMinutes || '0'}m</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {timeError && (
+              <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{timeError}</div>
+            )}
+            <div className="grid grid-cols-[100px_1fr] gap-3 items-center">
+              <Label className="text-sm">Duration (min)</Label>
+              <Input type="number" min="1" value={timeForm.durationMinutes}
+                onChange={e => setTimeForm({ ...timeForm, durationMinutes: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">Charge to</Label>
+              <ChargeToSelect
+                value={timeForm.target}
+                options={chargeOptions}
+                onChange={(v) => setTimeForm({ ...timeForm, target: v })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">Notes</Label>
+              <Input placeholder="What did you work on?" value={timeForm.notes}
+                onChange={e => setTimeForm({ ...timeForm, notes: e.target.value })} />
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={timeForm.nonBillableComms}
+                onChange={e => setTimeForm({ ...timeForm, nonBillableComms: e.target.checked })}
+                className="rounded border-gray-300"
+                disabled={timeForm.target.startsWith('internal:')}
+              />
+              <span className="text-sm text-muted-foreground">Don't bill — quick communication</span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setStopDialogOpen(false); discardTimer(); }}>Discard</Button>
+            <Button onClick={saveStopDialog} disabled={submittingTime}>
+              {submittingTime ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers (file-scope) — Charge-to dropdown + display helpers
+// ---------------------------------------------------------------------------
+
+function ChargeToSelect({ value, options, onChange }: {
+  value: string;
+  options: ChargeOption[];
+  onChange: (v: string) => void;
+}) {
+  // Group: customer contracts first (with their lines), then Internal options.
+  const customerOptions = options.filter((o) => !o.isInternal);
+  const internalOptions = options.filter((o) => o.isInternal);
+  return (
+    <select
+      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">— pick one —</option>
+      {customerOptions.length > 0 && (
+        <optgroup label="Customer contracts">
+          {customerOptions.map((o) => (
+            <option key={o.lineItemId} value={o.lineItemId}>
+              {o.contractName} — {o.lineItemDescription}
+              {o.coveragePolicy === 'block' && o.blockHoursRemaining != null
+                ? ` · ${o.blockHoursRemaining.toFixed(1)}h left`
+                : o.coveragePolicy === 'billable' && o.rateCents
+                  ? ` · ${formatCents(o.rateCents)}/hr`
+                  : ' · covered'}
+              {o.isContractDefault ? ' (default)' : ''}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      <optgroup label="Internal (overhead)">
+        {INTERNAL_CATEGORIES.map((c) => (
+          <option key={c.value} value={`internal:${c.value}`}>{c.label}</option>
+        ))}
+        {internalOptions.length === 0 && (
+          <option disabled>(no Internal contract — contact admin)</option>
+        )}
+      </optgroup>
+    </select>
+  );
+}
+
+function chargedToLabel(entry: TimeEntry, options: ChargeOption[]): string {
+  if (entry.classification === 'internal') {
+    return 'Internal · ' + (entry.internalCategory ?? 'admin');
+  }
+  const opt = options.find((o) => o.lineItemId === entry.contractLineItemId);
+  if (opt) return `${opt.contractName} — ${opt.lineItemDescription}`;
+  return entry.contractLineItemId ? '(line removed)' : '—';
+}
+
+function ClassificationBadge({ entry }: { entry: TimeEntry }) {
+  switch (entry.classification) {
+    case 'covered':
+      return entry.nonBillableReason === 'communication'
+        ? <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200">Comms</Badge>
+        : <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-100">Covered</Badge>;
+    case 'billable':
+      return <Badge className="bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100">Billable</Badge>;
+    case 'overage':
+      return <Badge className="bg-red-100 text-red-800 border-red-200 hover:bg-red-100">Overage</Badge>;
+    case 'internal':
+      return <Badge variant="outline">Internal</Badge>;
+    default:
+      return <Badge variant="secondary">{entry.classification}</Badge>;
+  }
+}
 }

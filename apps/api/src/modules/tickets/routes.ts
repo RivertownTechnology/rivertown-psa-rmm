@@ -9,6 +9,9 @@ import {
   tenantSequences,
   users,
   contacts,
+  contracts,
+  contractLineItems,
+  customers,
 } from '@rivertown/db';
 import {
   createTicketSchema,
@@ -314,6 +317,148 @@ export async function ticketRoutes(fastify: FastifyInstance) {
           ),
         )
         .orderBy(desc(ticketTimeEntries.startedAt));
+    },
+  );
+
+  // Charge-to options for a ticket — drives the tech's "Charge to" dropdown.
+  // Returns: every active contract line item for this ticket's customer, plus the
+  // tenant's Internal/Overhead line. Block lines include live remaining hours so
+  // the tech can see the balance before logging.
+  fastify.get(
+    '/api/v1/tickets/:id/charge-to-options',
+    { preHandler: [fastify.authenticate, requirePermission('tickets:read')] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const [ticket] = await fastify.db
+        .select({
+          customerId: tickets.customerId,
+          contractId: tickets.contractId,
+        })
+        .from(tickets)
+        .where(and(eq(tickets.id, id), eq(tickets.tenantId, request.tenantId)))
+        .limit(1);
+      if (!ticket) {
+        reply.code(404);
+        return { error: 'not_found' };
+      }
+
+      // 1. Customer's active contracts + their line items
+      const customerLines = await fastify.db
+        .select({
+          contractId: contracts.id,
+          contractName: contracts.name,
+          defaultLaborLineItemId: contracts.defaultLaborLineItemId,
+          lineItemId: contractLineItems.id,
+          lineItemDescription: contractLineItems.description,
+          coveragePolicy: contractLineItems.coveragePolicy,
+          unitPriceCents: contractLineItems.unitPriceCents,
+          overageRateCents: contractLineItems.overageRateCents,
+          blockHours: contractLineItems.blockHours,
+          expiresAt: contractLineItems.expiresAt,
+          warnAtPct: contractLineItems.warnAtPct,
+        })
+        .from(contractLineItems)
+        .innerJoin(contracts, eq(contractLineItems.contractId, contracts.id))
+        .where(
+          and(
+            eq(contracts.tenantId, request.tenantId),
+            eq(contracts.customerId, ticket.customerId),
+            eq(contracts.status, 'active'),
+          ),
+        );
+
+      // 2. Per-tenant Internal/Overhead line — every tenant has one (seeded).
+      const internalCustomerSubquery = fastify.db
+        .select({ id: customers.id })
+        .from(customers)
+        .where(and(eq(customers.tenantId, request.tenantId), eq(customers.name, 'Internal')));
+
+      const internalLines = await fastify.db
+        .select({
+          contractId: contracts.id,
+          contractName: contracts.name,
+          defaultLaborLineItemId: contracts.defaultLaborLineItemId,
+          lineItemId: contractLineItems.id,
+          lineItemDescription: contractLineItems.description,
+          coveragePolicy: contractLineItems.coveragePolicy,
+          unitPriceCents: contractLineItems.unitPriceCents,
+          overageRateCents: contractLineItems.overageRateCents,
+          blockHours: contractLineItems.blockHours,
+          expiresAt: contractLineItems.expiresAt,
+          warnAtPct: contractLineItems.warnAtPct,
+        })
+        .from(contractLineItems)
+        .innerJoin(contracts, eq(contractLineItems.contractId, contracts.id))
+        .where(
+          and(
+            eq(contracts.tenantId, request.tenantId),
+            inArray(contracts.customerId, internalCustomerSubquery),
+            eq(contracts.name, 'Internal Operations'),
+          ),
+        );
+
+      // 3. For block lines, pull live remaining hours.
+      const blockLineIds = [...customerLines, ...internalLines]
+        .filter((l) => l.coveragePolicy === 'block' && l.blockHours)
+        .map((l) => l.lineItemId);
+
+      const usedByLine = new Map<string, number>();
+      if (blockLineIds.length > 0) {
+        const usage = await fastify.db
+          .select({
+            lineItemId: ticketTimeEntries.contractLineItemId,
+            usedMinutes: sql<number>`COALESCE(SUM(${ticketTimeEntries.durationMinutes}), 0)`.as('used_minutes'),
+          })
+          .from(ticketTimeEntries)
+          .where(
+            and(
+              eq(ticketTimeEntries.tenantId, request.tenantId),
+              inArray(ticketTimeEntries.contractLineItemId, blockLineIds),
+              sql`${ticketTimeEntries.classification} IN ('covered', 'overage')`,
+              sql`${ticketTimeEntries.nonBillableReason} IS NULL`,
+            ),
+          )
+          .groupBy(ticketTimeEntries.contractLineItemId);
+        for (const row of usage) {
+          if (row.lineItemId) usedByLine.set(row.lineItemId, Number(row.usedMinutes));
+        }
+      }
+
+      const decorate = (line: typeof customerLines[number], isInternal: boolean) => {
+        const isBlock = line.coveragePolicy === 'block' && !!line.blockHours;
+        const totalHours = isBlock ? parseFloat(line.blockHours ?? '0') : null;
+        const usedHours = isBlock ? (usedByLine.get(line.lineItemId) ?? 0) / 60 : null;
+        const remainingHours = totalHours != null && usedHours != null ? totalHours - usedHours : null;
+        return {
+          contractId: line.contractId,
+          contractName: line.contractName,
+          lineItemId: line.lineItemId,
+          lineItemDescription: line.lineItemDescription,
+          coveragePolicy: line.coveragePolicy,
+          isContractDefault: line.defaultLaborLineItemId === line.lineItemId,
+          isInternal,
+          rateCents: line.coveragePolicy === 'billable' ? line.unitPriceCents : null,
+          overageRateCents: line.overageRateCents ?? null,
+          blockHoursTotal: totalHours,
+          blockHoursRemaining: remainingHours,
+          expiresAt: line.expiresAt,
+          warnAtPct: line.warnAtPct,
+        };
+      };
+
+      // Suggested default: ticket.contractId's default labor line, if any.
+      const suggestedLine = customerLines.find(
+        (l) => l.contractId === ticket.contractId && l.defaultLaborLineItemId === l.lineItemId,
+      );
+
+      return {
+        ticketContractId: ticket.contractId ?? null,
+        suggestedLineItemId: suggestedLine?.lineItemId ?? null,
+        options: [
+          ...customerLines.map((l) => decorate(l, false)),
+          ...internalLines.map((l) => decorate(l, true)),
+        ],
+      };
     },
   );
 
