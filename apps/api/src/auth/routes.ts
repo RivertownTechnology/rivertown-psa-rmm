@@ -4,7 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import { compare } from 'bcryptjs';
 import { z } from 'zod';
 import { users, tenants, tenantSsoConfigs } from '@rivertown/db';
-import { loginSchema } from '@rivertown/shared';
+import { loginSchema, computeEntitlements } from '@rivertown/shared';
 import { UnauthorizedError } from '../common/errors.js';
 import { logAudit } from '../common/audit.js';
 
@@ -158,6 +158,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         subscriptionStatus: tenants.subscriptionStatus,
         planTier: tenants.planTier,
         pastDueAt: tenants.pastDueAt,
+        featureFlags: tenants.featureFlags,
       })
       .from(users)
       .innerJoin(tenants, eq(tenants.id, users.tenantId))
@@ -191,12 +192,22 @@ export async function authRoutes(fastify: FastifyInstance) {
       || (row.subscriptionStatus === 'past_due' && graceExpired)
     );
 
+    const entitlements = computeEntitlements(
+      row.planTier,
+      row.featureFlags as Record<string, boolean>,
+    );
+
+    // Don't expose raw feature_flags blob on the response — entitlements is the computed view.
+    const { featureFlags: _ff, ...rest } = row;
+    void _ff;
+
     return {
-      ...row,
+      ...rest,
       trialDaysRemaining,
       trialExpired,
       pastDueDaysRemaining,
       lockedOut,
+      entitlements,
     };
   });
 

@@ -8,6 +8,7 @@ import {
 import { requireSuperAdmin } from '../../auth/rbac.js';
 import { readCredentialsText, writeCredentialsText } from '../../common/credentials.js';
 import { invalidateTenantSubscriptionCache } from '../../common/tenant-subscription-cache.js';
+import { invalidateEntitlementsCache } from '../../auth/entitlements.js';
 import { logAudit } from '../../common/audit.js';
 
 // Monthly price per seat for MRR calculation. Pricing authoritative in Stripe;
@@ -266,8 +267,9 @@ export async function adminRoutes(fastify: FastifyInstance) {
         return { error: 'NOT_FOUND' };
       }
 
-      // Invalidate cache so trial enforcement picks up the change immediately
+      // Invalidate caches so trial + entitlement checks pick up the change immediately
       await invalidateTenantSubscriptionCache(tenantId);
+      invalidateEntitlementsCache(tenantId);
 
       await logAudit(fastify.db, {
         tenantId,
@@ -538,6 +540,8 @@ export async function adminRoutes(fastify: FastifyInstance) {
         .update(tenants)
         .set({ featureFlags: merged, updatedAt: new Date() })
         .where(eq(tenants.id, tenantId));
+
+      invalidateEntitlementsCache(tenantId);
 
       await logAudit(fastify.db, {
         tenantId,

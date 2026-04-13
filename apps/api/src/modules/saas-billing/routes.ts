@@ -333,4 +333,274 @@ export async function saasBillingRoutes(fastify: FastifyInstance) {
       return { received: true };
     },
   );
+
+  // =====================================================================
+  // Self-service subscription management (tenant-facing)
+  //
+  // All routes below are authenticated and operate on the CALLER's tenant.
+  // Owner/admin role required — techs can't see billing details.
+  // =====================================================================
+
+  const requireAdminRole = async (request: any, reply: any) => {
+    if (!['owner', 'admin'].includes(request.user?.role)) {
+      reply.code(403).send({ error: 'FORBIDDEN', message: 'Owner or admin role required.' });
+    }
+  };
+
+  // GET /api/v1/billing/subscription — snapshot of plan, status, next bill, payment method
+  fastify.get(
+    '/api/v1/billing/subscription',
+    { preHandler: [fastify.authenticate, requireAdminRole] },
+    async (request, reply) => {
+      const platform = await getPlatformStripe(fastify.db);
+      if (!platform) {
+        reply.code(503);
+        return { error: 'BILLING_NOT_CONFIGURED' };
+      }
+
+      const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, request.user.tid)).limit(1);
+      if (!tenant) { reply.code(404); return { error: 'NOT_FOUND' }; }
+
+      const result: Record<string, unknown> = {
+        plan: tenant.planTier,
+        status: tenant.subscriptionStatus,
+        trialEndsAt: tenant.trialEndsAt,
+        pastDueAt: tenant.pastDueAt,
+        currency: tenant.currency,
+        stripeCustomerId: tenant.stripeCustomerId,
+        hasSubscription: !!tenant.stripeSubscriptionId,
+      };
+
+      if (tenant.stripeCustomerId && tenant.stripeSubscriptionId) {
+        try {
+          const sub = await platform.stripe.subscriptions.retrieve(tenant.stripeSubscriptionId, {
+            expand: ['default_payment_method', 'latest_invoice'],
+          });
+          const item = sub.items.data[0];
+          result.subscription = {
+            id: sub.id,
+            status: sub.status,
+            currentPeriodEnd: (sub as any).current_period_end ? new Date((sub as any).current_period_end * 1000).toISOString() : null,
+            cancelAtPeriodEnd: sub.cancel_at_period_end,
+            quantity: item?.quantity ?? 1,
+            unitAmountCents: item?.price?.unit_amount ?? 0,
+            interval: item?.price?.recurring?.interval ?? 'month',
+          };
+          const pm = (sub as any).default_payment_method;
+          if (pm && typeof pm === 'object' && pm.card) {
+            result.defaultPaymentMethod = {
+              id: pm.id,
+              brand: pm.card.brand,
+              last4: pm.card.last4,
+              expMonth: pm.card.exp_month,
+              expYear: pm.card.exp_year,
+            };
+          }
+        } catch (err) {
+          request.log.warn({ err }, '[BILLING] Failed to expand Stripe subscription');
+        }
+      }
+
+      return result;
+    },
+  );
+
+  // GET /api/v1/billing/payment-methods — list cards attached to the Stripe customer
+  fastify.get(
+    '/api/v1/billing/payment-methods',
+    { preHandler: [fastify.authenticate, requireAdminRole] },
+    async (request, reply) => {
+      const platform = await getPlatformStripe(fastify.db);
+      if (!platform) { reply.code(503); return { error: 'BILLING_NOT_CONFIGURED' }; }
+      const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, request.user.tid)).limit(1);
+      if (!tenant?.stripeCustomerId) return { methods: [], defaultId: null };
+
+      const methods = await platform.stripe.paymentMethods.list({
+        customer: tenant.stripeCustomerId,
+        type: 'card',
+      });
+      const customer = await platform.stripe.customers.retrieve(tenant.stripeCustomerId);
+      const defaultId = (customer as any)?.invoice_settings?.default_payment_method ?? null;
+
+      return {
+        methods: methods.data.map((m) => ({
+          id: m.id,
+          brand: m.card?.brand,
+          last4: m.card?.last4,
+          expMonth: m.card?.exp_month,
+          expYear: m.card?.exp_year,
+          isDefault: m.id === defaultId,
+        })),
+        defaultId,
+      };
+    },
+  );
+
+  // POST /api/v1/billing/setup-intent — Stripe Elements uses this to securely add a new card
+  fastify.post(
+    '/api/v1/billing/setup-intent',
+    { preHandler: [fastify.authenticate, requireAdminRole] },
+    async (request, reply) => {
+      const platform = await getPlatformStripe(fastify.db);
+      if (!platform) { reply.code(503); return { error: 'BILLING_NOT_CONFIGURED' }; }
+
+      const customerId = await ensureStripeCustomer(fastify.db, request.user.tid);
+      if (!customerId) { reply.code(500); return { error: 'NO_CUSTOMER' }; }
+
+      const setupIntent = await platform.stripe.setupIntents.create({
+        customer: customerId,
+        payment_method_types: ['card'],
+        usage: 'off_session',
+      });
+
+      return {
+        clientSecret: setupIntent.client_secret,
+        publishableKey: platform.cfg.publishableKey,
+      };
+    },
+  );
+
+  // PUT /api/v1/billing/default-payment-method — set the default card for renewals
+  fastify.put(
+    '/api/v1/billing/default-payment-method',
+    { preHandler: [fastify.authenticate, requireAdminRole] },
+    async (request, reply) => {
+      const body = z.object({ paymentMethodId: z.string() }).parse(request.body);
+      const platform = await getPlatformStripe(fastify.db);
+      if (!platform) { reply.code(503); return { error: 'BILLING_NOT_CONFIGURED' }; }
+      const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, request.user.tid)).limit(1);
+      if (!tenant?.stripeCustomerId) { reply.code(400); return { error: 'NO_STRIPE_CUSTOMER' }; }
+
+      await platform.stripe.customers.update(tenant.stripeCustomerId, {
+        invoice_settings: { default_payment_method: body.paymentMethodId },
+      });
+      // Also apply to existing subscription so renewals use the new card
+      if (tenant.stripeSubscriptionId) {
+        await platform.stripe.subscriptions.update(tenant.stripeSubscriptionId, {
+          default_payment_method: body.paymentMethodId,
+        });
+      }
+      return { ok: true };
+    },
+  );
+
+  // DELETE /api/v1/billing/payment-methods/:id — detach a card
+  fastify.delete(
+    '/api/v1/billing/payment-methods/:id',
+    { preHandler: [fastify.authenticate, requireAdminRole] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const platform = await getPlatformStripe(fastify.db);
+      if (!platform) { reply.code(503); return { error: 'BILLING_NOT_CONFIGURED' }; }
+      await platform.stripe.paymentMethods.detach(id);
+      reply.code(204).send();
+    },
+  );
+
+  // GET /api/v1/billing/invoices — last N invoices (status + amount + hosted URL)
+  fastify.get(
+    '/api/v1/billing/invoices',
+    { preHandler: [fastify.authenticate, requireAdminRole] },
+    async (request, reply) => {
+      const platform = await getPlatformStripe(fastify.db);
+      if (!platform) { reply.code(503); return { error: 'BILLING_NOT_CONFIGURED' }; }
+      const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, request.user.tid)).limit(1);
+      if (!tenant?.stripeCustomerId) return { invoices: [] };
+
+      const list = await platform.stripe.invoices.list({
+        customer: tenant.stripeCustomerId,
+        limit: 20,
+      });
+      return {
+        invoices: list.data.map((i) => ({
+          id: i.id,
+          number: i.number,
+          status: i.status,
+          amountCents: i.total,
+          currency: i.currency,
+          createdAt: new Date(i.created * 1000).toISOString(),
+          paidAt: i.status_transitions.paid_at ? new Date(i.status_transitions.paid_at * 1000).toISOString() : null,
+          hostedInvoiceUrl: i.hosted_invoice_url,
+          invoicePdfUrl: i.invoice_pdf,
+        })),
+      };
+    },
+  );
+
+  // PUT /api/v1/billing/subscription — change plan (immediate proration)
+  fastify.put(
+    '/api/v1/billing/subscription',
+    { preHandler: [fastify.authenticate, requireAdminRole] },
+    async (request, reply) => {
+      const body = z.object({ plan: z.enum(['starter', 'pro']) }).parse(request.body);
+      const platform = await getPlatformStripe(fastify.db);
+      if (!platform) { reply.code(503); return { error: 'BILLING_NOT_CONFIGURED' }; }
+
+      const priceId = body.plan === 'starter' ? platform.cfg.starterPriceId : platform.cfg.proPriceId;
+      if (!priceId) { reply.code(503); return { error: 'PRICE_NOT_CONFIGURED' }; }
+
+      const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, request.user.tid)).limit(1);
+      if (!tenant?.stripeSubscriptionId) { reply.code(400); return { error: 'NO_ACTIVE_SUBSCRIPTION' }; }
+
+      const sub = await platform.stripe.subscriptions.retrieve(tenant.stripeSubscriptionId);
+      const item = sub.items.data[0];
+      if (!item) { reply.code(400); return { error: 'MALFORMED_SUBSCRIPTION' }; }
+
+      const updated = await platform.stripe.subscriptions.update(tenant.stripeSubscriptionId, {
+        items: [{ id: item.id, price: priceId }],
+        proration_behavior: 'always_invoice',
+        metadata: { tenantId: request.user.tid, plan: body.plan },
+      });
+
+      return { subscriptionId: updated.id, plan: body.plan };
+    },
+  );
+
+  // POST /api/v1/billing/cancel — cancel at period end (or immediately)
+  fastify.post(
+    '/api/v1/billing/cancel',
+    { preHandler: [fastify.authenticate, requireAdminRole] },
+    async (request, reply) => {
+      const body = z.object({
+        mode: z.enum(['at_period_end', 'immediately']).default('at_period_end'),
+        reason: z.string().max(500).optional(),
+      }).parse(request.body);
+
+      const platform = await getPlatformStripe(fastify.db);
+      if (!platform) { reply.code(503); return { error: 'BILLING_NOT_CONFIGURED' }; }
+      const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, request.user.tid)).limit(1);
+      if (!tenant?.stripeSubscriptionId) { reply.code(400); return { error: 'NO_ACTIVE_SUBSCRIPTION' }; }
+
+      if (body.mode === 'immediately') {
+        await platform.stripe.subscriptions.cancel(tenant.stripeSubscriptionId, {
+          cancellation_details: { comment: body.reason ?? 'requested by customer' },
+        });
+      } else {
+        await platform.stripe.subscriptions.update(tenant.stripeSubscriptionId, {
+          cancel_at_period_end: true,
+          cancellation_details: { comment: body.reason ?? 'requested by customer' },
+        });
+      }
+
+      request.log.info({ tenantId: request.user.tid, mode: body.mode }, '[BILLING] Subscription cancelled');
+      return { ok: true, mode: body.mode };
+    },
+  );
+
+  // POST /api/v1/billing/reactivate — undo a pending cancellation (if period hasn't ended)
+  fastify.post(
+    '/api/v1/billing/reactivate',
+    { preHandler: [fastify.authenticate, requireAdminRole] },
+    async (request, reply) => {
+      const platform = await getPlatformStripe(fastify.db);
+      if (!platform) { reply.code(503); return { error: 'BILLING_NOT_CONFIGURED' }; }
+      const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, request.user.tid)).limit(1);
+      if (!tenant?.stripeSubscriptionId) { reply.code(400); return { error: 'NO_ACTIVE_SUBSCRIPTION' }; }
+
+      await platform.stripe.subscriptions.update(tenant.stripeSubscriptionId, {
+        cancel_at_period_end: false,
+      });
+      return { ok: true };
+    },
+  );
 }

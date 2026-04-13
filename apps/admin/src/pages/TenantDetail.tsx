@@ -41,11 +41,24 @@ interface Activity {
   tickets: Array<{ id: string; ref: string; subject: string; status: string; category: string; createdAt: string }>;
 }
 
+// Feature keys match @rivertown/shared's Entitlements type. Toggling any of these
+// overrides the plan default for this tenant — e.g. grant AI to a starter tenant
+// during a pilot, or disable a feature temporarily without downgrading their plan.
 const KNOWN_FLAGS = [
-  { key: 'beta_ai_features', label: 'Beta AI features', desc: 'Unreleased AI tools for tickets and replies' },
-  { key: 'beta_webhooks', label: 'Outbound webhooks', desc: 'Webhook delivery for ticket/invoice/customer events' },
-  { key: 'enterprise_sso_preview', label: 'Enterprise SSO preview', desc: 'SAML / Microsoft SSO before general availability' },
-  { key: 'custom_domain', label: 'Custom portal domain', desc: 'Allow the customer portal on a tenant subdomain' },
+  { key: 'quickbooks', label: 'QuickBooks integration', desc: 'Two-way sync of customers, invoices, payments (default: Pro+)' },
+  { key: 'pax8', label: 'Pax8 integration', desc: 'Product sync, cost tracking, gross-margin reporting (default: Pro+)' },
+  { key: 'connectbooster', label: 'ConnectBooster payments', desc: 'MSP-native payment processing (default: Pro+)' },
+  { key: 'ninja_rmm', label: 'NinjaRMM integration', desc: 'Device + patch sync from NinjaOne (default: Pro+)' },
+  { key: 'crewhu', label: 'CrewHu CSAT surveys', desc: 'Automated survey send on ticket close (default: Pro+)' },
+  { key: 'ai_assistant', label: 'AI ticket assistant', desc: 'Claude-powered summarization and reply drafting (default: Pro+)' },
+  { key: 'sla_policies', label: 'SLA policies', desc: 'Configurable response + resolution targets per priority (default: Pro+)' },
+  { key: 'sla_escalation', label: 'SLA escalation rules', desc: 'Auto-reassign and notify on SLA breach (default: Pro+)' },
+  { key: 'twilio_sms', label: 'Twilio SMS', desc: 'Per-tenant SMS for portal MFA and reminders (default: Pro+)' },
+  { key: 'microsoft_sso', label: 'Microsoft Entra SSO', desc: 'Per-tenant Microsoft OAuth login (default: Pro+)' },
+  { key: 'saml_sso', label: 'SAML 2.0 SSO', desc: 'Generic SAML for Okta / Duo / OneLogin / JumpCloud (default: Enterprise)' },
+  { key: 'custom_portal_domain', label: 'Custom portal domain', desc: 'Customer portal on tenant subdomain (default: Enterprise)' },
+  { key: 'dedicated_instance', label: 'Dedicated instance', desc: 'Isolated DB + application instance (default: Enterprise)' },
+  { key: 'named_csm', label: 'Named customer success manager', desc: 'Support tag (default: Enterprise)' },
 ];
 
 export function TenantDetailPage({ tenantId }: { tenantId: string }) {
@@ -136,6 +149,25 @@ export function TenantDetailPage({ tenantId }: { tenantId: string }) {
       });
       await load();
       setMsg({ kind: 'ok', text: `Trial extended ${days} days.` });
+    } catch (err) {
+      setMsg({ kind: 'err', text: err instanceof Error ? err.message : 'Update failed.' });
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function setTrialEndsAt(isoDate: string | null) {
+    setWorking(true);
+    setMsg(null);
+    try {
+      // Send midnight UTC on the selected date so it's consistent across time zones
+      const payload = isoDate ? new Date(`${isoDate}T23:59:59Z`).toISOString() : null;
+      await api(`/admin/tenants/${tenantId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ trialEndsAt: payload }),
+      });
+      await load();
+      setMsg({ kind: 'ok', text: payload ? `Trial end date set to ${isoDate}.` : 'Trial end date cleared.' });
     } catch (err) {
       setMsg({ kind: 'err', text: err instanceof Error ? err.message : 'Update failed.' });
     } finally {
@@ -339,22 +371,50 @@ export function TenantDetailPage({ tenantId }: { tenantId: string }) {
             </div>
           </InfoCard>
 
-          {t.subscriptionStatus === 'trial' && (
-            <InfoCard title="Extend trial">
-              <div className="flex flex-wrap gap-2">
-                {[7, 15, 30, 60].map((d) => (
-                  <button
-                    key={d}
-                    onClick={() => extendTrial(d)}
-                    disabled={working}
-                    className="px-3 py-1.5 rounded-md text-xs font-medium bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 transition-colors"
-                  >
-                    +{d} days
-                  </button>
-                ))}
+          <InfoCard title="Trial end date">
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs text-slate-500 mb-2">Current: {t.trialEndsAt ? new Date(t.trialEndsAt).toLocaleString() : '—'}</div>
+                <div className="flex flex-wrap gap-2">
+                  {[7, 14, 30].map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => extendTrial(d)}
+                      disabled={working}
+                      className="px-3 py-1.5 rounded-md text-xs font-medium bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 transition-colors disabled:opacity-40"
+                    >
+                      +{d} days
+                    </button>
+                  ))}
+                </div>
               </div>
-            </InfoCard>
-          )}
+
+              <div className="border-t border-slate-800 pt-3">
+                <label className="block text-xs text-slate-500 mb-2">Or set an explicit date</label>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={t.trialEndsAt ? new Date(t.trialEndsAt).toISOString().slice(0, 10) : ''}
+                    onChange={(e) => { if (e.target.value) setTrialEndsAt(e.target.value); }}
+                    disabled={working}
+                    className="flex-1 px-3 py-2 rounded-md bg-slate-950 border border-slate-800 focus:border-brand-600 focus:ring-2 focus:ring-brand-600/20 outline-none text-sm text-white"
+                  />
+                  {t.trialEndsAt && (
+                    <button
+                      onClick={() => setTrialEndsAt(null)}
+                      disabled={working}
+                      className="px-3 py-2 rounded-md text-xs font-medium bg-slate-950 hover:bg-red-900/30 text-slate-400 hover:text-red-400 border border-slate-800 transition-colors"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-slate-600 mt-2">
+                  Used by the trial-enforcement middleware. Setting a date in the past immediately locks the tenant.
+                </p>
+              </div>
+            </div>
+          </InfoCard>
 
           <InfoCard title="Issue a refund">
             {!t.stripeCustomerId ? (

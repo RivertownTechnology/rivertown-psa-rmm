@@ -19,6 +19,20 @@ interface User {
   pastDueDaysRemaining?: number | null;
   trialExpired?: boolean;
   lockedOut?: boolean;
+  entitlements?: {
+    plan: 'starter' | 'pro' | 'enterprise';
+    maxBillableUsers: number;
+    features: Record<string, boolean>;
+  };
+}
+
+/**
+ * Hook: check whether the current tenant has access to a gated feature.
+ *   const canUseAi = useFeature('ai_assistant');
+ */
+export function useFeature(key: string): boolean {
+  const { user } = useAuth();
+  return user?.entitlements?.features?.[key] === true;
 }
 
 interface AuthContextType {
