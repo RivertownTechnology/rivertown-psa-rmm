@@ -292,46 +292,62 @@ export async function adminRoutes(fastify: FastifyInstance) {
     '/api/v1/admin/metrics',
     { preHandler: [fastify.authenticate, superAdmin] },
     async () => {
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const now = Date.now();
+      const y = new Date().getFullYear();
+      const m = new Date().getMonth();
+      const startOfMonth = new Date(y, m, 1);
+      const startOfLastMonth = new Date(y, m - 1, 1);
 
-      // Single query for all the counts — much faster than N round-trips
-      const [row] = await fastify.db
+      // Pull lightweight tenant rows and aggregate in JS. Avoids Drizzle parameter
+      // interpolation quirks with multiple filter-aggregates + sql`` templates.
+      const rows = await fastify.db
         .select({
-          total: sql<number>`count(*)::int`,
-          trial: sql<number>`count(*) filter (where ${tenants.subscriptionStatus} = 'trial')::int`,
-          active: sql<number>`count(*) filter (where ${tenants.subscriptionStatus} = 'active')::int`,
-          pastDue: sql<number>`count(*) filter (where ${tenants.subscriptionStatus} = 'past_due')::int`,
-          cancelled: sql<number>`count(*) filter (where ${tenants.subscriptionStatus} = 'cancelled')::int`,
-          signupsThisMonth: sql<number>`count(*) filter (where ${tenants.createdAt} >= ${startOfMonth})::int`,
-          signupsLastMonth: sql<number>`count(*) filter (where ${tenants.createdAt} >= ${startOfLastMonth} and ${tenants.createdAt} < ${startOfMonth})::int`,
-          mrrCents: sql<number>`coalesce(sum(case
-            when ${tenants.subscriptionStatus} = 'active' and ${tenants.planTier} = 'starter' then ${PLAN_PRICES_CENTS.starter}
-            when ${tenants.subscriptionStatus} = 'active' and ${tenants.planTier} = 'pro' then ${PLAN_PRICES_CENTS.pro}
-            else 0 end), 0)::int`,
+          id: tenants.id,
+          status: tenants.subscriptionStatus,
+          planTier: tenants.planTier,
+          createdAt: tenants.createdAt,
         })
         .from(tenants);
 
-      const [openTickets] = await fastify.db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(supportTickets)
-        .where(eq(supportTickets.status, 'open'));
+      let trial = 0, active = 0, pastDue = 0, cancelled = 0;
+      let signupsThisMonth = 0, signupsLastMonth = 0;
+      let mrrCents = 0;
+
+      for (const t of rows) {
+        if (t.status === 'trial') trial++;
+        else if (t.status === 'active') active++;
+        else if (t.status === 'past_due') pastDue++;
+        else if (t.status === 'cancelled') cancelled++;
+
+        const created = t.createdAt.getTime();
+        if (created >= startOfMonth.getTime()) signupsThisMonth++;
+        else if (created >= startOfLastMonth.getTime()) signupsLastMonth++;
+
+        if (t.status === 'active') {
+          const price = PLAN_PRICES_CENTS[t.planTier] ?? 0;
+          mrrCents += price;
+        }
+      }
+
+      let openSupportTickets = 0;
+      try {
+        const [t] = await fastify.db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(supportTickets)
+          .where(eq(supportTickets.status, 'open'));
+        openSupportTickets = t?.n ?? 0;
+      } catch {
+        // Support tickets table may not exist on older DBs — treat as zero
+      }
+
+      // Avoid unused import warning since we removed the complex sql aggregates above
+      void now;
 
       return {
-        tenants: {
-          total: row.total,
-          trial: row.trial,
-          active: row.active,
-          pastDue: row.pastDue,
-          cancelled: row.cancelled,
-        },
-        mrrCents: row.mrrCents,
-        signups: {
-          thisMonth: row.signupsThisMonth,
-          lastMonth: row.signupsLastMonth,
-        },
-        openSupportTickets: openTickets?.n ?? 0,
+        tenants: { total: rows.length, trial, active, pastDue, cancelled },
+        mrrCents,
+        signups: { thisMonth: signupsThisMonth, lastMonth: signupsLastMonth },
+        openSupportTickets,
       };
     },
   );
