@@ -55,6 +55,7 @@ const KNOWN_FLAGS = [
   { key: 'sla_escalation', label: 'SLA escalation rules', desc: 'Auto-reassign and notify on SLA breach (default: Pro+)' },
   { key: 'twilio_sms', label: 'Twilio SMS', desc: 'Per-tenant SMS for portal MFA and reminders (default: Pro+)' },
   { key: 'microsoft_sso', label: 'Microsoft Entra SSO', desc: 'Per-tenant Microsoft OAuth login (default: Pro+)' },
+  { key: 'data_import', label: 'ConnectWise / CSV import', desc: 'Bulk import customers, contacts, and assets from other PSAs (default: Pro+)' },
   { key: 'saml_sso', label: 'SAML 2.0 SSO', desc: 'Generic SAML for Okta / Duo / OneLogin / JumpCloud (default: Enterprise)' },
   { key: 'custom_portal_domain', label: 'Custom portal domain', desc: 'Customer portal on tenant subdomain (default: Enterprise)' },
   { key: 'dedicated_instance', label: 'Dedicated instance', desc: 'Isolated DB + application instance (default: Enterprise)' },

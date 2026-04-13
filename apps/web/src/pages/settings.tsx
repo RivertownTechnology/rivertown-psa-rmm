@@ -15,6 +15,7 @@ import { BusinessProfileCard } from '@/components/business-profile-card';
 import { SecurityPage } from './security';
 import { ProductCatalogPage } from './product-catalog';
 import { TemplatesSettingsPage } from './templates-settings';
+import { SettingsImport } from './settings-import';
 
 interface EmailConfig {
   isEnabled: boolean; smtpHost: string; smtpPort: number; smtpUser: string;
@@ -683,6 +684,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
             <TabsTrigger value="operations">Operations</TabsTrigger>
             <TabsTrigger value="catalog">Product Catalog</TabsTrigger>
             <TabsTrigger value="integrations">Integrations</TabsTrigger>
+            <TabsTrigger value="import">Import</TabsTrigger>
           </TabsList>
         )}
 
@@ -1269,6 +1271,11 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
           <div className="mt-4">
             <ProductCatalogPage />
           </div>
+        </TabsContent>
+
+        {/* IMPORT TAB — ConnectWise + CSV migration tools (Pro+) */}
+        <TabsContent value="import">
+          <SettingsImport />
         </TabsContent>
       </Tabs>
     </div>

@@ -37,6 +37,7 @@ import { publicSignupRoutes } from './modules/public-signup/routes.js';
 import { adminRoutes } from './modules/admin/routes.js';
 import { saasBillingRoutes } from './modules/saas-billing/routes.js';
 import { supportRoutes } from './modules/support/routes.js';
+import { importsRoutes } from './modules/imports/routes.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -287,6 +288,9 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
 
   // Customer support — ticket intake for ForgePSA customers
   await fastify.register(supportRoutes);
+
+  // Data imports (ConnectWise / Autotask / Halo / CSV) — Pro+
+  await fastify.register(importsRoutes);
 
   // Auth routes
   await fastify.register(authRoutes);

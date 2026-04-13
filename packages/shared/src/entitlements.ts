@@ -25,6 +25,8 @@ export type FeatureKey =
   | 'microsoft_sso'
   | 'google_sso'
   | 'saml_sso'
+  // Data import / migration tools (ConnectWise, Autotask, Halo, CSV)
+  | 'data_import'
   // Enterprise-only
   | 'dedicated_instance'
   | 'custom_portal_domain'
@@ -49,6 +51,7 @@ const STARTER_FEATURES: Record<FeatureKey, boolean> = {
   microsoft_sso: false,
   google_sso: true, // available on every plan
   saml_sso: false,
+  data_import: false,
   dedicated_instance: false,
   custom_portal_domain: false,
   named_csm: false,
@@ -66,6 +69,7 @@ const PRO_FEATURES: Record<FeatureKey, boolean> = {
   sla_escalation: true,
   twilio_sms: true,
   microsoft_sso: true,
+  data_import: true,
 };
 
 const ENTERPRISE_FEATURES: Record<FeatureKey, boolean> = {
