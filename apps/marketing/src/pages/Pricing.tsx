@@ -21,12 +21,12 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
           <p className="text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto mb-8">
             Core PSA features and Pax8 are in on every plan. Pro unlocks QuickBooks, AI, SMS, and advanced SSO. Unlimited tickets. Pay per tech. Cancel anytime.
           </p>
-          <div className="max-w-3xl mx-auto bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl px-6 py-4 text-left sm:text-center">
-            <p className="text-base sm:text-lg text-amber-900 dark:text-amber-200 font-medium">
+          <div className="max-w-3xl mx-auto bg-amber-400 rounded-xl px-6 py-4 text-left sm:text-center">
+            <p className="text-base sm:text-lg text-amber-950 font-medium">
               Tired of 7- or 14-day trials that don't even cover one billing cycle?
-              <span className="block sm:inline mt-1 sm:mt-0 sm:ml-2 font-bold text-amber-950 dark:text-amber-100">Yeaaaah, so were we.</span>
+              <span className="block sm:inline mt-1 sm:mt-0 sm:ml-2 font-bold">Yeaaaah, so were we.</span>
             </p>
-            <p className="text-sm text-amber-800 dark:text-amber-300 mt-1">
+            <p className="text-sm text-amber-950/80 mt-1">
               ForgePSA gives you a <strong>full 45 days</strong> — enough time to actually run an invoice cycle, onboard a customer, and decide.
             </p>
           </div>
@@ -216,9 +216,7 @@ function Plan({
           </div>
         )}
         {introBadge && (
-          <div className={`inline-block text-xs font-semibold px-2 py-1 rounded ${
-            featured ? 'bg-amber-400 text-amber-950' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800'
-          }`}>
+          <div className="inline-block text-xs font-semibold px-2 py-1 rounded bg-amber-400 text-amber-950">
             {introBadge}
           </div>
         )}
