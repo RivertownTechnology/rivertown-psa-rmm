@@ -35,11 +35,12 @@ export function MarketingHeader({ pathname, navigate }: { pathname: string; navi
         </button>
 
         {/* Desktop nav — center column of the grid */}
-        <nav className="hidden md:flex items-center justify-center gap-6 lg:gap-8 md:justify-self-center">
+        <nav className="hidden md:flex items-center justify-center gap-5 lg:gap-7 md:justify-self-center">
           {navItem('Features', '/features')}
           {navItem('Pricing', '/pricing')}
-          {navItem('FAQ', '/faq')}
-          {navItem('Support', '/support')}
+          {navItem('Compare', '/compare')}
+          {navItem('Blog', '/blog')}
+          {navItem('Changelog', '/changelog')}
         </nav>
 
         {/* Desktop CTAs — right column */}
@@ -91,6 +92,10 @@ export function MarketingHeader({ pathname, navigate }: { pathname: string; navi
           <nav className="max-w-7xl mx-auto px-4 py-3 flex flex-col gap-1">
             <MobileNavLink onClick={() => { navigate('/features'); setOpen(false); }}>Features</MobileNavLink>
             <MobileNavLink onClick={() => { navigate('/pricing'); setOpen(false); }}>Pricing</MobileNavLink>
+            <MobileNavLink onClick={() => { navigate('/compare'); setOpen(false); }}>Compare</MobileNavLink>
+            <MobileNavLink onClick={() => { navigate('/blog'); setOpen(false); }}>Blog</MobileNavLink>
+            <MobileNavLink onClick={() => { navigate('/changelog'); setOpen(false); }}>Changelog</MobileNavLink>
+            <MobileNavLink onClick={() => { navigate('/philosophy'); setOpen(false); }}>Philosophy</MobileNavLink>
             <MobileNavLink onClick={() => { navigate('/faq'); setOpen(false); }}>FAQ</MobileNavLink>
             <MobileNavLink onClick={() => { navigate('/support'); setOpen(false); }}>Support</MobileNavLink>
             <div className="border-t border-slate-200 dark:border-slate-800 mt-2 pt-3 flex flex-col gap-2">
