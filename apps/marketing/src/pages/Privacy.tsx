@@ -13,7 +13,7 @@ export function Privacy({ navigate: _navigate }: { navigate: (p: string) => void
       <div className="space-y-6 text-slate-700 dark:text-slate-200 leading-relaxed">
         <Section title="1. Who we are">
           <p>
-            ForgePSA is operated by Rivertown Technology ("ForgePSA", "we", "us"). This Privacy
+            ForgePSA is operated by ForgeSoftware Co, LLC ("ForgePSA", "we", "us"). This Privacy
             Policy describes how we collect, use, and share information when you use our website
             (<a href="https://forgepsa.com" className="text-brand-600 hover:underline">forgepsa.com</a>)
             and the ForgePSA service.

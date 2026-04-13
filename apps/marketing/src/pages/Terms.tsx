@@ -14,7 +14,7 @@ export function Terms({ navigate: _navigate }: { navigate: (p: string) => void }
         <Section title="1. Agreement">
           <p>
             These Terms of Service ("Terms") govern your use of ForgePSA (the "Service"), operated by
-            Rivertown Technology ("ForgePSA", "we", "us", or "our"). By signing up for or using the
+            ForgeSoftware Co, LLC ("ForgePSA", "we", "us", or "our"). By signing up for or using the
             Service, you agree to be bound by these Terms on behalf of yourself and the organization
             you represent (the "Customer").
           </p>

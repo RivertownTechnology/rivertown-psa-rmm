@@ -11,7 +11,7 @@
 - **Hosted at:** https://forgepsa.com
 - **Sign in:** https://app.forgepsa.com
 - **Customer portal:** https://portal.forgepsa.com (white-labeled per tenant)
-- **Built by:** Rivertown Technology
+- **Built by:** ForgeSoftware Co, LLC
 
 ## What ForgePSA is
 

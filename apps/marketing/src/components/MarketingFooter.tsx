@@ -70,7 +70,7 @@ export function MarketingFooter({ navigate }: { navigate: (p: string) => void })
         </div>
       </div>
       <div className="border-t border-slate-800 py-6 text-center text-sm text-slate-500">
-        © {new Date().getFullYear()} ForgePSA. All rights reserved.
+        © {new Date().getFullYear()} ForgeSoftware Co, LLC. All rights reserved. ForgePSA is a product of ForgeSoftware Co, LLC.
       </div>
     </footer>
   );
