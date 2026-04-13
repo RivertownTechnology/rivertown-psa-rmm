@@ -21,4 +21,8 @@ ENV NODE_ENV=production
 RUN find /app -type l ! -exec test -e {} \; -delete && pnpm install --frozen-lockfile
 
 WORKDIR /app/apps/api
-CMD ["npx", "tsx", "src/app.ts"]
+# Apply pending migrations before starting the server. The _migrations table
+# in Postgres dedupes so this is a no-op when the DB is already up to date.
+# If a migration fails, the container fails to start — fail loud, don't serve
+# traffic against a schema mismatch.
+CMD ["sh", "-c", "npx tsx ../../packages/db/scripts/migrate-all.ts && exec npx tsx src/app.ts"]
