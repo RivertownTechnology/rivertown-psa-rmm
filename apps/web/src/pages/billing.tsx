@@ -60,17 +60,37 @@ const PLAN_INFO: Record<PlanId, { name: string; priceCents: number; features: st
   starter: {
     name: 'Starter',
     priceCents: 4900,
-    features: ['Up to 3 techs', 'All core PSA + RMM', 'Stripe payment links', 'Email support'],
+    features: [
+      'Up to 3 techs',
+      'All core PSA features',
+      'NinjaRMM integration',
+      'Pax8 license sync',
+      'Stripe payment links',
+      'Google SSO',
+    ],
   },
   pro: {
     name: 'Pro',
     priceCents: 7900,
-    features: ['4–15 techs', 'All integrations', 'AI assistant', 'SLA policies', 'Priority support'],
+    features: [
+      '4–15 techs',
+      'Everything in Starter',
+      'QuickBooks + ConnectBooster + CrewHu',
+      'AI assistant + SLA policies',
+      'Twilio SMS + Microsoft SSO',
+      'ConnectWise / CSV data import',
+    ],
   },
   enterprise: {
     name: 'Enterprise',
     priceCents: 0,
-    features: ['16+ techs', 'SAML SSO', 'Dedicated instance', 'Custom SLA', 'Named CSM'],
+    features: [
+      '16+ techs',
+      'SAML SSO',
+      'Dedicated instance',
+      'Custom portal subdomain',
+      'Named CSM + priority SLA',
+    ],
   },
 };
 

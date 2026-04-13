@@ -14,8 +14,8 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
           <div className="absolute bottom-0 right-0 w-80 h-80 rounded-full bg-cyan-200 blur-3xl" />
         </div>
 
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-24 lg:pt-28 lg:pb-32">
-          <div className="max-w-3xl">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-12 lg:pt-24">
+          <div className="max-w-3xl mx-auto text-center">
             <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-full px-3 py-1 text-xs font-medium text-slate-700 mb-6 shadow-sm">
               <Sparkles className="h-3.5 w-3.5 text-brand-600" />
               Built by an MSP, for MSPs
@@ -26,7 +26,7 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
             <p className="text-xl text-slate-600 mb-8 leading-relaxed">
               PSA, RMM, billing, quotes, customer portal, and smart automation — all in one tool. Replace 5 legacy systems and cut your monthly software bill in half.
             </p>
-            <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
                 onClick={() => navigate('/signup')}
                 className="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-8 py-3 rounded-lg transition-colors shadow-lg shadow-brand-600/20"
@@ -41,6 +41,20 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
               </button>
             </div>
             <p className="text-sm text-slate-500 mt-4">No credit card required · Cancel anytime · Full access during trial</p>
+          </div>
+
+          {/* Hero screenshot — main dashboard */}
+          <div className="relative mt-12 lg:mt-16 max-w-6xl mx-auto">
+            <div className="relative rounded-xl bg-gradient-to-br from-brand-100 to-cyan-100 p-2 shadow-2xl ring-1 ring-slate-900/10">
+              <img
+                src="/screenshots/dashboardwallwidgets.png"
+                alt="ForgePSA dashboard with operational widgets"
+                loading="eager"
+                className="rounded-lg w-full h-auto block border border-slate-200"
+              />
+            </div>
+            {/* Gradient fade at the bottom for a more "infinite scroll" feel */}
+            <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-white to-transparent rounded-b-xl pointer-events-none" />
           </div>
         </div>
       </section>

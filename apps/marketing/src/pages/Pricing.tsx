@@ -31,9 +31,12 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
               features={[
                 'Up to 3 techs',
                 'Unlimited tickets & contacts',
-                'All core PSA + RMM features',
+                'All core PSA features',
+                'NinjaRMM sync included',
+                'Pax8 licensing + cost tracking',
                 'Gmail + SMTP email',
                 'Stripe payment links',
+                'Google SSO',
                 'Email support',
               ]}
               cta="Start free trial"
@@ -43,14 +46,18 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
               name="Pro"
               price="$79"
               sub="per tech / month"
-              desc="Growing MSPs that need every integration and the AI assistant."
+              desc="Growing MSPs that need accounting, AI, SLAs, and advanced SSO."
               features={[
-                '4-15 techs',
+                '4–15 techs',
                 'Everything in Starter',
-                'All integrations (QuickBooks, Pax8, ConnectBooster, Ninja, CrewHu)',
-                'AI ticket assistant',
-                'SLA policies + escalation',
-                'Custom SMS via Twilio',
+                'QuickBooks Online sync',
+                'ConnectBooster payments',
+                'CrewHu CSAT surveys',
+                'AI ticket assistant (Claude)',
+                'SLA policies + escalation rules',
+                'Twilio SMS per-tenant',
+                'Microsoft Entra SSO',
+                'ConnectWise / CSV data import',
                 'Priority email + chat support',
               ]}
               cta="Start free trial"
@@ -98,27 +105,31 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                <Row label="Tickets & SLA" s pro ent />
-                <Row label="Time tracking & billability" s pro ent />
+                <Row label="Tickets, tasks, time tracking" s pro ent />
                 <Row label="Contracts & recurring invoicing" s pro ent />
                 <Row label="Customer portal with passkeys" s pro ent />
                 <Row label="Quotes & approvals" s pro ent />
                 <Row label="Product catalog" s pro ent />
                 <Row label="Stripe payment links" s pro ent />
                 <Row label="Gmail / SMTP email" s pro ent />
+                <Row label="Google SSO" s pro ent />
+                <Row label="NinjaRMM integration" s pro ent />
+                <Row label="Pax8 license sync + margin tracking" s pro ent />
                 <Row label="QuickBooks Online sync" pro ent />
-                <Row label="Pax8 license sync" pro ent />
                 <Row label="ConnectBooster payments" pro ent />
-                <Row label="NinjaRMM integration" pro ent />
                 <Row label="CrewHu CSAT surveys" pro ent />
-                <Row label="AI ticket assistant" pro ent />
-                <Row label="Twilio SMS (per-tenant)" pro ent />
+                <Row label="AI ticket assistant (Claude)" pro ent />
+                <Row label="SLA policies" pro ent />
                 <Row label="SLA escalation workflows" pro ent />
+                <Row label="Twilio SMS (per-tenant)" pro ent />
                 <Row label="Microsoft Entra SSO" pro ent />
-                <Row label="Google Workspace SSO" pro ent />
+                <Row label="ConnectWise / CSV data import" pro ent />
+                <Row label="Custom fields on every entity" pro ent />
+                <Row label="Support ticket inbox to ForgePSA" s pro ent />
                 <Row label="SAML 2.0 SSO" ent />
                 <Row label="Dedicated database instance" ent />
-                <Row label="Named CSM + priority support" ent />
+                <Row label="Custom portal subdomain" ent />
+                <Row label="Named CSM + priority SLA response" ent />
               </tbody>
             </table>
           </div>

@@ -34,10 +34,15 @@ export function Privacy({ navigate: _navigate }: { navigate: (p: string) => void
             <li>To detect, prevent, and respond to fraud and abuse</li>
             <li>To comply with legal obligations</li>
           </ul>
-          <p>
-            We do <strong>not</strong> use Customer Data to train AI models. We do <strong>not</strong>{' '}
-            sell your personal information.
-          </p>
+          <div className="bg-brand-50 border border-brand-200 rounded-lg p-4 mt-4">
+            <p className="font-semibold text-brand-900 mb-1">Our commitments, in plain language:</p>
+            <ul className="list-disc pl-5 space-y-1 text-brand-900">
+              <li><strong>We never sell your data.</strong> Not to advertisers, not to data brokers, not to anyone. Ever.</li>
+              <li><strong>We never use Customer Data to train AI models.</strong></li>
+              <li><strong>We never send marketing SMS.</strong> SMS is used only for security (see section 10 below).</li>
+              <li><strong>We never share data with third parties for marketing purposes.</strong></li>
+            </ul>
+          </div>
         </Section>
 
         <Section title="4. Subprocessors">
@@ -88,6 +93,30 @@ export function Privacy({ navigate: _navigate }: { navigate: (p: string) => void
               privacy@forgepsa.com
             </a>
             . We will respond within 30 days.
+          </p>
+        </Section>
+
+        <Section title="7a. Phone numbers &amp; SMS messaging">
+          <p>
+            If you enable multi-factor authentication, your phone number is collected solely for
+            delivering one-time authentication codes and security alerts. We partner with Twilio as
+            our SMS subprocessor; your number is transmitted to Twilio for message delivery and is
+            not stored or used by Twilio for any other purpose.
+          </p>
+          <p className="font-semibold">SMS terms in plain language:</p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>We send SMS <strong>only</strong> for account authentication, MFA codes, password-reset codes, and urgent security alerts.</li>
+            <li><strong>We do not send marketing SMS, ever.</strong> No promotional offers, no product announcements by SMS, no newsletters.</li>
+            <li>Message frequency depends on your activity — typically only when you sign in or change security settings.</li>
+            <li>Standard message and data rates from your carrier may apply. ForgePSA is not responsible for carrier-imposed charges.</li>
+            <li>Reply <strong>STOP</strong> to any ForgePSA SMS to opt out. Opting out will disable SMS-based MFA on your account; you can still use authenticator apps and passkeys.</li>
+            <li>Reply <strong>HELP</strong> for support, or email <a href="mailto:support@forgepsa.com" className="text-brand-600 hover:underline">support@forgepsa.com</a>.</li>
+            <li>You may remove your phone number from your account at any time from Settings → Security.</li>
+            <li>We are not responsible for delivery delays or failures caused by carriers, cellular network outages, or device issues.</li>
+          </ul>
+          <p>
+            We do <strong>not</strong> share or sell phone numbers to third parties for marketing purposes.
+            Phone numbers are never used for any purpose other than the security functions described above.
           </p>
         </Section>
 

@@ -47,9 +47,9 @@ interface Activity {
 // during a pilot, or disable a feature temporarily without downgrading their plan.
 const KNOWN_FLAGS = [
   { key: 'quickbooks', label: 'QuickBooks integration', desc: 'Two-way sync of customers, invoices, payments (default: Pro+)' },
-  { key: 'pax8', label: 'Pax8 integration', desc: 'Product sync, cost tracking, gross-margin reporting (default: Pro+)' },
+  { key: 'pax8', label: 'Pax8 integration', desc: 'Product sync, cost tracking, gross-margin reporting (default: all plans)' },
   { key: 'connectbooster', label: 'ConnectBooster payments', desc: 'MSP-native payment processing (default: Pro+)' },
-  { key: 'ninja_rmm', label: 'NinjaRMM integration', desc: 'Device + patch sync from NinjaOne (default: Pro+)' },
+  { key: 'ninja_rmm', label: 'NinjaRMM integration', desc: 'Device + patch sync from NinjaOne (default: all plans)' },
   { key: 'crewhu', label: 'CrewHu CSAT surveys', desc: 'Automated survey send on ticket close (default: Pro+)' },
   { key: 'ai_assistant', label: 'AI ticket assistant', desc: 'Claude-powered summarization and reply drafting (default: Pro+)' },
   { key: 'sla_policies', label: 'SLA policies', desc: 'Configurable response + resolution targets per priority (default: Pro+)' },

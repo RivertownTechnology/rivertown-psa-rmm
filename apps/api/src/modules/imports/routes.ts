@@ -84,6 +84,24 @@ export async function importsRoutes(fastify: FastifyInstance) {
         }
       }
 
+      // Extra per-row custom fields — applied to EVERY imported customer.
+      // e.g. { territory: 'Southeast', source: 'spring_2026_migration' }
+      let extraFields: Record<string, string> = {};
+      const extraField = file.fields?.extraFields;
+      if (extraField && typeof extraField.value === 'string') {
+        try {
+          const parsedExtra = JSON.parse(extraField.value);
+          if (parsedExtra && typeof parsedExtra === 'object') {
+            for (const [k, v] of Object.entries(parsedExtra)) {
+              if (typeof k === 'string' && k.length > 0) extraFields[k] = String(v ?? '');
+            }
+          }
+        } catch {
+          reply.code(400);
+          return { error: 'INVALID_EXTRA_FIELDS' };
+        }
+      }
+
       let parsed;
       try {
         parsed = parseImportFile(buffer, filename);
@@ -94,6 +112,13 @@ export async function importsRoutes(fastify: FastifyInstance) {
 
       const { rows, errors } = prepareCompanyRows(parsed, mapping);
 
+      // Apply extraFields to every row's customFields so the preview reflects them
+      if (Object.keys(extraFields).length > 0) {
+        for (const r of rows) {
+          r.customer.customFields = { ...extraFields, ...r.customer.customFields };
+        }
+      }
+
       // Return up to first 100 preview rows to keep response small
       const previewRows = rows.slice(0, 100);
 
@@ -103,7 +128,7 @@ export async function importsRoutes(fastify: FastifyInstance) {
         totalRows: parsed.totalRows,
         readyRows: rows.length,
         errorCount: errors.length,
-        errors: errors.slice(0, 100), // cap
+        errors: errors.slice(0, 100),
         preview: previewRows,
       };
     },
@@ -145,6 +170,20 @@ export async function importsRoutes(fastify: FastifyInstance) {
         catch { reply.code(400); return { error: 'INVALID_MAPPING' }; }
       }
 
+      // Extra static fields — written to every imported customer's customFields
+      let extraFields: Record<string, string> = {};
+      const extraField = file.fields?.extraFields;
+      if (extraField && typeof extraField.value === 'string') {
+        try {
+          const parsed = JSON.parse(extraField.value);
+          if (parsed && typeof parsed === 'object') {
+            for (const [k, v] of Object.entries(parsed)) {
+              if (typeof k === 'string' && k.length > 0) extraFields[k] = String(v ?? '');
+            }
+          }
+        } catch { reply.code(400); return { error: 'INVALID_EXTRA_FIELDS' }; }
+      }
+
       let parsed;
       try { parsed = parseImportFile(buffer, filename); }
       catch (err) {
@@ -153,6 +192,13 @@ export async function importsRoutes(fastify: FastifyInstance) {
       }
 
       const { rows, errors } = prepareCompanyRows(parsed, mapping);
+
+      // Apply extraFields to every row's customFields before insert
+      if (Object.keys(extraFields).length > 0) {
+        for (const r of rows) {
+          r.customer.customFields = { ...extraFields, ...r.customer.customFields };
+        }
+      }
 
       // Create a job row first so the audit trail captures even partial imports
       const [job] = await fastify.db

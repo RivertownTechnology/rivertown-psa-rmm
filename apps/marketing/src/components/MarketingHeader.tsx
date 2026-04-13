@@ -1,5 +1,3 @@
-import { Hammer } from 'lucide-react';
-
 export function MarketingHeader({ pathname, navigate }: { pathname: string; navigate: (p: string) => void }) {
   const navItem = (label: string, path: string) => (
     <button
@@ -17,11 +15,8 @@ export function MarketingHeader({ pathname, navigate }: { pathname: string; navi
   return (
     <header className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        <button onClick={() => navigate('/')} className="flex items-center gap-2 font-bold text-lg">
-          <div className="h-8 w-8 rounded-lg bg-brand-600 text-white flex items-center justify-center">
-            <Hammer className="h-5 w-5" />
-          </div>
-          ForgePSA
+        <button onClick={() => navigate('/')} className="flex items-center" aria-label="ForgePSA home">
+          <img src="/logo.svg" alt="ForgePSA" className="h-9 w-auto" />
         </button>
 
         <nav className="hidden md:flex items-center gap-8">

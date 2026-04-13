@@ -39,10 +39,12 @@ export interface Entitlements {
 }
 
 const STARTER_FEATURES: Record<FeatureKey, boolean> = {
+  // Core integrations every MSP needs on day one — included on all plans
+  pax8: true,
+  ninja_rmm: true,
+  // Gated behind Pro+
   quickbooks: false,
-  pax8: false,
   connectbooster: false,
-  ninja_rmm: false,
   crewhu: false,
   ai_assistant: false,
   sla_policies: false,

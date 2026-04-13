@@ -202,6 +202,7 @@ function CompanyImportWizard({ onExit }: { onExit: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [template, setTemplate] = useState<TemplateInfo | null>(null);
   const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [extraFields, setExtraFields] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [result, setResult] = useState<ExecuteResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -214,6 +215,30 @@ function CompanyImportWizard({ onExit }: { onExit: () => void }) {
     });
   }, []);
 
+  // Transition from Upload → Map: quickly preview to discover ACTUAL file headers
+  // (not just the defaults). MapStep then shows every column the file has.
+  async function detectHeadersAndAdvance() {
+    if (!file || !template) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('mapping', JSON.stringify(template.defaultMapping));
+      const res = await apiForm<PreviewResult>('/imports/connectwise/companies/preview', form);
+      const merged: Record<string, string> = {};
+      for (const h of res.headers) {
+        merged[h] = template.defaultMapping[h] ?? 'ignore';
+      }
+      setMapping(merged);
+      setStep('map');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to read file headers');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function runPreview() {
     if (!file) return;
     setLoading(true);
@@ -222,6 +247,7 @@ function CompanyImportWizard({ onExit }: { onExit: () => void }) {
       const form = new FormData();
       form.append('file', file);
       form.append('mapping', JSON.stringify(mapping));
+      form.append('extraFields', JSON.stringify(extraFields));
       const res = await apiForm<PreviewResult>('/imports/connectwise/companies/preview', form);
       setPreview(res);
       setStep('preview');
@@ -240,6 +266,7 @@ function CompanyImportWizard({ onExit }: { onExit: () => void }) {
       const form = new FormData();
       form.append('file', file);
       form.append('mapping', JSON.stringify(mapping));
+      form.append('extraFields', JSON.stringify(extraFields));
       const res = await apiForm<ExecuteResult>('/imports/connectwise/companies/execute', form);
       setResult(res);
       setStep('done');
@@ -285,7 +312,8 @@ function CompanyImportWizard({ onExit }: { onExit: () => void }) {
             file={file}
             setFile={setFile}
             expectedHeaders={template?.expectedHeaders ?? []}
-            onNext={() => setStep('map')}
+            onNext={detectHeadersAndAdvance}
+            loading={loading}
           />
         )}
 
@@ -295,6 +323,8 @@ function CompanyImportWizard({ onExit }: { onExit: () => void }) {
             setMapping={setMapping}
             defaultMapping={template.defaultMapping}
             targetFields={template.targetFields}
+            extraFields={extraFields}
+            setExtraFields={setExtraFields}
             onBack={() => setStep('upload')}
             onNext={runPreview}
             loading={loading}
@@ -337,27 +367,33 @@ function StepLine({ done }: { done: boolean }) {
 }
 
 function UploadStep({
-  file, setFile, expectedHeaders, onNext,
+  file, setFile, expectedHeaders, onNext, loading,
 }: {
   file: File | null;
   setFile: (f: File | null) => void;
   expectedHeaders: string[];
   onNext: () => void;
+  loading?: boolean;
 }) {
   return (
     <div className="space-y-4">
-      <div className="bg-muted/50 border rounded-md p-4">
-        <div className="text-sm font-medium mb-2 flex items-center gap-2">
+      <div className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md p-4">
+        <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2 flex items-center gap-2">
           <FileSpreadsheet className="h-4 w-4" />
           Expected ConnectWise columns
         </div>
         <div className="flex flex-wrap gap-1.5">
           {expectedHeaders.map((h) => (
-            <span key={h} className="text-xs bg-white border px-2 py-0.5 rounded font-mono">{h}</span>
+            <span
+              key={h}
+              className="text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 px-2 py-0.5 rounded font-mono"
+            >
+              {h}
+            </span>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground mt-2">
-          If your file has different headers you'll remap them in the next step.
+        <p className="text-xs text-slate-500 mt-2">
+          If your file has different headers we'll detect them and let you map them in the next step.
         </p>
       </div>
 
@@ -387,24 +423,31 @@ function UploadStep({
       </label>
 
       <div className="flex justify-end">
-        <Button onClick={onNext} disabled={!file}>Next: map columns <ArrowRight className="h-4 w-4 ml-1" /></Button>
+        <Button onClick={onNext} disabled={!file || loading}>
+          {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+          Next: map columns <ArrowRight className="h-4 w-4 ml-1" />
+        </Button>
       </div>
     </div>
   );
 }
 
 function MapStep({
-  mapping, setMapping, defaultMapping, targetFields, onBack, onNext, loading,
+  mapping, setMapping, defaultMapping, targetFields, extraFields, setExtraFields, onBack, onNext, loading,
 }: {
   mapping: Record<string, string>;
   setMapping: (m: Record<string, string>) => void;
   defaultMapping: Record<string, string>;
   targetFields: readonly string[];
+  extraFields: Record<string, string>;
+  setExtraFields: (f: Record<string, string>) => void;
   onBack: () => void;
   onNext: () => void;
   loading: boolean;
 }) {
   const [customKey, setCustomKey] = useState<Record<string, string>>({});
+  const [newExtraKey, setNewExtraKey] = useState('');
+  const [newExtraValue, setNewExtraValue] = useState('');
 
   const commonOptions = [
     { v: 'ignore', label: 'Skip this column' },
@@ -427,29 +470,48 @@ function MapStep({
     { v: '__custom', label: 'Custom field…' },
   ];
 
+  function addExtraField() {
+    const key = newExtraKey.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    if (!key) return;
+    setExtraFields({ ...extraFields, [key]: newExtraValue });
+    setNewExtraKey('');
+    setNewExtraValue('');
+  }
+
+  function removeExtraField(key: string) {
+    const next = { ...extraFields };
+    delete next[key];
+    setExtraFields(next);
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="text-sm text-muted-foreground">
-        We auto-detected ConnectWise defaults. Review and adjust if your export has different column names.
-        Anything mapped to <em>Custom field</em> becomes a tenant-defined field that will be created automatically.
+        Every column in your file is listed below. Columns ForgePSA recognized are pre-mapped;
+        anything unmapped goes to <em>Skip</em>. Pick <em>Custom field…</em> to create a new
+        tenant-defined field on the fly.
       </div>
 
-      <div className="border rounded-md overflow-hidden">
+      {/* Mapping table — explicit colors so headers/cells are readable in any theme */}
+      <div className="border border-slate-300 dark:border-slate-700 rounded-md overflow-hidden bg-white dark:bg-slate-900">
         <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th className="text-left px-3 py-2 font-medium">File column</th>
-              <th className="text-left px-3 py-2 font-medium">Maps to</th>
+          <thead>
+            <tr className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs uppercase tracking-wide border-b border-slate-300 dark:border-slate-700">
+              <th className="text-left px-3 py-2.5 font-semibold w-5/12">File column</th>
+              <th className="text-left px-3 py-2.5 font-semibold">Maps to</th>
             </tr>
           </thead>
-          <tbody className="divide-y">
-            {Object.keys(mapping).map((header) => {
+          <tbody>
+            {Object.keys(mapping).map((header, i) => {
               const target = mapping[header];
               const isCustom = target?.startsWith('custom:');
               const currentKey = isCustom ? target.slice('custom:'.length) : '';
               return (
-                <tr key={header}>
-                  <td className="px-3 py-2 font-mono text-xs">{header}</td>
+                <tr
+                  key={header}
+                  className={`${i % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50 dark:bg-slate-800/50'} border-b border-slate-200 dark:border-slate-800 last:border-0`}
+                >
+                  <td className="px-3 py-2.5 font-mono text-sm text-slate-900 dark:text-slate-100 font-medium">{header}</td>
                   <td className="px-3 py-2">
                     <div className="flex gap-2">
                       <select
@@ -464,7 +526,7 @@ function MapStep({
                             setMapping({ ...mapping, [header]: v });
                           }
                         }}
-                        className="flex-1 h-8 px-2 rounded border border-input bg-background text-sm"
+                        className="flex-1 h-9 px-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm text-slate-900 dark:text-slate-100"
                       >
                         {commonOptions.map((o) => (
                           <option key={o.v} value={o.v}>{o.label}</option>
@@ -475,7 +537,7 @@ function MapStep({
                       </select>
                       {isCustom && (
                         <Input
-                          className="h-8 w-48"
+                          className="h-9 w-48 font-mono text-xs"
                           placeholder="field_key"
                           value={currentKey}
                           onChange={(e) => {
@@ -494,8 +556,50 @@ function MapStep({
         </table>
       </div>
 
-      <div className="flex justify-between items-center">
-        <Button variant="ghost" onClick={() => setMapping(defaultMapping)}>Reset to defaults</Button>
+      {/* Extra fields — applied to every imported row */}
+      <div className="border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-900 overflow-hidden">
+        <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2.5 border-b border-slate-300 dark:border-slate-700">
+          <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">Apply to every row (optional)</div>
+          <div className="text-xs text-slate-500 mt-0.5">
+            Add extra fields that aren't in your file. Values are written as custom fields on every imported company —
+            useful for tagging (e.g. <code className="font-mono bg-white dark:bg-slate-950 px-1 rounded">import_batch=spring_2026</code>).
+          </div>
+        </div>
+        <div className="p-3 space-y-2">
+          {Object.entries(extraFields).map(([key, value]) => (
+            <div key={key} className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/50 rounded-md px-3 py-2">
+              <code className="font-mono text-xs font-medium text-slate-900 dark:text-slate-100 w-40 truncate">{key}</code>
+              <span className="text-slate-400">=</span>
+              <span className="flex-1 text-sm text-slate-800 dark:text-slate-200 truncate">{value || <em className="text-slate-500">(empty)</em>}</span>
+              <button onClick={() => removeExtraField(key)} className="text-slate-400 hover:text-red-500 transition-colors" aria-label="Remove field">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          <div className="flex gap-2 pt-1">
+            <Input
+              placeholder="field_key"
+              className="h-9 w-48 font-mono text-xs"
+              value={newExtraKey}
+              onChange={(e) => setNewExtraKey(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && newExtraKey) { e.preventDefault(); addExtraField(); } }}
+            />
+            <Input
+              placeholder="value applied to every row"
+              className="h-9 flex-1"
+              value={newExtraValue}
+              onChange={(e) => setNewExtraValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && newExtraKey) { e.preventDefault(); addExtraField(); } }}
+            />
+            <Button size="sm" onClick={addExtraField} disabled={!newExtraKey.trim()}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-between items-center pt-1">
+        <Button variant="ghost" onClick={() => setMapping(defaultMapping)}>Reset mapping to defaults</Button>
         <div className="flex gap-2">
           <Button variant="outline" onClick={onBack}><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
           <Button onClick={onNext} disabled={loading}>

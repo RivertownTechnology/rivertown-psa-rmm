@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="ForgePSA">
+  <defs>
+    <linearGradient id="fg-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1e3a8a"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded-square brand background -->
+  <rect width="64" height="64" rx="14" fill="url(#fg-grad)"/>
+  <!-- Stylized anvil + hammer mark in white -->
+  <g fill="#ffffff" stroke="none">
+    <!-- Hammer head (angled, striking position) -->
+    <path d="M 20 16 L 40 16 L 44 22 L 40 28 L 20 28 Z" opacity="0.95"/>
+    <!-- Hammer handle -->
+    <rect x="29" y="24" width="6" height="22" rx="2" transform="rotate(-18 32 35)"/>
+    <!-- Anvil base — horizontal with a small point -->
+    <path d="M 12 48 L 52 48 L 54 52 L 10 52 Z"/>
+    <!-- Anvil horn (left extension) -->
+    <path d="M 10 52 L 6 52 L 8 50 L 10 50 Z"/>
+    <!-- Spark accent -->
+    <circle cx="48" cy="22" r="1.5" opacity="0.7"/>
+    <circle cx="50" cy="26" r="1" opacity="0.5"/>
+  </g>
+</svg>

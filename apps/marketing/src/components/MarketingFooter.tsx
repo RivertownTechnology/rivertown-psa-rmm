@@ -1,15 +1,10 @@
-import { Hammer } from 'lucide-react';
-
 export function MarketingFooter({ navigate }: { navigate: (p: string) => void }) {
   return (
     <footer className="bg-slate-950 text-slate-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid gap-8 md:grid-cols-4">
         <div>
-          <button onClick={() => navigate('/')} className="flex items-center gap-2 font-bold text-lg text-white mb-3">
-            <div className="h-8 w-8 rounded-lg bg-brand-600 text-white flex items-center justify-center">
-              <Hammer className="h-5 w-5" />
-            </div>
-            ForgePSA
+          <button onClick={() => navigate('/')} className="flex items-center mb-3" aria-label="ForgePSA home">
+            <img src="/logo-dark.svg" alt="ForgePSA" className="h-9 w-auto" />
           </button>
           <p className="text-sm text-slate-400">PSA + RMM for modern MSPs. Built to replace expensive legacy tools.</p>
         </div>

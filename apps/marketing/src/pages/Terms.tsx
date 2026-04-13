@@ -53,7 +53,55 @@ export function Terms({ navigate: _navigate }: { navigate: (p: string) => void }
             consents required from your own customers.
           </p>
           <p>
-            We do not sell Customer Data. We do not use Customer Data to train AI models.
+            <strong>We do not sell Customer Data. Ever.</strong> We do not share Customer Data with third
+            parties for marketing purposes. We do not use Customer Data to train AI models. These commitments
+            are not mere policies we reserve the right to change at will — they are core product
+            principles, and any material change would require 30 days' advance notice with an opportunity
+            to export and terminate.
+          </p>
+        </Section>
+
+        <Section title="5a. SMS messaging">
+          <p>
+            ForgePSA uses SMS <strong>only</strong> for security purposes: multi-factor authentication codes,
+            password-reset codes, and security alerts about suspicious activity. <strong>We do not send
+            marketing SMS.</strong>
+          </p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>
+              <strong>Consent:</strong> When you opt into SMS-based MFA, you consent to receive authentication
+              and security SMS at the phone number you provide. Consent to receive these messages is not a
+              condition of any purchase.
+            </li>
+            <li>
+              <strong>Frequency:</strong> Variable — typically only when you sign in, change security settings,
+              or when we detect suspicious activity. Often zero messages per month.
+            </li>
+            <li>
+              <strong>Carrier charges:</strong> Standard message and data rates may apply. ForgePSA is not
+              responsible for charges imposed by your mobile carrier.
+            </li>
+            <li>
+              <strong>Opt out:</strong> Reply <strong>STOP</strong> to any SMS from us to unsubscribe. Opting
+              out will disable SMS-based MFA on your account; authenticator apps and passkeys remain available.
+              You can re-enable SMS MFA at any time from Settings → Security.
+            </li>
+            <li>
+              <strong>Help:</strong> Reply <strong>HELP</strong> for assistance, or email{' '}
+              <a href="mailto:support@forgepsa.com" className="text-brand-600 hover:underline">support@forgepsa.com</a>.
+            </li>
+            <li>
+              <strong>Supported carriers:</strong> All major US carriers (AT&T, T-Mobile, Verizon, and others).
+              Carriers are not liable for delayed or undelivered messages.
+            </li>
+            <li>
+              <strong>No resale or sharing:</strong> Phone numbers are never sold, rented, or shared with third
+              parties for marketing. They are transmitted only to Twilio, our SMS delivery subprocessor.
+            </li>
+          </ul>
+          <p>
+            For full details on how phone numbers are collected, stored, and processed, see our{' '}
+            <a href="/privacy" className="text-brand-600 hover:underline">Privacy Policy</a>.
           </p>
         </Section>
 

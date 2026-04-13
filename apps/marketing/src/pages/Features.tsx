@@ -36,6 +36,8 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
           'Internal notes vs. customer-visible replies',
           'Bulk actions, saved filters, smart views',
         ]}
+        screenshot="/screenshots/tickets-screen-all-tickets.png"
+        screenshotAlt="Tickets list view in ForgePSA"
       />
 
       {/* Billing */}
@@ -53,22 +55,26 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
           'Stripe, QuickBooks Payments, ConnectBooster',
         ]}
         reversed
+        screenshot="/screenshots/invoiceview.png"
+        screenshotAlt="Invoice detail view with pay-now link"
       />
 
       {/* Customer Portal */}
       <FeatureSection
         icon={<Users />}
-        eyebrow="Customer Portal"
-        title="A portal your customers will actually log in to"
-        desc="White-labeled portal with passkey sign-in, ticket submission, invoice payment, and quote approval — all in one place."
+        eyebrow="Customers"
+        title="Every customer, at a glance"
+        desc="Customer, site, and contact records — plus ticket history, contract status, outstanding invoices, and custom fields that fit how you run."
         bullets={[
-          'Passkey (WebAuthn) sign-in — no passwords needed',
-          'SMS MFA via Twilio as a fallback',
-          'Submit + track tickets with replies',
-          'View and pay invoices with one click',
-          'Approve quotes online, convert to contracts',
-          'Fully white-labeled: your logo, your colors, your domain',
+          'Unlimited customers, sites, and contacts',
+          'Custom fields tenant-defined (industry, territory, anything)',
+          'Bulk import from ConnectWise, Autotask, CSV',
+          'Portal access per-contact with role-based permissions',
+          'Passkey (WebAuthn) + SMS MFA on the customer portal',
+          'Fully white-labeled portal — your logo, your colors',
         ]}
+        screenshot="/screenshots/customers-all-customersview.png"
+        screenshotAlt="Customers list view in ForgePSA"
       />
 
       {/* Time Tracking */}
@@ -86,22 +92,26 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
           'Flows directly into invoicing',
         ]}
         reversed
+        screenshot="/screenshots/ticket-ticket-view.png"
+        screenshotAlt="Ticket detail showing time entries and billability"
       />
 
-      {/* Product Catalog */}
+      {/* Contracts + Product Catalog */}
       <FeatureSection
         icon={<Package />}
-        eyebrow="Product Catalog"
+        eyebrow="Contracts & Catalog"
         title="Sell licenses and services without the spreadsheet"
-        desc="Track what you sell, what it costs, and what margin you're making — with live Pax8 sync and QuickBooks mapping."
+        desc="Contract agreements built from a reusable product catalog. Track what you sell, what it costs, and the gross margin on every line — Pax8 synced, QuickBooks mapped."
         bullets={[
           'Pax8 product sync with cost tracking',
           'Gross-margin reporting per product and per client',
           'QuickBooks Online item mapping',
           'Recurring license billing tied to contracts',
           'Markup rules and per-client pricing',
-          'Product-level tax class configuration',
+          'Block-hours, flat-rate, per-user, and per-device contracts',
         ]}
+        screenshot="/screenshots/contracts-contractview.png"
+        screenshotAlt="Contract detail view with line items and margin"
       />
 
       {/* Quotes */}
@@ -142,8 +152,8 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
             <Integration icon={<BarChart3 />} name="NinjaRMM" desc="Device, patch, and monitoring sync into the PSA." />
             <Integration icon={<Sparkles />} name="Anthropic Claude" desc="AI that summarizes tickets and drafts replies." />
             <Integration icon={<Users />} name="CrewHu" desc="Automated CSAT surveys on ticket close." />
-            <Integration icon={<Shield />} name="Microsoft Entra" desc="OAuth SSO for your techs (Pro tier)." />
-            <Integration icon={<Shield />} name="Google Workspace" desc="OAuth SSO for your techs (Pro tier)." />
+            <Integration icon={<Shield />} name="Microsoft Entra" desc="OAuth SSO for your techs (Pro plan)." />
+            <Integration icon={<Shield />} name="Google Workspace" desc="OAuth SSO for your techs (every plan)." />
           </div>
         </div>
       </section>
@@ -197,10 +207,11 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
 }
 
 function FeatureSection({
-  icon, eyebrow, title, desc, bullets, reversed,
+  icon, eyebrow, title, desc, bullets, reversed, screenshot, screenshotAlt,
 }: {
   icon: React.ReactNode; eyebrow: string; title: string; desc: string;
   bullets: string[]; reversed?: boolean;
+  screenshot?: string; screenshotAlt?: string;
 }) {
   return (
     <section className="py-20 bg-white">
@@ -222,8 +233,22 @@ function FeatureSection({
               ))}
             </ul>
           </div>
-          <div className={`${reversed ? 'lg:col-start-1 lg:row-start-1' : ''} bg-gradient-to-br from-brand-50 to-slate-100 rounded-2xl h-80 border border-slate-200 flex items-center justify-center`}>
-            <div className="text-slate-400 text-sm">Screenshot</div>
+          <div className={reversed ? 'lg:col-start-1 lg:row-start-1' : ''}>
+            {screenshot ? (
+              // Soft gradient backdrop + subtle border on the screenshot for a "framed" look
+              <div className="relative rounded-2xl bg-gradient-to-br from-brand-50 to-slate-100 p-3 shadow-xl ring-1 ring-slate-900/5">
+                <img
+                  src={screenshot}
+                  alt={screenshotAlt ?? title}
+                  loading="lazy"
+                  className="rounded-lg w-full h-auto block border border-slate-200 shadow-sm"
+                />
+              </div>
+            ) : (
+              <div className="bg-gradient-to-br from-brand-50 to-slate-100 rounded-2xl h-80 border border-slate-200 flex items-center justify-center">
+                <div className="text-slate-400 text-sm">Screenshot</div>
+              </div>
+            )}
           </div>
         </div>
       </div>
