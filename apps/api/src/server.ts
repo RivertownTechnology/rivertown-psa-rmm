@@ -66,12 +66,18 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   const { initRedis } = await import('./common/token-blacklist.js');
   initRedis(config.REDIS_URL);
 
-  // Raw body for Stripe webhooks
+  // Raw body for Stripe webhooks. Also tolerates empty bodies on POSTs that
+  // don't need a payload (e.g. /admin/tenants/:id/impersonate) — without this,
+  // JSON.parse('') throws "Unexpected end of JSON input" before the handler runs
+  // and the request 500s before any of our route handlers can catch it.
   fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    (req as any).rawBody = body;
+    const asString = body as string;
+    if (!asString || asString.trim() === '') {
+      return done(null, {});
+    }
     try {
-      const json = JSON.parse(body as string);
-      (req as any).rawBody = body;
-      done(null, json);
+      done(null, JSON.parse(asString));
     } catch (err) {
       done(err as Error, undefined);
     }
