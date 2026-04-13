@@ -103,11 +103,14 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
       <section className="py-24 bg-slate-50 dark:bg-slate-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white mb-4">Simple, transparent pricing</h2>
-          <p className="text-lg text-slate-600 dark:text-slate-300 mb-10">Starts at $49/tech/month. All features. All integrations.</p>
+          <p className="text-lg text-slate-600 dark:text-slate-300 mb-2">Starts at $29/tech/month. All features. All integrations.</p>
+          <div className="inline-flex items-center gap-2 bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-full px-3 py-1 text-xs font-semibold mb-10">
+            🎉 Launch pricing — locked in for life
+          </div>
 
           <div className="grid gap-4 sm:grid-cols-3 max-w-4xl mx-auto mb-10">
-            <PricingSummary name="Starter" price="$49" desc="Solo operators + small teams (1-3 techs)" />
-            <PricingSummary name="Pro" price="$79" featured desc="Growing MSPs (4-15 techs)" />
+            <PricingSummary name="Starter" price="$29" originalPrice="$49" desc="Solo operators + small teams (1-3 techs)" />
+            <PricingSummary name="Pro" price="$49" originalPrice="$79" featured desc="Growing MSPs (4-15 techs)" />
             <PricingSummary name="Enterprise" price="Custom" desc="16+ techs, dedicated instance" />
           </div>
 

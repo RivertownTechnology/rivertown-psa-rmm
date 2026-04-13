@@ -39,7 +39,9 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
           <div className="grid gap-6 lg:grid-cols-3">
             <Plan
               name="Starter"
-              price="$49"
+              price="$29"
+              originalPrice="$49"
+              introBadge="Launch pricing"
               sub="per tech / month"
               desc="Solo operators and small teams who want a modern PSA without the legacy bloat."
               features={[
@@ -58,7 +60,9 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
             />
             <Plan
               name="Pro"
-              price="$79"
+              price="$49"
+              originalPrice="$79"
+              introBadge="Launch pricing"
               sub="per tech / month"
               desc="Growing MSPs that need accounting, AI, SLAs, and advanced SSO."
               features={[
@@ -185,10 +189,12 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
 }
 
 function Plan({
-  name, price, sub, desc, features, cta, onCta, featured,
+  name, price, originalPrice, introBadge, sub, desc, features, cta, onCta, featured,
 }: {
   name: string; price: string; sub: string; desc: string;
   features: string[]; cta: string; onCta: () => void; featured?: boolean;
+  originalPrice?: string;
+  introBadge?: string;
 }) {
   return (
     <div
@@ -198,14 +204,29 @@ function Plan({
           : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700'
       }`}
     >
-      {featured && (
-        <div className="inline-block bg-brand-600 text-white text-xs font-semibold px-2 py-1 rounded mb-4">
-          MOST POPULAR
-        </div>
-      )}
+      <div className="flex items-center gap-2 flex-wrap mb-4">
+        {featured && (
+          <div className="inline-block bg-brand-600 text-white text-xs font-semibold px-2 py-1 rounded">
+            MOST POPULAR
+          </div>
+        )}
+        {introBadge && (
+          <div className={`inline-block text-xs font-semibold px-2 py-1 rounded ${
+            featured ? 'bg-amber-400 text-amber-950' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800'
+          }`}>
+            {introBadge}
+          </div>
+        )}
+      </div>
       <div className={`text-sm font-semibold mb-2 ${featured ? 'text-brand-300' : 'text-brand-600 dark:text-brand-400'}`}>{name}</div>
-      <div className="flex items-baseline gap-1 mb-1">
-        {/* Explicit text colors on the price so it's readable in both modes regardless of body inheritance */}
+      <div className="flex items-baseline gap-2 mb-1 flex-wrap">
+        {originalPrice && (
+          <div className={`text-2xl font-bold line-through ${
+            featured ? 'text-slate-500' : 'text-slate-400 dark:text-slate-500'
+          }`}>
+            {originalPrice}
+          </div>
+        )}
         <div className={`text-5xl font-bold ${featured ? 'text-white' : 'text-slate-900 dark:text-white'}`}>{price}</div>
       </div>
       <div className={`text-sm mb-4 ${featured ? 'text-slate-400' : 'text-slate-500 dark:text-slate-400'}`}>{sub}</div>
