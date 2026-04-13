@@ -9,6 +9,7 @@ import { FAQ } from './pages/FAQ';
 import { Support } from './pages/Support';
 import { MarketingHeader } from './components/MarketingHeader';
 import { MarketingFooter } from './components/MarketingFooter';
+import { CookieConsent } from './components/CookieConsent';
 
 export function App() {
   const [pathname, setPathname] = useState(window.location.pathname);
@@ -50,14 +51,15 @@ export function App() {
 
   // Signup has its own full-page layout
   if (pathname === '/signup') {
-    return <>{content}</>;
+    return <>{content}<CookieConsent /></>;
   }
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 flex flex-col">
+    <div className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">
       <MarketingHeader pathname={pathname} navigate={navigate} />
       <main className="flex-1">{content}</main>
       <MarketingFooter navigate={navigate} />
+      <CookieConsent />
     </div>
   );
 }

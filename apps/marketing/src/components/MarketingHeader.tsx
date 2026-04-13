@@ -1,9 +1,16 @@
+import { useState } from 'react';
+import { Menu, X } from 'lucide-react';
+
 export function MarketingHeader({ pathname, navigate }: { pathname: string; navigate: (p: string) => void }) {
+  const [open, setOpen] = useState(false);
+
   const navItem = (label: string, path: string) => (
     <button
-      onClick={() => navigate(path)}
-      className={`text-sm font-medium hover:text-slate-900 transition-colors ${
-        pathname === path ? 'text-slate-900' : 'text-slate-600'
+      onClick={() => { navigate(path); setOpen(false); }}
+      className={`text-sm font-medium transition-colors ${
+        pathname === path
+          ? 'text-slate-900 dark:text-white'
+          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
       }`}
     >
       {label}
@@ -13,34 +20,82 @@ export function MarketingHeader({ pathname, navigate }: { pathname: string; navi
   const appUrl = (import.meta as any).env?.VITE_APP_URL ?? 'https://app.forgepsa.com';
 
   return (
-    <header className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-slate-200">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        <button onClick={() => navigate('/')} className="flex items-center" aria-label="ForgePSA home">
-          <img src="/logo.svg" alt="ForgePSA" className="h-9 w-auto" />
+    <header className="sticky top-0 z-40 bg-white/80 dark:bg-slate-950/80 backdrop-blur border-b border-slate-200 dark:border-slate-800">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+        <button onClick={() => { navigate('/'); setOpen(false); }} className="flex items-center shrink-0" aria-label="ForgePSA home">
+          <img src="/forgepsa-logo.png" alt="ForgePSA" className="h-10 sm:h-12 w-auto" />
         </button>
 
-        <nav className="hidden md:flex items-center gap-8">
+        {/* Desktop nav */}
+        <nav className="hidden md:flex items-center gap-6 lg:gap-8">
           {navItem('Features', '/features')}
           {navItem('Pricing', '/pricing')}
           {navItem('FAQ', '/faq')}
           {navItem('Support', '/support')}
         </nav>
 
-        <div className="flex items-center gap-2">
+        {/* Desktop CTAs */}
+        <div className="hidden sm:flex items-center gap-2">
           <a
             href={appUrl}
-            className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-900 font-semibold text-sm px-4 py-2 rounded-lg transition-colors"
+            className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-semibold text-sm px-3 lg:px-4 py-2 rounded-lg transition-colors"
           >
             Sign in
           </a>
           <button
             onClick={() => navigate('/signup')}
-            className="bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm px-4 py-2 rounded-lg transition-colors"
+            className="bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm px-3 lg:px-4 py-2 rounded-lg transition-colors"
           >
             Start free trial
           </button>
         </div>
+
+        {/* Mobile menu toggle */}
+        <button
+          onClick={() => setOpen(!open)}
+          className="sm:hidden inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+          aria-label={open ? 'Close menu' : 'Open menu'}
+        >
+          {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
       </div>
+
+      {/* Mobile dropdown */}
+      {open && (
+        <div className="sm:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+          <nav className="max-w-7xl mx-auto px-4 py-3 flex flex-col gap-1">
+            <MobileNavLink onClick={() => { navigate('/features'); setOpen(false); }}>Features</MobileNavLink>
+            <MobileNavLink onClick={() => { navigate('/pricing'); setOpen(false); }}>Pricing</MobileNavLink>
+            <MobileNavLink onClick={() => { navigate('/faq'); setOpen(false); }}>FAQ</MobileNavLink>
+            <MobileNavLink onClick={() => { navigate('/support'); setOpen(false); }}>Support</MobileNavLink>
+            <div className="border-t border-slate-200 dark:border-slate-800 mt-2 pt-3 flex flex-col gap-2">
+              <a
+                href={appUrl}
+                className="text-center bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-semibold text-sm px-4 py-2.5 rounded-lg"
+              >
+                Sign in
+              </a>
+              <button
+                onClick={() => { navigate('/signup'); setOpen(false); }}
+                className="bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm px-4 py-2.5 rounded-lg"
+              >
+                Start free trial
+              </button>
+            </div>
+          </nav>
+        </div>
+      )}
     </header>
+  );
+}
+
+function MobileNavLink({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-left text-base font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white px-3 py-2.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800"
+    >
+      {children}
+    </button>
   );
 }

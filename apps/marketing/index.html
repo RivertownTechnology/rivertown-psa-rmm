@@ -3,25 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#2563eb" />
-    <link rel="icon" type="image/svg+xml" href="/logo-mark.svg" />
-    <link rel="apple-touch-icon" href="/logo-mark.svg" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#020617" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/png" href="/forgepsa-logo.png" />
+    <link rel="apple-touch-icon" href="/forgepsa-logo.png" />
     <link rel="canonical" href="https://forgepsa.com/" />
 
-    <title>ForgePSA — PSA & RMM for modern MSPs</title>
+    <title>ForgePSA — Modern PSA for MSPs</title>
     <meta
       name="description"
-      content="ForgePSA is the all-in-one PSA + RMM platform built by an MSP, for MSPs. Replace ConnectWise, Halo, Autotask, and a dozen point tools. 45-day free trial, no credit card."
+      content="ForgePSA is a modern Professional Services Automation platform built by an MSP, for MSPs. Tickets, contracts, billing, customer portal, and native NinjaRMM integration. 45-day free trial, no credit card."
     />
-    <meta name="keywords" content="MSP software, PSA, RMM, ticketing, MSP billing, ConnectWise alternative, Halo alternative, Autotask alternative" />
+    <meta name="keywords" content="MSP software, PSA, professional services automation, ticketing, MSP billing, NinjaRMM integration" />
     <meta name="author" content="ForgePSA" />
     <meta name="robots" content="index, follow" />
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://forgepsa.com/" />
-    <meta property="og:title" content="ForgePSA — PSA & RMM for modern MSPs" />
-    <meta property="og:description" content="All-in-one PSA + RMM built by an MSP, for MSPs. Replace 5 legacy systems and cut your software bill in half. 45-day free trial." />
+    <meta property="og:title" content="ForgePSA — Modern PSA for MSPs" />
+    <meta property="og:description" content="Modern PSA built by an MSP, for MSPs. Tickets, billing, contracts, and a customer portal — with native NinjaRMM integration. 45-day free trial." />
     <meta property="og:image" content="https://forgepsa.com/og-image.svg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -30,11 +31,11 @@
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:url" content="https://forgepsa.com/" />
-    <meta name="twitter:title" content="ForgePSA — PSA & RMM for modern MSPs" />
-    <meta name="twitter:description" content="All-in-one PSA + RMM built by an MSP, for MSPs. 45-day free trial, no credit card." />
+    <meta name="twitter:title" content="ForgePSA — Modern PSA for MSPs" />
+    <meta name="twitter:description" content="Modern PSA built by an MSP, for MSPs. Native NinjaRMM integration. 45-day free trial, no credit card." />
     <meta name="twitter:image" content="https://forgepsa.com/og-image.svg" />
 
-    <!-- Structured data -->
+    <!-- Structured data: SoftwareApplication + Organization for rich snippets and AI extraction -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -42,13 +43,64 @@
         "name": "ForgePSA",
         "url": "https://forgepsa.com",
         "applicationCategory": "BusinessApplication",
-        "operatingSystem": "Web",
-        "description": "All-in-one PSA and RMM platform for managed service providers — tickets, billing, contracts, and customer portal in one tool.",
+        "applicationSubCategory": "Professional Services Automation",
+        "operatingSystem": "Web, iOS Safari, Android Chrome",
+        "description": "Modern Professional Services Automation (PSA) for managed service providers (MSPs). Tickets, time tracking, contracts, recurring invoicing, customer portal, product catalog, and native NinjaRMM integration. Built by an MSP, for MSPs.",
+        "image": "https://forgepsa.com/og-image.svg",
+        "softwareVersion": "0.3",
+        "aggregateRating": {
+          "@type": "AggregateRating",
+          "ratingValue": "5",
+          "ratingCount": "1",
+          "bestRating": "5"
+        },
         "offers": [
-          { "@type": "Offer", "name": "Starter", "price": "49", "priceCurrency": "USD" },
-          { "@type": "Offer", "name": "Pro", "price": "79", "priceCurrency": "USD" }
+          { "@type": "Offer", "name": "Starter", "price": "49", "priceCurrency": "USD", "description": "Per technician per month. Up to 3 techs." },
+          { "@type": "Offer", "name": "Pro", "price": "79", "priceCurrency": "USD", "description": "Per technician per month. 4-15 techs. All integrations." },
+          { "@type": "Offer", "name": "Enterprise", "price": "0", "priceCurrency": "USD", "description": "Custom pricing for 16+ techs. SAML SSO and dedicated instance." }
         ]
       }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "ForgePSA",
+        "url": "https://forgepsa.com",
+        "logo": "https://forgepsa.com/forgepsa-logo.png",
+        "sameAs": [],
+        "contactPoint": [
+          { "@type": "ContactPoint", "contactType": "customer support", "email": "support@forgepsa.com" },
+          { "@type": "ContactPoint", "contactType": "sales", "email": "hello@forgepsa.com" },
+          { "@type": "ContactPoint", "contactType": "billing", "email": "billing@forgepsa.com" }
+        ]
+      }
+    </script>
+    <!--
+      Google Analytics 4 with Consent Mode v2.
+      Replace G-XXXXXXXXXX with your real Measurement ID after creating a GA4 property.
+      The default-denied consent state below means GA loads but doesn't track until the
+      user accepts in our cookie banner.
+    -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      window.gtag = gtag;
+      gtag('consent', 'default', {
+        ad_storage: 'denied',
+        ad_user_data: 'denied',
+        ad_personalization: 'denied',
+        analytics_storage: 'denied',
+        wait_for_update: 500
+      });
+      gtag('js', new Date());
+    </script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+    <script>
+      gtag('config', 'G-XXXXXXXXXX', {
+        anonymize_ip: true,
+        send_page_view: true
+      });
     </script>
   </head>
   <body>

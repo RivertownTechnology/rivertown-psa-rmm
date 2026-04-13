@@ -2,8 +2,13 @@ import {
   Ticket, Receipt, Users, Clock, BarChart3, Zap,
   Shield, Sparkles, Package, DollarSign, Mail, Check,
 } from 'lucide-react';
+import { useDocumentTitle } from '@/lib/useDocumentTitle';
 
 export function Landing({ navigate }: { navigate: (p: string) => void }) {
+  useDocumentTitle(
+    'ForgePSA — Modern PSA Software for MSPs',
+    'Modern Professional Services Automation for managed service providers. Tickets, billing, contracts, customer portal, and native NinjaRMM integration. 45-day free trial.',
+  );
   return (
     <>
       {/* Hero */}
@@ -21,10 +26,11 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
               Built by an MSP, for MSPs
             </div>
             <h1 className="text-4xl md:text-6xl font-bold tracking-tight text-slate-900 mb-6">
-              The all-in-one platform your <span className="text-brand-600">MSP</span> has been waiting for.
+              The modern <span className="text-brand-600">PSA</span> built for how MSPs actually work.
             </h1>
             <p className="text-xl text-slate-600 mb-8 leading-relaxed">
-              PSA, RMM, billing, quotes, customer portal, and smart automation — all in one tool. Replace 5 legacy systems and cut your monthly software bill in half.
+              Tickets, contracts, billing, quotes, and a customer portal — in one tool that connects
+              cleanly to NinjaRMM (with more RMM integrations on the way).
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
@@ -63,9 +69,10 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
       <section className="py-24 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Everything you need to run your MSP</h2>
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Everything an MSP needs in one PSA</h2>
             <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-              Replace ConnectWise, Halo, Autotask, and a dozen point tools. ForgePSA ships with the features MSPs actually use.
+              Modern ticketing, time tracking, contracts, invoicing, a customer portal, and the integrations
+              MSPs actually use day to day.
             </p>
           </div>
 
@@ -87,8 +94,8 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
       <section className="py-16 bg-slate-950 text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid gap-8 md:grid-cols-4 text-center">
           <Stat value="45 days" label="Free trial, no card required" />
-          <Stat value="5-in-1" label="Replace PSA + RMM + billing + portal + accounting sync" />
           <Stat value="< 5 min" label="From signup to first ticket" />
+          <Stat value="NinjaRMM" label="Native sync today, more RMMs coming" />
           <Stat value="$0" label="Setup fees. Ever." />
         </div>
       </section>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { useDocumentTitle } from '@/lib/useDocumentTitle';
 
 type FAQItem = { q: string; a: React.ReactNode };
 
@@ -60,8 +61,12 @@ const SECTIONS: Section[] = [
         a: 'QuickBooks Online (two-way sync of customers, invoices, payments). QuickBooks Desktop via Web Connector is on the roadmap.',
       },
       {
+        q: 'Is ForgePSA an RMM?',
+        a: 'No — ForgePSA is a PSA. It integrates with the RMM you already use. NinjaRMM is supported today and additional RMM integrations are on the roadmap.',
+      },
+      {
         q: 'What RMM platforms do you integrate with?',
-        a: 'NinjaRMM today. N-able N-central and Datto RMM coming in Q3 2026.',
+        a: 'NinjaRMM is integrated today. We have additional RMM integrations on the roadmap and prioritize them based on customer demand — let us know which one you use.',
       },
       {
         q: 'Can I use my own Stripe account?',
@@ -122,8 +127,36 @@ const SECTIONS: Section[] = [
 ];
 
 export function FAQ({ navigate }: { navigate: (p: string) => void }) {
+  useDocumentTitle(
+    'FAQ — ForgePSA',
+    'Frequently asked questions about ForgePSA: pricing, integrations, security, migration from other PSAs, billing, and trial details.',
+  );
+
+  // FAQPage structured data — earns rich-snippet Q&A blocks in Google + helps LLMs extract answers
+  const faqJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: SECTIONS.flatMap((s) =>
+      s.items.map((item) => ({
+        '@type': 'Question',
+        name: item.q,
+        acceptedAnswer: {
+          '@type': 'Answer',
+          // Strip JSX to plain text — best-effort extraction for the structured-data blob
+          text: typeof item.a === 'string'
+            ? item.a
+            : (item.a as any)?.props?.children?.toString?.() ?? String(item.a),
+        },
+      })),
+    ),
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+      />
       {/* Header */}
       <section className="bg-gradient-to-br from-brand-50 via-white to-slate-50">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-12 text-center">

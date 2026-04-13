@@ -1,6 +1,11 @@
 import { Check, X, Sparkles } from 'lucide-react';
+import { useDocumentTitle } from '@/lib/useDocumentTitle';
 
 export function Pricing({ navigate }: { navigate: (p: string) => void }) {
+  useDocumentTitle(
+    'Pricing — ForgePSA',
+    'Simple per-tech pricing for ForgePSA. Starter $49, Pro $79, Enterprise custom. Every plan includes NinjaRMM and Pax8. 45-day free trial, no credit card.',
+  );
   return (
     <>
       {/* Header */}
@@ -27,7 +32,7 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
               name="Starter"
               price="$49"
               sub="per tech / month"
-              desc="Solo operators and small teams just getting off ConnectWise or HaloPSA."
+              desc="Solo operators and small teams who want a modern PSA without the legacy bloat."
               features={[
                 'Up to 3 techs',
                 'Unlimited tickets & contacts',

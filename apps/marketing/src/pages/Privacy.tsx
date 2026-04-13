@@ -1,4 +1,10 @@
+import { useDocumentTitle } from '@/lib/useDocumentTitle';
+
 export function Privacy({ navigate: _navigate }: { navigate: (p: string) => void }) {
+  useDocumentTitle(
+    'Privacy Policy — ForgePSA',
+    'How ForgePSA collects, uses, and protects data. We never sell customer data. We never use customer data to train AI models. SMS is used only for security.',
+  );
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
       <h1 className="text-4xl font-bold text-slate-900 mb-2">Privacy Policy</h1>

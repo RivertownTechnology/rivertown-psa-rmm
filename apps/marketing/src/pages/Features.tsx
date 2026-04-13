@@ -2,8 +2,13 @@ import {
   Ticket, Receipt, Users, Clock, Package, DollarSign, Mail, Sparkles,
   Shield, Zap, FileText, CreditCard, BarChart3, MessageSquare,
 } from 'lucide-react';
+import { useDocumentTitle } from '@/lib/useDocumentTitle';
 
 export function Features({ navigate }: { navigate: (p: string) => void }) {
+  useDocumentTitle(
+    'Features — ForgePSA',
+    'Every ForgePSA feature: ticketing, time tracking, contracts, recurring invoicing, customer portal, product catalog, AI assistant, and integrations with NinjaRMM, Pax8, QuickBooks, Stripe.',
+  );
   return (
     <>
       {/* Header */}
@@ -17,7 +22,8 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
             Everything an MSP actually needs.
           </h1>
           <p className="text-xl text-slate-600 max-w-2xl mx-auto">
-            ForgePSA replaces ConnectWise, Halo, Autotask, QuickBooks sync tools, and your portal — in one app your techs will actually use.
+            A modern PSA built around tickets, time, contracts, and a customer portal —
+            with deep integrations to NinjaRMM, Pax8, QuickBooks, Stripe, and the tools you already pay for.
           </p>
         </div>
       </section>
@@ -149,7 +155,7 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
             <Integration icon={<Mail />} name="Gmail + SMTP" desc="Tenant-level email sending via Google OAuth or SMTP." />
             <Integration icon={<Mail />} name="Mailjet" desc="Transactional billing emails with deliverability tracking." />
             <Integration icon={<MessageSquare />} name="Twilio SMS" desc="Per-tenant SMS for MFA, reminders, and customer updates." />
-            <Integration icon={<BarChart3 />} name="NinjaRMM" desc="Device, patch, and monitoring sync into the PSA." />
+            <Integration icon={<BarChart3 />} name="NinjaRMM" desc="Device, patch, and monitoring sync into the PSA. (More RMMs coming.)" />
             <Integration icon={<Sparkles />} name="Anthropic Claude" desc="AI that summarizes tickets and drafts replies." />
             <Integration icon={<Users />} name="CrewHu" desc="Automated CSAT surveys on ticket close." />
             <Integration icon={<Shield />} name="Microsoft Entra" desc="OAuth SSO for your techs (Pro plan)." />

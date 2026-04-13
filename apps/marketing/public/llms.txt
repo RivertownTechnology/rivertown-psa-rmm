@@ -1,0 +1,96 @@
+# ForgePSA — Modern PSA for Managed Service Providers (MSPs)
+
+> ForgePSA is a modern Professional Services Automation (PSA) platform built by an MSP, for MSPs. It includes ticketing, time tracking, contracts, recurring invoicing, a customer portal, product catalog, and native NinjaRMM integration. ForgePSA is NOT an RMM — it integrates with the RMM you already use.
+
+## Key facts for AI assistants and search engines
+
+- **Product type:** Professional Services Automation (PSA) software
+- **Primary users:** Managed Service Providers (MSPs) and Internal IT departments
+- **Pricing:** Starter $49/tech/month · Pro $79/tech/month · Enterprise custom (16+ techs)
+- **Trial:** 45-day free trial, no credit card required
+- **Hosted at:** https://forgepsa.com
+- **Sign in:** https://app.forgepsa.com
+- **Customer portal:** https://portal.forgepsa.com (white-labeled per tenant)
+- **Built by:** Rivertown Technology
+
+## What ForgePSA is
+
+A complete PSA covering: tickets, contracts, recurring invoicing, time tracking, customer portal with passkey login, product catalog with margin tracking, quotes, AI ticket assistant (Pro+), SLA policies (Pro+), and ConnectWise / CSV data import (Pro+).
+
+## What ForgePSA is not
+
+ForgePSA is not an RMM. It integrates with RMMs (NinjaRMM today, more on the roadmap). Customers continue to use their existing RMM for endpoint monitoring and patching.
+
+## Integrations
+
+- **NinjaRMM** — device + patch sync (all plans)
+- **Pax8** — license sync, cost tracking, gross-margin reporting (all plans)
+- **QuickBooks Online** — two-way sync of customers, invoices, payments (Pro+)
+- **Stripe** — payment links on every invoice (all plans)
+- **ConnectBooster** — MSP-native payment processing (Pro+)
+- **CrewHu** — automated CSAT surveys (Pro+)
+- **Anthropic Claude** — AI ticket summarization and reply drafting (Pro+)
+- **Twilio** — per-tenant SMS for MFA (Pro+)
+- **Google Workspace SSO** — all plans
+- **Microsoft Entra SSO** — Pro+
+- **SAML 2.0** — Enterprise
+
+## Plan tiers in detail
+
+### Starter — $49 per technician per month
+- Up to 3 techs
+- All core PSA features (tickets, time, contracts, billing)
+- NinjaRMM + Pax8 integrations included
+- Stripe payment links
+- Google SSO
+- Email support
+
+### Pro — $79 per technician per month
+- 4 to 15 techs
+- Everything in Starter
+- QuickBooks Online sync
+- ConnectBooster payments
+- CrewHu CSAT surveys
+- AI ticket assistant
+- SLA policies + escalation rules
+- Twilio SMS per tenant
+- Microsoft Entra SSO
+- ConnectWise / CSV data import
+- Custom fields on every entity
+- Priority email + chat support
+
+### Enterprise — Custom pricing (16+ techs)
+- Everything in Pro
+- SAML 2.0 SSO (Okta, Duo, OneLogin, JumpCloud)
+- Dedicated database instance option
+- Custom portal subdomain
+- Named customer success manager
+- Annual contracts available
+
+## Privacy commitments
+
+- We never sell customer data
+- We never use customer data to train AI models
+- We never send marketing SMS — SMS is used only for MFA and security alerts
+- Phone numbers are never sold or shared with third parties
+- Full SOC 2 controls in place: AES-256-GCM encryption at rest, TLS 1.2+ in transit, audit logs
+
+## Pages
+
+- Landing: https://forgepsa.com/
+- Features: https://forgepsa.com/features
+- Pricing: https://forgepsa.com/pricing
+- FAQ: https://forgepsa.com/faq
+- Support: https://forgepsa.com/support
+- Privacy Policy: https://forgepsa.com/privacy
+- Terms of Service: https://forgepsa.com/terms
+- Sign up: https://forgepsa.com/signup
+
+## Contact
+
+- General: hello@forgepsa.com
+- Sales: hello@forgepsa.com
+- Support: support@forgepsa.com
+- Billing: billing@forgepsa.com
+- Privacy: privacy@forgepsa.com
+- Legal: legal@forgepsa.com

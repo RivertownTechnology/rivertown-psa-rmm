@@ -1,6 +1,11 @@
 import { BookOpen, Code2, MessageSquare, Lock, Mail, LifeBuoy } from 'lucide-react';
+import { useDocumentTitle } from '@/lib/useDocumentTitle';
 
 export function Support({ navigate }: { navigate: (p: string) => void }) {
+  useDocumentTitle(
+    'Support — ForgePSA',
+    'Get help with ForgePSA. Knowledge base, API documentation, and ticket submission for active customers. Email support@forgepsa.com for urgent issues.',
+  );
   const appUrl = (import.meta as any).env?.VITE_APP_URL ?? 'https://app.forgepsa.com';
 
   return (

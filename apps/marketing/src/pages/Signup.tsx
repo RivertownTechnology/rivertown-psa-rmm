@@ -155,11 +155,8 @@ export function Signup({ navigate }: { navigate: (p: string) => void }) {
     <div className="min-h-screen bg-gradient-to-br from-brand-50 via-white to-slate-50 flex flex-col">
       {/* Lightweight header */}
       <header className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        <button onClick={() => navigate('/')} className="flex items-center gap-2 font-bold text-lg text-slate-900">
-          <div className="h-8 w-8 rounded-lg bg-brand-600 text-white flex items-center justify-center">
-            <Hammer className="h-5 w-5" />
-          </div>
-          ForgePSA
+        <button onClick={() => navigate('/')} className="flex items-center" aria-label="ForgePSA home">
+          <img src="/forgepsa-logo.png" alt="ForgePSA" className="h-12 w-auto" />
         </button>
         {step !== 1 && step !== 6 && (
           <div className="text-sm text-slate-600">

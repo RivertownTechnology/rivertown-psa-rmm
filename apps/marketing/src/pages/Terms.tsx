@@ -1,4 +1,10 @@
+import { useDocumentTitle } from '@/lib/useDocumentTitle';
+
 export function Terms({ navigate: _navigate }: { navigate: (p: string) => void }) {
+  useDocumentTitle(
+    'Terms of Service — ForgePSA',
+    'ForgePSA Terms of Service: subscription, payment, data ownership, acceptable use, SMS terms (CTIA-compliant), and governing law.',
+  );
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
       <h1 className="text-4xl font-bold text-slate-900 mb-2">Terms of Service</h1>
