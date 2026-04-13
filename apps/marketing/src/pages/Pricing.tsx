@@ -9,23 +9,23 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
   return (
     <>
       {/* Header */}
-      <section className="bg-gradient-to-br from-brand-50 via-white to-slate-50">
+      <section className="bg-gradient-to-br from-brand-50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-950 dark:to-slate-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-16 text-center">
-          <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-full px-3 py-1 text-xs font-medium text-slate-700 mb-6 shadow-sm">
-            <Sparkles className="h-3.5 w-3.5 text-brand-600" />
+          <div className="inline-flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 mb-6 shadow-sm">
+            <Sparkles className="h-3.5 w-3.5 text-brand-600 dark:text-brand-400" />
             Simple, honest pricing
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-slate-900 mb-4">
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-slate-900 dark:text-white mb-4">
             One price. All features. No games.
           </h1>
-          <p className="text-xl text-slate-600 max-w-2xl mx-auto">
+          <p className="text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto">
             Every plan includes every integration, every feature, and unlimited tickets. Pay per tech, cancel anytime.
           </p>
         </div>
       </section>
 
       {/* Plan cards */}
-      <section className="py-16 bg-white">
+      <section className="py-16 bg-white dark:bg-slate-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid gap-6 lg:grid-cols-3">
             <Plan
@@ -88,28 +88,28 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
             />
           </div>
 
-          <p className="text-center text-sm text-slate-500 mt-8">
+          <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-8">
             All plans: 45-day free trial · No credit card required · No setup fees
           </p>
         </div>
       </section>
 
       {/* Comparison table */}
-      <section className="py-20 bg-slate-50">
+      <section className="py-20 bg-slate-50 dark:bg-slate-900">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl font-bold text-slate-900 text-center mb-12">What's in each plan</h2>
+          <h2 className="text-3xl font-bold text-slate-900 dark:text-white text-center mb-12">What's in each plan</h2>
 
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
+              <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
                 <tr>
-                  <th className="text-left px-6 py-4 font-semibold text-slate-900">Feature</th>
-                  <th className="text-center px-6 py-4 font-semibold text-slate-900">Starter</th>
-                  <th className="text-center px-6 py-4 font-semibold text-brand-700 bg-brand-50">Pro</th>
-                  <th className="text-center px-6 py-4 font-semibold text-slate-900">Enterprise</th>
+                  <th className="text-left px-6 py-4 font-semibold text-slate-900 dark:text-white">Feature</th>
+                  <th className="text-center px-6 py-4 font-semibold text-slate-900 dark:text-white">Starter</th>
+                  <th className="text-center px-6 py-4 font-semibold text-brand-700 dark:text-brand-300 bg-brand-50 dark:bg-brand-950/40">Pro</th>
+                  <th className="text-center px-6 py-4 font-semibold text-slate-900 dark:text-white">Enterprise</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                 <Row label="Tickets, tasks, time tracking" s pro ent />
                 <Row label="Contracts & recurring invoicing" s pro ent />
                 <Row label="Customer portal with passkeys" s pro ent />
@@ -142,9 +142,9 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
       </section>
 
       {/* FAQ */}
-      <section className="py-20 bg-white">
+      <section className="py-20 bg-white dark:bg-slate-950">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl font-bold text-slate-900 text-center mb-10">Pricing FAQ</h2>
+          <h2 className="text-3xl font-bold text-slate-900 dark:text-white text-center mb-10">Pricing FAQ</h2>
           <div className="space-y-6">
             <FAQ q="Do I need a credit card to start?" a="No. Signup takes 2 minutes and we don't ask for billing info until the trial ends." />
             <FAQ q="What happens after my 45-day trial?" a="Your account enters read-only mode. You can still log in, export your data, or add a subscription at any time. We never delete tenant data." />
@@ -157,10 +157,10 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
       </section>
 
       {/* CTA */}
-      <section className="py-20 bg-slate-50">
+      <section className="py-20 bg-slate-50 dark:bg-slate-900">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Ready to try ForgePSA?</h2>
-          <p className="text-lg text-slate-600 mb-8">
+          <h2 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white mb-4">Ready to try ForgePSA?</h2>
+          <p className="text-lg text-slate-600 dark:text-slate-300 mb-8">
             45 days, full access, no card. Pick a plan when you're ready — not before.
           </p>
           <button
@@ -185,8 +185,8 @@ function Plan({
     <div
       className={`rounded-2xl p-8 border ${
         featured
-          ? 'bg-slate-950 text-white border-slate-950 shadow-2xl lg:scale-105'
-          : 'bg-white border-slate-200'
+          ? 'bg-slate-950 text-white border-slate-950 dark:border-slate-700 shadow-2xl lg:scale-105'
+          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700'
       }`}
     >
       {featured && (
@@ -194,19 +194,20 @@ function Plan({
           MOST POPULAR
         </div>
       )}
-      <div className={`text-sm font-semibold mb-2 ${featured ? 'text-brand-300' : 'text-brand-600'}`}>{name}</div>
+      <div className={`text-sm font-semibold mb-2 ${featured ? 'text-brand-300' : 'text-brand-600 dark:text-brand-400'}`}>{name}</div>
       <div className="flex items-baseline gap-1 mb-1">
-        <div className="text-5xl font-bold">{price}</div>
+        {/* Explicit text colors on the price so it's readable in both modes regardless of body inheritance */}
+        <div className={`text-5xl font-bold ${featured ? 'text-white' : 'text-slate-900 dark:text-white'}`}>{price}</div>
       </div>
-      <div className={`text-sm mb-4 ${featured ? 'text-slate-400' : 'text-slate-500'}`}>{sub}</div>
-      <p className={`text-sm mb-6 ${featured ? 'text-slate-300' : 'text-slate-600'}`}>{desc}</p>
+      <div className={`text-sm mb-4 ${featured ? 'text-slate-400' : 'text-slate-500 dark:text-slate-400'}`}>{sub}</div>
+      <p className={`text-sm mb-6 ${featured ? 'text-slate-300' : 'text-slate-600 dark:text-slate-300'}`}>{desc}</p>
 
       <button
         onClick={onCta}
         className={`w-full font-semibold px-6 py-3 rounded-lg transition-colors mb-6 ${
           featured
             ? 'bg-brand-600 hover:bg-brand-700 text-white'
-            : 'bg-slate-900 hover:bg-slate-800 text-white'
+            : 'bg-slate-900 hover:bg-slate-800 dark:bg-brand-600 dark:hover:bg-brand-700 text-white'
         }`}
       >
         {cta}
@@ -215,8 +216,8 @@ function Plan({
       <ul className="space-y-3">
         {features.map((f, i) => (
           <li key={i} className="flex items-start gap-2 text-sm">
-            <Check className={`h-4 w-4 mt-0.5 shrink-0 ${featured ? 'text-brand-400' : 'text-brand-600'}`} />
-            <span className={featured ? 'text-slate-200' : 'text-slate-700'}>{f}</span>
+            <Check className={`h-4 w-4 mt-0.5 shrink-0 ${featured ? 'text-brand-400' : 'text-brand-600 dark:text-brand-400'}`} />
+            <span className={featured ? 'text-slate-200' : 'text-slate-700 dark:text-slate-200'}>{f}</span>
           </li>
         ))}
       </ul>
@@ -227,15 +228,15 @@ function Plan({
 function Row({ label, s, pro, ent }: { label: string; s?: boolean; pro?: boolean; ent?: boolean }) {
   return (
     <tr>
-      <td className="px-6 py-3 text-slate-700">{label}</td>
+      <td className="px-6 py-3 text-slate-700 dark:text-slate-200">{label}</td>
       <td className="px-6 py-3 text-center">
-        {s ? <Check className="h-4 w-4 text-brand-600 inline" /> : <X className="h-4 w-4 text-slate-300 inline" />}
+        {s ? <Check className="h-4 w-4 text-brand-600 dark:text-brand-400 inline" /> : <X className="h-4 w-4 text-slate-300 dark:text-slate-600 inline" />}
       </td>
-      <td className="px-6 py-3 text-center bg-brand-50/40">
-        {pro ? <Check className="h-4 w-4 text-brand-600 inline" /> : <X className="h-4 w-4 text-slate-300 inline" />}
+      <td className="px-6 py-3 text-center bg-brand-50/40 dark:bg-brand-950/30">
+        {pro ? <Check className="h-4 w-4 text-brand-600 dark:text-brand-400 inline" /> : <X className="h-4 w-4 text-slate-300 dark:text-slate-600 inline" />}
       </td>
       <td className="px-6 py-3 text-center">
-        {ent ? <Check className="h-4 w-4 text-brand-600 inline" /> : <X className="h-4 w-4 text-slate-300 inline" />}
+        {ent ? <Check className="h-4 w-4 text-brand-600 dark:text-brand-400 inline" /> : <X className="h-4 w-4 text-slate-300 dark:text-slate-600 inline" />}
       </td>
     </tr>
   );
@@ -243,9 +244,9 @@ function Row({ label, s, pro, ent }: { label: string; s?: boolean; pro?: boolean
 
 function FAQ({ q, a }: { q: string; a: string }) {
   return (
-    <div className="border-b border-slate-200 pb-6">
-      <h3 className="font-semibold text-slate-900 mb-2">{q}</h3>
-      <p className="text-slate-600">{a}</p>
+    <div className="border-b border-slate-200 dark:border-slate-700 pb-6">
+      <h3 className="font-semibold text-slate-900 dark:text-white mb-2">{q}</h3>
+      <p className="text-slate-600 dark:text-slate-300">{a}</p>
     </div>
   );
 }
