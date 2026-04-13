@@ -56,10 +56,11 @@ interface Invoice {
   invoicePdfUrl: string | null;
 }
 
-const PLAN_INFO: Record<PlanId, { name: string; priceCents: number; features: string[] }> = {
+const PLAN_INFO: Record<PlanId, { name: string; priceCents: number; originalPriceCents?: number; features: string[] }> = {
   starter: {
     name: 'Starter',
-    priceCents: 4900,
+    priceCents: 2900,
+    originalPriceCents: 4900,
     features: [
       'Up to 3 techs',
       'All core PSA features',
@@ -71,7 +72,8 @@ const PLAN_INFO: Record<PlanId, { name: string; priceCents: number; features: st
   },
   pro: {
     name: 'Pro',
-    priceCents: 7900,
+    priceCents: 4900,
+    originalPriceCents: 7900,
     features: [
       '4–15 techs',
       'Everything in Starter',

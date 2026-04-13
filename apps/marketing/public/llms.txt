@@ -6,7 +6,7 @@
 
 - **Product type:** Professional Services Automation (PSA) software
 - **Primary users:** Managed Service Providers (MSPs) and Internal IT departments
-- **Pricing:** Starter $49/tech/month · Pro $79/tech/month · Enterprise custom (16+ techs)
+- **Pricing:** Launch pricing — Starter $29/tech/month (reg $49) · Pro $49/tech/month (reg $79) · Enterprise custom (16+ techs). Launch prices locked in for life.
 - **Trial:** 45-day free trial, no credit card required
 - **Hosted at:** https://forgepsa.com
 - **Sign in:** https://app.forgepsa.com
@@ -37,7 +37,7 @@ ForgePSA is not an RMM. It integrates with RMMs (NinjaRMM today, more on the roa
 
 ## Plan tiers in detail
 
-### Starter — $49 per technician per month
+### Starter — $29/tech/month (launch pricing, regularly $49)
 - Up to 3 techs
 - All core PSA features (tickets, time, contracts, billing)
 - NinjaRMM + Pax8 integrations included
@@ -45,7 +45,7 @@ ForgePSA is not an RMM. It integrates with RMMs (NinjaRMM today, more on the roa
 - Google SSO
 - Email support
 
-### Pro — $79 per technician per month
+### Pro — $49/tech/month (launch pricing, regularly $79)
 - 4 to 15 techs
 - Everything in Starter
 - QuickBooks Online sync

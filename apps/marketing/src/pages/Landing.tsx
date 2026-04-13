@@ -166,7 +166,7 @@ function Stat({ value, label }: { value: string; label: string }) {
   );
 }
 
-function PricingSummary({ name, price, desc, featured }: { name: string; price: string; desc: string; featured?: boolean }) {
+function PricingSummary({ name, price, originalPrice, desc, featured }: { name: string; price: string; originalPrice?: string; desc: string; featured?: boolean }) {
   return (
     <div className={`rounded-2xl p-6 border ${
       featured
@@ -174,7 +174,16 @@ function PricingSummary({ name, price, desc, featured }: { name: string; price: 
         : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
     }`}>
       <div className={`text-sm font-semibold mb-1 ${featured ? 'text-white' : 'text-slate-900 dark:text-white'}`}>{name}</div>
-      <div className={`text-3xl font-bold mb-1 ${featured ? 'text-white' : 'text-slate-900 dark:text-white'}`}>{price}</div>
+      <div className="flex items-baseline justify-center gap-2 mb-1 flex-wrap">
+        {originalPrice && (
+          <div className={`text-xl font-bold line-through ${
+            featured ? 'text-brand-200' : 'text-slate-400 dark:text-slate-500'
+          }`}>
+            {originalPrice}
+          </div>
+        )}
+        <div className={`text-3xl font-bold ${featured ? 'text-white' : 'text-slate-900 dark:text-white'}`}>{price}</div>
+      </div>
       <div className={`text-sm mb-3 ${featured ? 'text-brand-100' : 'text-slate-600 dark:text-slate-300'}`}>per tech/month</div>
       <div className={`text-xs ${featured ? 'text-brand-50' : 'text-slate-500 dark:text-slate-400'}`}>{desc}</div>
     </div>

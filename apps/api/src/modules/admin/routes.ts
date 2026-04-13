@@ -14,8 +14,8 @@ import { logAudit } from '../../common/audit.js';
 // Monthly price per seat for MRR calculation. Pricing authoritative in Stripe;
 // these are a rough cash-equivalent for the dashboard only.
 const PLAN_PRICES_CENTS: Record<string, number> = {
-  starter: 4900,
-  pro: 7900,
+  starter: 2900,
+  pro: 4900,
   enterprise: 0, // custom; excluded from MRR math
 };
 
