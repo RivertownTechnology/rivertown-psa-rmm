@@ -1,11 +1,12 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and, count, desc, sql } from 'drizzle-orm';
-import { contracts, contractLineItems, pax8Subscriptions, ticketTimeEntries, tickets, serviceCatalogItems, serviceCatalogBundles, serviceCatalogBundleItems, users, tenants } from '@rivertown/db';
+import { eq, and, count, desc, sql, gte, inArray } from 'drizzle-orm';
+import { contracts, contractLineItems, pax8Subscriptions, ticketTimeEntries, tickets, serviceCatalogItems, serviceCatalogBundles, serviceCatalogBundleItems, users, tenants, customers } from '@rivertown/db';
 import { createContractSchema, updateContractSchema, createLineItemSchema, updateLineItemSchema, paginationSchema } from '@rivertown/shared';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError } from '../../common/errors.js';
 import { paginationToOffset, paginate } from '../../common/pagination.js';
 import { logAudit } from '../../common/audit.js';
+import { liveBlockBalanceHours } from './billing-logic.js';
 
 function computeLineItemMetrics(item: { unitPriceCents: number; unitCostCents: number | null; quantity: string | null }) {
   const qty = parseFloat(item.quantity ?? '1');
@@ -347,4 +348,109 @@ export async function contractRoutes(fastify: FastifyInstance) {
     }
     return { synced };
   });
+
+  // Block-hour burn report — every active block line with live usage, period,
+  // expiry, and the last-30-day hours signal for humans to eyeball burn rate.
+  fastify.get(
+    '/api/v1/reports/block-hours',
+    { preHandler: [fastify.authenticate, requirePermission('contracts:read')] },
+    async (request) => {
+      // All block lines under active contracts
+      const lines = await fastify.db
+        .select({
+          lineItemId: contractLineItems.id,
+          description: contractLineItems.description,
+          blockHours: contractLineItems.blockHours,
+          warnAtPct: contractLineItems.warnAtPct,
+          periodStartDate: contractLineItems.periodStartDate,
+          resetCadence: contractLineItems.resetCadence,
+          expiresAt: contractLineItems.expiresAt,
+          overageRateCents: contractLineItems.overageRateCents,
+          contractId: contracts.id,
+          contractName: contracts.name,
+          contractStatus: contracts.status,
+          customerId: contracts.customerId,
+          customerName: customers.name,
+        })
+        .from(contractLineItems)
+        .innerJoin(contracts, eq(contractLineItems.contractId, contracts.id))
+        .innerJoin(customers, eq(contracts.customerId, customers.id))
+        .where(
+          and(
+            eq(contractLineItems.tenantId, request.tenantId),
+            eq(contractLineItems.coveragePolicy, 'block'),
+            eq(contracts.status, 'active'),
+          ),
+        );
+
+      if (lines.length === 0) return { rows: [] };
+
+      // Last-30-day usage per line, one aggregate query
+      const since = new Date();
+      since.setUTCDate(since.getUTCDate() - 30);
+      const lineIds = lines.map((l) => l.lineItemId);
+      const last30 = await fastify.db
+        .select({
+          lineItemId: ticketTimeEntries.contractLineItemId,
+          minutes: sql<number>`COALESCE(SUM(${ticketTimeEntries.durationMinutes}), 0)`.as('minutes'),
+        })
+        .from(ticketTimeEntries)
+        .where(
+          and(
+            eq(ticketTimeEntries.tenantId, request.tenantId),
+            inArray(ticketTimeEntries.contractLineItemId, lineIds),
+            sql`${ticketTimeEntries.classification} IN ('covered', 'overage')`,
+            sql`${ticketTimeEntries.nonBillableReason} IS NULL`,
+            gte(ticketTimeEntries.startedAt, since),
+          ),
+        )
+        .groupBy(ticketTimeEntries.contractLineItemId);
+      const last30ByLine = new Map<string, number>();
+      for (const row of last30) {
+        if (row.lineItemId) last30ByLine.set(row.lineItemId, Number(row.minutes));
+      }
+
+      const rows = [];
+      for (const l of lines) {
+        const totalHours = parseFloat(l.blockHours ?? '0');
+        const remainingHours = await liveBlockBalanceHours(fastify.db as any, {
+          id: l.lineItemId,
+          blockHours: l.blockHours,
+          tenantId: request.tenantId,
+          periodStartDate: l.periodStartDate ?? null,
+        });
+        const usedHours = totalHours - remainingHours;
+        const pctUsed = totalHours > 0 ? Math.round((usedHours / totalHours) * 100) : 0;
+        const last30Hours = (last30ByLine.get(l.lineItemId) ?? 0) / 60;
+        const nearThreshold = pctUsed >= (l.warnAtPct ?? 80);
+        rows.push({
+          lineItemId: l.lineItemId,
+          description: l.description,
+          contractId: l.contractId,
+          contractName: l.contractName,
+          customerId: l.customerId,
+          customerName: l.customerName,
+          totalHours,
+          usedHours: Number(usedHours.toFixed(2)),
+          remainingHours: Number(remainingHours.toFixed(2)),
+          pctUsed,
+          resetCadence: l.resetCadence,
+          periodStartDate: l.periodStartDate,
+          expiresAt: l.expiresAt,
+          overageRateCents: l.overageRateCents,
+          last30DaysHours: Number(last30Hours.toFixed(2)),
+          nearThreshold,
+        });
+      }
+
+      // Worst-first: least remaining, then soonest expiry.
+      rows.sort((a, b) => {
+        if (a.remainingHours !== b.remainingHours) return a.remainingHours - b.remainingHours;
+        if (a.expiresAt && b.expiresAt) return new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime();
+        return 0;
+      });
+
+      return { rows };
+    },
+  );
 }

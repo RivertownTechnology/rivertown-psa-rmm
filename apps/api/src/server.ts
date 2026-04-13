@@ -346,5 +346,21 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     }
   }, 5000);
 
+  // Contract-hours maintenance: period resets, expiry alerts, warn-threshold emails.
+  // Runs hourly; each sub-task is idempotent and no-ops when nothing is due.
+  const { runContractHoursNightly } = await import('./jobs/contract-hours-nightly.js');
+  let hoursJobRunning = false;
+  setInterval(async () => {
+    if (hoursJobRunning) return;
+    hoursJobRunning = true;
+    try {
+      await runContractHoursNightly(db);
+    } finally {
+      hoursJobRunning = false;
+    }
+  }, 60 * 60 * 1000);
+  // Kick off once at boot so a freshly-started server catches up immediately.
+  runContractHoursNightly(db).catch((err) => console.error('[CONTRACT-HOURS] boot run failed:', err));
+
   return fastify;
 }

@@ -20,6 +20,7 @@ const signupSchema = z.object({
   companyType: z.enum(['msp', 'internal_it']).optional(),
   companySize: z.enum(['1-5', '6-20', '21-50', '50+']).optional(),
   industry: z.string().trim().max(60).optional(),
+  currentPsa: z.enum(['connectwise', 'halopsa', 'autotask', 'syncro', 'superops', 'other', 'none']).optional(),
   phone: z.string().trim().max(30).optional(),
 
   // MSP-specific config (ignored for Internal IT)
@@ -170,9 +171,13 @@ export async function publicSignupRoutes(fastify: FastifyInstance) {
       const onboardingMeta = {
         companySize: body.companySize ?? null,
         industry: body.industry ?? null,
+        currentPsa: body.currentPsa ?? null,
         supportedUsersRange: body.supportedUsersRange ?? null,
         needs: body.needs ?? [],
         completedAt: new Date().toISOString(),
+        // In-app onboarding checklist state. Populated lazily by the /settings/onboarding endpoints.
+        progress: {} as Record<string, boolean>,
+        dismissedAt: null as string | null,
       };
 
       // Fetch default templates outside transaction — purely read-only, and we

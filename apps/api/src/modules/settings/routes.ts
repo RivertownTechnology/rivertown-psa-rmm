@@ -5,6 +5,44 @@ import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
 
 export async function settingsRoutes(fastify: FastifyInstance) {
+  // ===== ONBOARDING =====
+  // Persists per-tenant in-app onboarding checklist state (which steps are marked
+  // done manually, and whether the banner has been dismissed). The rest of the
+  // onboarding signals (customer count, ticket count, etc.) come from /dashboard/stats.
+  fastify.patch('/api/v1/settings/onboarding', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const body = request.body as {
+      progress?: Record<string, boolean>;
+      dismissedAt?: string | null;
+      currentPsa?: string | null;
+    };
+    const [row] = await fastify.db.select({ settings: tenants.settings })
+      .from(tenants).where(eq(tenants.id, request.tenantId)).limit(1);
+    const settings = (row?.settings ?? {}) as Record<string, unknown>;
+    const onboarding = { ...(settings.onboarding as Record<string, unknown> ?? {}) };
+
+    if (body.progress) {
+      onboarding.progress = { ...(onboarding.progress as Record<string, boolean> ?? {}), ...body.progress };
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'dismissedAt')) {
+      onboarding.dismissedAt = body.dismissedAt;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'currentPsa')) {
+      onboarding.currentPsa = body.currentPsa;
+    }
+
+    await fastify.db.update(tenants)
+      .set({ settings: { ...settings, onboarding }, updatedAt: new Date() })
+      .where(eq(tenants.id, request.tenantId));
+
+    return {
+      progress: onboarding.progress ?? {},
+      dismissedAt: onboarding.dismissedAt ?? null,
+      currentPsa: onboarding.currentPsa ?? null,
+    };
+  });
+
   // ===== PROFILE =====
 
   // Update current user profile

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import {
   FileCheck2, ChevronDown, ChevronRight, CheckCircle2, Circle, AlertTriangle,
   Clock, Download, Mail, RotateCcw, Sparkles, ArrowRight, Settings2, ShieldAlert,
-  Calendar, Database, Wrench, PlayCircle, ClipboardCheck,
+  Calendar, Database, Wrench, PlayCircle, ClipboardCheck, Check, Plus, Minus,
+  Building2, Users2, Briefcase,
 } from 'lucide-react';
 import { useDocumentTitle } from '@/lib/useDocumentTitle';
 
@@ -740,55 +741,168 @@ export function MigrationChecklist({ navigate }: { navigate: (p: string) => void
 
 /* ─────────────────────── Subcomponents ─────────────────────── */
 
+const PSA_OPTIONS: { value: SourcePSA | ''; label: string; desc: string }[] = [
+  { value: '',            label: 'Any PSA',            desc: 'Show every task' },
+  { value: 'connectwise', label: 'ConnectWise Manage', desc: 'Adds column-mapping tips' },
+  { value: 'halopsa',     label: 'HaloPSA',            desc: 'Halo-specific export notes' },
+  { value: 'autotask',    label: 'Autotask',           desc: 'Autotask dedupe guidance' },
+  { value: 'syncro',      label: 'Syncro',             desc: 'Syncro export format' },
+  { value: 'superops',    label: 'SuperOps',           desc: 'SuperOps data path' },
+  { value: 'other',       label: 'Other',              desc: 'Generic CSV flow' },
+];
+
+const CUSTOMER_OPTIONS: { value: Personalization['customersBucket']; label: string }[] = [
+  { value: '',         label: 'Any' },
+  { value: 'under_50', label: '< 50' },
+  { value: '50_200',   label: '50–200' },
+  { value: '200_plus', label: '200+' },
+];
+
 function PersonalizationBar({
   value, onChange,
 }: { value: Personalization; onChange: (v: Personalization) => void }) {
+  const psaLabel = PSA_OPTIONS.find((o) => o.value === value.psa)?.label ?? 'Any PSA';
+
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-        <Settings2 className="h-3.5 w-3.5" /> Personalize
+    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+      <div className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 pr-1">
+        <Settings2 className="h-3.5 w-3.5" /> Tune
       </div>
-      <label className="flex items-center gap-2">
-        <span className="text-sm text-slate-600 dark:text-slate-300">From</span>
-        <select
-          value={value.psa}
-          onChange={(e) => onChange({ ...value, psa: e.target.value as SourcePSA | '' })}
-          className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-sm px-2 py-1.5 text-slate-900 dark:text-slate-100"
+
+      {/* Source PSA — popover card-picker */}
+      <PopoverPicker
+        icon={<Building2 className="h-3.5 w-3.5" />}
+        label="From"
+        value={psaLabel}
+      >
+        {(close) => (
+          <div className="w-[260px] p-1">
+            {PSA_OPTIONS.map((opt) => {
+              const active = value.psa === opt.value;
+              return (
+                <button
+                  key={opt.value || 'any'}
+                  onClick={() => { onChange({ ...value, psa: opt.value }); close(); }}
+                  className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-start gap-2 transition-colors ${
+                    active
+                      ? 'bg-brand-50 dark:bg-brand-950/40 text-brand-700 dark:text-brand-300'
+                      : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'
+                  }`}
+                >
+                  <Check className={`h-4 w-4 mt-0.5 shrink-0 ${active ? 'opacity-100' : 'opacity-0'}`} />
+                  <span className="flex-1">
+                    <span className="block font-semibold">{opt.label}</span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">{opt.desc}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </PopoverPicker>
+
+      {/* Tech count — stepper */}
+      <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 pl-2 pr-1 py-1 shadow-sm">
+        <Users2 className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
+        <span className="text-xs text-slate-500 dark:text-slate-400 mr-1">Techs</span>
+        <button
+          onClick={() => onChange({ ...value, techs: Math.max(0, value.techs - 1) })}
+          className="h-6 w-6 inline-flex items-center justify-center rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 dark:text-slate-400"
+          aria-label="Decrease tech count"
         >
-          <option value="">Any PSA</option>
-          <option value="connectwise">ConnectWise Manage</option>
-          <option value="halopsa">HaloPSA</option>
-          <option value="autotask">Autotask</option>
-          <option value="syncro">Syncro</option>
-          <option value="superops">SuperOps</option>
-          <option value="other">Other</option>
-        </select>
-      </label>
-      <label className="flex items-center gap-2">
-        <span className="text-sm text-slate-600 dark:text-slate-300">Techs</span>
+          <Minus className="h-3 w-3" />
+        </button>
         <input
           type="number"
           min={0}
           max={500}
           value={value.techs || ''}
           onChange={(e) => onChange({ ...value, techs: Math.max(0, Number(e.target.value) || 0) })}
-          placeholder="8"
-          className="w-20 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-sm px-2 py-1.5 text-slate-900 dark:text-slate-100"
+          placeholder="—"
+          className="w-10 bg-transparent text-center text-sm font-semibold text-slate-900 dark:text-slate-100 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
-      </label>
-      <label className="flex items-center gap-2">
-        <span className="text-sm text-slate-600 dark:text-slate-300">Customers</span>
-        <select
-          value={value.customersBucket}
-          onChange={(e) => onChange({ ...value, customersBucket: e.target.value as Personalization['customersBucket'] })}
-          className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-sm px-2 py-1.5 text-slate-900 dark:text-slate-100"
+        <button
+          onClick={() => onChange({ ...value, techs: Math.min(500, value.techs + 1) })}
+          className="h-6 w-6 inline-flex items-center justify-center rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 dark:text-slate-400"
+          aria-label="Increase tech count"
         >
-          <option value="">Any size</option>
-          <option value="under_50">Under 50</option>
-          <option value="50_200">50–200</option>
-          <option value="200_plus">200+</option>
-        </select>
-      </label>
+          <Plus className="h-3 w-3" />
+        </button>
+      </div>
+
+      {/* Customer bucket — segmented pills */}
+      <div className="inline-flex items-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-0.5 shadow-sm">
+        <div className="inline-flex items-center gap-1.5 pl-2 pr-1 text-xs text-slate-500 dark:text-slate-400">
+          <Briefcase className="h-3.5 w-3.5" />
+          Customers
+        </div>
+        {CUSTOMER_OPTIONS.map((opt) => {
+          const active = value.customersBucket === opt.value;
+          return (
+            <button
+              key={opt.value || 'any'}
+              onClick={() => onChange({ ...value, customersBucket: opt.value })}
+              className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                active
+                  ? 'bg-brand-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* Lightweight popover — no Radix dep. Click-outside to close, Escape to close. */
+function PopoverPicker({
+  icon, label, value, children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  children: (close: () => void) => React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`inline-flex items-center gap-1.5 rounded-lg border bg-white dark:bg-slate-800 px-3 py-1.5 text-sm font-semibold shadow-sm transition-colors ${
+          open
+            ? 'border-brand-500 ring-2 ring-brand-500/20 text-slate-900 dark:text-white'
+            : 'border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 hover:border-slate-300 dark:hover:border-slate-600'
+        }`}
+      >
+        <span className="text-slate-500 dark:text-slate-400">{icon}</span>
+        <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">{label}</span>
+        <span>{value}</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute z-50 top-[calc(100%+6px)] left-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl ring-1 ring-black/5 animate-[fadeIn_120ms_ease-out]">
+          {children(() => setOpen(false))}
+        </div>
+      )}
     </div>
   );
 }
@@ -853,13 +967,18 @@ function TaskRow({
         </button>
         <button
           onClick={onExpand}
-          className="shrink-0 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+          className="shrink-0 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-transform"
           aria-label={expanded ? 'Collapse' : 'Expand'}
         >
-          {expanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+          <ChevronDown className={`h-5 w-5 transition-transform duration-200 ${expanded ? 'rotate-0' : '-rotate-90'}`} />
         </button>
       </div>
-      {expanded && (
+      <div
+        className={`grid overflow-hidden transition-[grid-template-rows] duration-200 ease-out ${
+          expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+        }`}
+      >
+        <div className="min-h-0">
         <div className="px-5 pb-5 pl-[60px] space-y-3 text-sm">
           <Field label="Why it matters" body={task.why} />
           <Field label="What can break" body={task.breaks} variant="warn" />
@@ -890,7 +1009,8 @@ function TaskRow({
             {done ? <><CheckCircle2 className="h-3.5 w-3.5" /> Done — click to undo</> : <>Mark complete</>}
           </button>
         </div>
-      )}
+        </div>
+      </div>
     </div>
   );
 }

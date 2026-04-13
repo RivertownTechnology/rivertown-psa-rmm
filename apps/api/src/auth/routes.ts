@@ -159,6 +159,8 @@ export async function authRoutes(fastify: FastifyInstance) {
         planTier: tenants.planTier,
         pastDueAt: tenants.pastDueAt,
         featureFlags: tenants.featureFlags,
+        companyType: tenants.companyType,
+        settings: tenants.settings,
       })
       .from(users)
       .innerJoin(tenants, eq(tenants.id, users.tenantId))
@@ -198,8 +200,21 @@ export async function authRoutes(fastify: FastifyInstance) {
     );
 
     // Don't expose raw feature_flags blob on the response — entitlements is the computed view.
-    const { featureFlags: _ff, ...rest } = row;
+    const { featureFlags: _ff, settings: _settings, ...rest } = row;
     void _ff;
+
+    // Extract just the onboarding slice of tenants.settings for the frontend.
+    const settings = (_settings ?? {}) as Record<string, unknown>;
+    const onboardingRaw = (settings.onboarding ?? {}) as Record<string, unknown>;
+    const onboarding = {
+      currentPsa: (onboardingRaw.currentPsa as string | null) ?? null,
+      companySize: (onboardingRaw.companySize as string | null) ?? null,
+      industry: (onboardingRaw.industry as string | null) ?? null,
+      supportedUsersRange: (onboardingRaw.supportedUsersRange as string | null) ?? null,
+      needs: (onboardingRaw.needs as string[] | undefined) ?? [],
+      progress: (onboardingRaw.progress as Record<string, boolean> | undefined) ?? {},
+      dismissedAt: (onboardingRaw.dismissedAt as string | null) ?? null,
+    };
 
     return {
       ...rest,
@@ -208,6 +223,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       pastDueDaysRemaining,
       lockedOut,
       entitlements,
+      onboarding,
     };
   });
 

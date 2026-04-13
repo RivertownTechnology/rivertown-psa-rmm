@@ -11,6 +11,7 @@ type CompanySize = '1-5' | '6-20' | '21-50' | '50+';
 type BillingModel = 'per_user' | 'per_device' | 'flat_rate' | 'hybrid' | 'none';
 type SupportedUsersRange = '1-50' | '51-200' | '201-1000' | '1000+';
 type ITNeed = 'ticketing' | 'asset_tracking' | 'change_management' | 'knowledge_base';
+type CurrentPsa = 'connectwise' | 'halopsa' | 'autotask' | 'syncro' | 'superops' | 'other' | 'none';
 
 interface FormState {
   // Step 2
@@ -18,6 +19,7 @@ interface FormState {
   companySize: CompanySize | '';
   companyType: CompanyType | '';
   industry: string;
+  currentPsa: CurrentPsa | '';
 
   // Step 3
   firstName: string;
@@ -42,7 +44,7 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
-  companyName: '', companySize: '', companyType: '', industry: '',
+  companyName: '', companySize: '', companyType: '', industry: '', currentPsa: '',
   firstName: '', lastName: '', email: '', phone: '',
   billsClients: true, billingModel: '', defaultHourlyRate: '',
   currency: 'USD', timezone: 'America/New_York',
@@ -109,6 +111,7 @@ export function Signup({ navigate }: { navigate: (p: string) => void }) {
         companyType: state.companyType || 'msp',
         companySize: state.companySize || undefined,
         industry: state.industry || undefined,
+        currentPsa: state.currentPsa || undefined,
         phone: state.phone || undefined,
         currency: state.currency,
         timezone: state.timezone,
@@ -384,6 +387,24 @@ function StepCompany({
           <option>Non-profit</option>
           <option>Other</option>
         </select>
+      </Field>
+
+      <Field label="Migrating from another PSA? (optional)" hint="We'll pre-seed your onboarding with migration tips for that tool.">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {([
+            { v: 'none', label: 'Not migrating' },
+            { v: 'connectwise', label: 'ConnectWise' },
+            { v: 'halopsa', label: 'HaloPSA' },
+            { v: 'autotask', label: 'Autotask' },
+            { v: 'syncro', label: 'Syncro' },
+            { v: 'superops', label: 'SuperOps' },
+            { v: 'other', label: 'Other' },
+          ] as { v: CurrentPsa; label: string }[]).map(({ v, label }) => (
+            <Chip key={v} active={state.currentPsa === v} onClick={() => setField('currentPsa', state.currentPsa === v ? '' : v)}>
+              {label}
+            </Chip>
+          ))}
+        </div>
       </Field>
 
       <StepNav onBack={onBack} onNext={onNext} canAdvance={canAdvance} />

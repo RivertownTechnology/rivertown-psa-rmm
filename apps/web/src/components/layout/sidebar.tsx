@@ -9,6 +9,7 @@ import {
   Clock,
   Settings,
   Package,
+  Rocket,
   X,
 } from 'lucide-react';
 
@@ -51,6 +52,7 @@ const navGroups: NavGroup[] = [
 ];
 
 const bottomNavItems: NavItem[] = [
+  { label: 'Getting Started', icon: Rocket, href: '/getting-started' },
   { label: 'Settings', icon: Settings, href: '/settings' },
 ];
 

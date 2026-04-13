@@ -11,6 +11,7 @@ interface User {
   mfaProvider: string | null;
   isSuperAdmin?: boolean;
   tenantName?: string;
+  companyType?: 'msp' | 'internal_it';
   trialEndsAt?: string | null;
   pastDueAt?: string | null;
   subscriptionStatus?: 'trial' | 'active' | 'past_due' | 'cancelled';
@@ -23,6 +24,15 @@ interface User {
     plan: 'starter' | 'pro' | 'enterprise';
     maxBillableUsers: number;
     features: Record<string, boolean>;
+  };
+  onboarding?: {
+    currentPsa: string | null;
+    companySize: string | null;
+    industry: string | null;
+    supportedUsersRange: string | null;
+    needs: string[];
+    progress: Record<string, boolean>;
+    dismissedAt: string | null;
   };
 }
 
@@ -40,6 +50,7 @@ interface AuthContextType {
   loading: boolean;
   login: (accessToken: string, refreshToken: string) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -79,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login: loginFn, logout }}>
+    <AuthContext.Provider value={{ user, loading, login: loginFn, logout, refreshUser: fetchUser }}>
       {children}
     </AuthContext.Provider>
   );

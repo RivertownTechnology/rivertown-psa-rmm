@@ -25,7 +25,7 @@ import { NotFoundError } from '../../common/errors.js';
 import { paginationToOffset, paginate } from '../../common/pagination.js';
 import { logAudit } from '../../common/audit.js';
 import { moduleEvents } from '../registry.js';
-import { resolveTimeEntry, ResolveError } from '../contracts/billing-logic.js';
+import { resolveTimeEntry, ResolveError, liveBlockBalanceHours } from '../contracts/billing-logic.js';
 
 async function getNextTicketNumber(db: any, tenantId: string): Promise<number> {
   const [result] = await db
@@ -356,6 +356,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
           blockHours: contractLineItems.blockHours,
           expiresAt: contractLineItems.expiresAt,
           warnAtPct: contractLineItems.warnAtPct,
+          periodStartDate: contractLineItems.periodStartDate,
         })
         .from(contractLineItems)
         .innerJoin(contracts, eq(contractLineItems.contractId, contracts.id))
@@ -386,6 +387,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
           blockHours: contractLineItems.blockHours,
           expiresAt: contractLineItems.expiresAt,
           warnAtPct: contractLineItems.warnAtPct,
+          periodStartDate: contractLineItems.periodStartDate,
         })
         .from(contractLineItems)
         .innerJoin(contracts, eq(contractLineItems.contractId, contracts.id))
@@ -397,38 +399,25 @@ export async function ticketRoutes(fastify: FastifyInstance) {
           ),
         );
 
-      // 3. For block lines, pull live remaining hours.
-      const blockLineIds = [...customerLines, ...internalLines]
-        .filter((l) => l.coveragePolicy === 'block' && l.blockHours)
-        .map((l) => l.lineItemId);
-
-      const usedByLine = new Map<string, number>();
-      if (blockLineIds.length > 0) {
-        const usage = await fastify.db
-          .select({
-            lineItemId: ticketTimeEntries.contractLineItemId,
-            usedMinutes: sql<number>`COALESCE(SUM(${ticketTimeEntries.durationMinutes}), 0)`.as('used_minutes'),
-          })
-          .from(ticketTimeEntries)
-          .where(
-            and(
-              eq(ticketTimeEntries.tenantId, request.tenantId),
-              inArray(ticketTimeEntries.contractLineItemId, blockLineIds),
-              sql`${ticketTimeEntries.classification} IN ('covered', 'overage')`,
-              sql`${ticketTimeEntries.nonBillableReason} IS NULL`,
-            ),
-          )
-          .groupBy(ticketTimeEntries.contractLineItemId);
-        for (const row of usage) {
-          if (row.lineItemId) usedByLine.set(row.lineItemId, Number(row.usedMinutes));
+      // 3. For block lines, pull live remaining hours via the shared helper so
+      // periodStartDate is honored consistently with the resolver.
+      const remainingByLine = new Map<string, number>();
+      for (const line of [...customerLines, ...internalLines]) {
+        if (line.coveragePolicy === 'block' && line.blockHours) {
+          const remaining = await liveBlockBalanceHours(fastify.db as any, {
+            id: line.lineItemId,
+            blockHours: line.blockHours,
+            tenantId: request.tenantId,
+            periodStartDate: line.periodStartDate ?? null,
+          });
+          remainingByLine.set(line.lineItemId, remaining);
         }
       }
 
       const decorate = (line: typeof customerLines[number], isInternal: boolean) => {
         const isBlock = line.coveragePolicy === 'block' && !!line.blockHours;
         const totalHours = isBlock ? parseFloat(line.blockHours ?? '0') : null;
-        const usedHours = isBlock ? (usedByLine.get(line.lineItemId) ?? 0) / 60 : null;
-        const remainingHours = totalHours != null && usedHours != null ? totalHours - usedHours : null;
+        const remainingHours = isBlock ? remainingByLine.get(line.lineItemId) ?? totalHours : null;
         return {
           contractId: line.contractId,
           contractName: line.contractName,
@@ -525,6 +514,23 @@ export async function ticketRoutes(fastify: FastifyInstance) {
           });
 
           const inserted = await tx.insert(ticketTimeEntries).values(inserts).returning();
+          for (const row of inserted) {
+            await logAudit(tx as any, {
+              tenantId: request.tenantId,
+              actorType: 'user',
+              actorId: request.user.sub,
+              action: 'time_entry.created',
+              entityType: 'time_entry',
+              entityId: row.id,
+              changes: {
+                classification: { old: null, new: row.classification },
+                contractLineItemId: { old: null, new: row.contractLineItemId },
+                durationMinutes: { old: null, new: row.durationMinutes },
+                billableCents: { old: null, new: row.billableCents },
+              },
+              ipAddress: request.ip,
+            });
+          }
           return { inserted, reason: resolved.reason, warning: resolved.warning };
         });
 
@@ -645,7 +651,26 @@ export async function ticketRoutes(fastify: FastifyInstance) {
             };
           });
 
-          return tx.insert(ticketTimeEntries).values(inserts).returning();
+          const rows = await tx.insert(ticketTimeEntries).values(inserts).returning();
+          for (const row of rows) {
+            await logAudit(tx as any, {
+              tenantId: request.tenantId,
+              actorType: 'user',
+              actorId: request.user.sub,
+              action: 'time_entry.updated',
+              entityType: 'time_entry',
+              entityId: row.id,
+              changes: {
+                classification: { old: existing.classification, new: row.classification },
+                contractLineItemId: { old: existing.contractLineItemId, new: row.contractLineItemId },
+                durationMinutes: { old: existing.durationMinutes, new: row.durationMinutes },
+                billableCents: { old: existing.billableCents, new: row.billableCents },
+                nonBillableReason: { old: existing.nonBillableReason, new: row.nonBillableReason },
+              },
+              ipAddress: request.ip,
+            });
+          }
+          return rows;
         });
         return updated;
       } catch (err) {
@@ -655,6 +680,117 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         }
         throw err;
       }
+    },
+  );
+
+  // Bulk re-attribute time entries. Used for fix-up flows: "the week of entries
+  // that went against the wrong contract." Server re-resolves each entry so
+  // block balances and snapshot rates stay correct, and each change is audit-logged.
+  fastify.post(
+    '/api/v1/time-entries/bulk-reassign',
+    { preHandler: [fastify.authenticate, requirePermission('time-entries:write')] },
+    async (request, reply) => {
+      const body = request.body as { entryIds?: string[]; target?: string };
+      const entryIds = Array.isArray(body.entryIds) ? body.entryIds : [];
+      const target = typeof body.target === 'string' ? body.target : '';
+      if (entryIds.length === 0 || !target) {
+        reply.code(400);
+        return { error: 'invalid_input', message: 'entryIds (non-empty array) and target are required' };
+      }
+
+      const isInternal = target.startsWith('internal:');
+      const internalCategory = isInternal ? target.slice('internal:'.length) : null;
+      const contractLineItemId = isInternal ? undefined : target;
+
+      const results: Array<{ entryId: string; ok: boolean; error?: string; newIds?: string[] }> = [];
+
+      for (const entryId of entryIds) {
+        try {
+          const out = await fastify.db.transaction(async (tx) => {
+            const [existing] = await tx
+              .select()
+              .from(ticketTimeEntries)
+              .where(
+                and(
+                  eq(ticketTimeEntries.id, entryId),
+                  eq(ticketTimeEntries.tenantId, request.tenantId),
+                ),
+              )
+              .limit(1);
+            if (!existing) return { ok: false, error: 'not_found' };
+            if (existing.isBilled) return { ok: false, error: 'entry_locked' };
+
+            await tx.delete(ticketTimeEntries).where(eq(ticketTimeEntries.id, entryId));
+
+            const resolved = await resolveTimeEntry(tx as any, {
+              tenantId: request.tenantId,
+              ticketId: existing.ticketId,
+              userId: existing.userId,
+              durationMinutes: existing.durationMinutes ?? 0,
+              contractLineItemId,
+              classification: isInternal ? 'internal' : undefined,
+              internalCategory: internalCategory as any,
+              nonBillableReason: (existing.nonBillableReason ?? undefined) as any,
+            });
+
+            const inserts = resolved.entries.map((re, idx) => {
+              const offsetMinutes = resolved.entries
+                .slice(0, idx)
+                .reduce((sum, e) => sum + e.durationMinutes, 0);
+              const partStarted = new Date(existing.startedAt.getTime() + offsetMinutes * 60000);
+              return {
+                tenantId: request.tenantId,
+                ticketId: existing.ticketId,
+                userId: existing.userId,
+                startedAt: partStarted,
+                endedAt: existing.endedAt
+                  ? new Date(partStarted.getTime() + re.durationMinutes * 60000)
+                  : undefined,
+                durationMinutes: re.durationMinutes,
+                contractId: re.contractId,
+                contractLineItemId: re.contractLineItemId,
+                classification: re.classification,
+                internalCategory: re.internalCategory,
+                nonBillableReason: re.nonBillableReason,
+                costRateCents: re.costRateCents,
+                billRateCents: re.billRateCents,
+                costCents: re.costCents,
+                billableCents: re.billableCents,
+                isBillable: re.isBillable,
+                rateCents: re.rateCents,
+                notes: existing.notes,
+              };
+            });
+            const rows = await tx.insert(ticketTimeEntries).values(inserts).returning();
+            for (const row of rows) {
+              await logAudit(tx as any, {
+                tenantId: request.tenantId,
+                actorType: 'user',
+                actorId: request.user.sub,
+                action: 'time_entry.reassigned',
+                entityType: 'time_entry',
+                entityId: row.id,
+                changes: {
+                  contractLineItemId: { old: existing.contractLineItemId, new: row.contractLineItemId },
+                  classification: { old: existing.classification, new: row.classification },
+                  originalEntryId: { old: null, new: existing.id },
+                },
+                ipAddress: request.ip,
+              });
+            }
+            return { ok: true, newIds: rows.map((r) => r.id) };
+          });
+          results.push({ entryId, ...out });
+        } catch (err) {
+          const code = err instanceof ResolveError ? err.code : 'error';
+          const message = err instanceof Error ? err.message : 'failed';
+          results.push({ entryId, ok: false, error: `${code}: ${message}` });
+        }
+      }
+
+      const okCount = results.filter((r) => r.ok).length;
+      reply.code(okCount === entryIds.length ? 200 : 207);
+      return { results, ok: okCount, failed: entryIds.length - okCount };
     },
   );
 
@@ -680,6 +816,15 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       await fastify.db
         .delete(ticketTimeEntries)
         .where(and(eq(ticketTimeEntries.id, entryId), eq(ticketTimeEntries.tenantId, request.tenantId)));
+      await logAudit(fastify.db, {
+        tenantId: request.tenantId,
+        actorType: 'user',
+        actorId: request.user.sub,
+        action: 'time_entry.deleted',
+        entityType: 'time_entry',
+        entityId: entryId,
+        ipAddress: request.ip,
+      });
       reply.code(204).send();
     },
   );

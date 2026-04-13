@@ -22,6 +22,7 @@ import { ProductCatalogPage } from '@/pages/product-catalog';
 import { Pax8Page } from '@/pages/pax8';
 import { DispatchPage } from '@/pages/dispatch';
 import { SearchResultsPage } from '@/pages/search';
+import { GettingStartedPage } from '@/pages/getting-started';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 
 function useLocation() {
@@ -186,6 +187,9 @@ function AppRouter() {
   } else if (pathname === '/support') {
     title = 'Help & Support';
     content = <SupportPage />;
+  } else if (pathname === '/getting-started' || pathname === '/getting-started/migration') {
+    title = 'Getting Started'; currentNav = '/getting-started';
+    content = <GettingStartedPage onNavigate={navigate} />;
   } else if (pathname === '/catalog') {
     title = 'Product Catalog'; currentNav = '/catalog';
     content = <ProductCatalogPage />;

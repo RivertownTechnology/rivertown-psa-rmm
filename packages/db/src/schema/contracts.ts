@@ -59,6 +59,11 @@ export const contractLineItems = pgTable(
     resetCadence: text('reset_cadence'),                     // null | 'monthly' | 'quarterly' | 'annual'
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     warnAtPct: integer('warn_at_pct').default(80).notNull(),
+    // Phase 3: when did the current block period begin? Resolver filters time
+    // entries by startedAt >= periodStartDate so monthly blocks reset cleanly.
+    periodStartDate: date('period_start_date'),
+    warnedAt: timestamp('warned_at', { withTimezone: true }),
+    expiredNotifiedAt: timestamp('expired_notified_at', { withTimezone: true }),
     taxable: boolean('taxable').default(true).notNull(),
     pax8SubscriptionId: text('pax8_subscription_id'),
     catalogItemId: uuid('catalog_item_id').references(() => serviceCatalogItems.id),

@@ -79,6 +79,244 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     return { ...invoice, lineItems, payments: invoicePayments };
   });
 
+  // Preview billing batch for a customer — shows what a one-click sweep would include.
+  // Returns grouped totals without creating anything.
+  fastify.get(
+    '/api/v1/customers/:id/billing-batch/preview',
+    { preHandler: [fastify.authenticate, requirePermission('invoices:read')] },
+    async (request, reply) => {
+      const { id: customerId } = request.params as { id: string };
+      const { ticketTimeEntries, tickets } = await import('@rivertown/db');
+
+      const [customer] = await fastify.db.select({ id: customers.id, name: customers.name })
+        .from(customers)
+        .where(and(eq(customers.id, customerId), eq(customers.tenantId, request.tenantId)))
+        .limit(1);
+      if (!customer) {
+        reply.code(404);
+        return { error: 'not_found' };
+      }
+
+      const rows = await fastify.db
+        .select({
+          entryId: ticketTimeEntries.id,
+          ticketId: ticketTimeEntries.ticketId,
+          ticketNumber: tickets.ticketNumber,
+          ticketSubject: tickets.subject,
+          durationMinutes: ticketTimeEntries.durationMinutes,
+          billableCents: ticketTimeEntries.billableCents,
+          billRateCents: ticketTimeEntries.billRateCents,
+          classification: ticketTimeEntries.classification,
+        })
+        .from(ticketTimeEntries)
+        .innerJoin(tickets, eq(ticketTimeEntries.ticketId, tickets.id))
+        .where(
+          and(
+            eq(ticketTimeEntries.tenantId, request.tenantId),
+            eq(tickets.customerId, customerId),
+            eq(ticketTimeEntries.isBilled, false),
+            sql`${ticketTimeEntries.classification} IN ('billable', 'overage')`,
+          ),
+        )
+        .orderBy(tickets.ticketNumber);
+
+      const groups = new Map<string, {
+        ticketId: string;
+        ticketNumber: number;
+        ticketSubject: string;
+        classification: string;
+        rateCents: number;
+        entries: string[];
+        totalMinutes: number;
+        totalBillableCents: number;
+      }>();
+      for (const r of rows) {
+        const key = `${r.ticketId}|${r.classification}|${r.billRateCents ?? 0}`;
+        let g = groups.get(key);
+        if (!g) {
+          g = {
+            ticketId: r.ticketId,
+            ticketNumber: r.ticketNumber,
+            ticketSubject: r.ticketSubject,
+            classification: r.classification,
+            rateCents: r.billRateCents ?? 0,
+            entries: [],
+            totalMinutes: 0,
+            totalBillableCents: 0,
+          };
+          groups.set(key, g);
+        }
+        g.entries.push(r.entryId);
+        g.totalMinutes += r.durationMinutes ?? 0;
+        g.totalBillableCents += r.billableCents ?? 0;
+      }
+
+      const groupsArr = Array.from(groups.values());
+      return {
+        customerId,
+        customerName: customer.name,
+        entryCount: rows.length,
+        totalMinutes: groupsArr.reduce((s, g) => s + g.totalMinutes, 0),
+        totalBillableCents: groupsArr.reduce((s, g) => s + g.totalBillableCents, 0),
+        groups: groupsArr,
+      };
+    },
+  );
+
+  // Generate a draft invoice sweeping this customer's unbilled billable/overage time entries.
+  // Groups line items by (ticket, classification, rate). Flips isBilled on each entry.
+  fastify.post(
+    '/api/v1/customers/:id/billing-batch',
+    { preHandler: [fastify.authenticate, requirePermission('invoices:write')] },
+    async (request, reply) => {
+      const { id: customerId } = request.params as { id: string };
+      const { ticketTimeEntries, tickets } = await import('@rivertown/db');
+
+      const [customer] = await fastify.db.select({ id: customers.id, name: customers.name })
+        .from(customers)
+        .where(and(eq(customers.id, customerId), eq(customers.tenantId, request.tenantId)))
+        .limit(1);
+      if (!customer) {
+        reply.code(404);
+        return { error: 'not_found' };
+      }
+
+      const result = await fastify.db.transaction(async (tx) => {
+        const rows = await tx
+          .select({
+            entryId: ticketTimeEntries.id,
+            ticketId: ticketTimeEntries.ticketId,
+            ticketNumber: tickets.ticketNumber,
+            ticketSubject: tickets.subject,
+            durationMinutes: ticketTimeEntries.durationMinutes,
+            billableCents: ticketTimeEntries.billableCents,
+            billRateCents: ticketTimeEntries.billRateCents,
+            classification: ticketTimeEntries.classification,
+          })
+          .from(ticketTimeEntries)
+          .innerJoin(tickets, eq(ticketTimeEntries.ticketId, tickets.id))
+          .where(
+            and(
+              eq(ticketTimeEntries.tenantId, request.tenantId),
+              eq(tickets.customerId, customerId),
+              eq(ticketTimeEntries.isBilled, false),
+              sql`${ticketTimeEntries.classification} IN ('billable', 'overage')`,
+            ),
+          );
+
+        if (rows.length === 0) {
+          return { invoiceId: null, entryCount: 0 };
+        }
+
+        // Group: (ticketId, classification, rate) → one invoice line
+        const groups = new Map<string, {
+          ticketId: string;
+          ticketNumber: number;
+          ticketSubject: string;
+          classification: string;
+          rateCents: number;
+          entries: string[];
+          totalMinutes: number;
+          totalBillableCents: number;
+        }>();
+        for (const r of rows) {
+          const key = `${r.ticketId}|${r.classification}|${r.billRateCents ?? 0}`;
+          let g = groups.get(key);
+          if (!g) {
+            g = {
+              ticketId: r.ticketId,
+              ticketNumber: r.ticketNumber,
+              ticketSubject: r.ticketSubject,
+              classification: r.classification,
+              rateCents: r.billRateCents ?? 0,
+              entries: [],
+              totalMinutes: 0,
+              totalBillableCents: 0,
+            };
+            groups.set(key, g);
+          }
+          g.entries.push(r.entryId);
+          g.totalMinutes += r.durationMinutes ?? 0;
+          g.totalBillableCents += r.billableCents ?? 0;
+        }
+
+        // Create draft invoice
+        const invoiceNumber = await getNextInvoiceNumber(tx, request.tenantId);
+        const today = new Date().toISOString().slice(0, 10);
+        const due = new Date();
+        due.setUTCDate(due.getUTCDate() + 30);
+        const dueDate = due.toISOString().slice(0, 10);
+
+        const [invoice] = await tx.insert(invoices).values({
+          tenantId: request.tenantId,
+          customerId,
+          invoiceNumber,
+          status: 'draft',
+          issueDate: today,
+          dueDate,
+          subtotalCents: 0,
+          taxCents: 0,
+          totalCents: 0,
+          amountPaidCents: 0,
+        }).returning();
+
+        let sortOrder = 0;
+        for (const g of groups.values()) {
+          const qty = (g.totalMinutes / 60).toFixed(2);
+          const label = g.classification === 'overage' ? 'Overage' : 'Labor';
+          const description = `Ticket #${g.ticketNumber} — ${g.ticketSubject} (${label})`;
+          const [line] = await tx.insert(invoiceLineItems).values({
+            tenantId: request.tenantId,
+            invoiceId: invoice.id,
+            description,
+            quantity: qty,
+            unitPriceCents: g.rateCents,
+            totalCents: g.totalBillableCents,
+            unitCostCents: null,
+            taxable: true,
+            sortOrder: sortOrder++,
+          }).returning();
+
+          await tx
+            .update(ticketTimeEntries)
+            .set({ isBilled: true, invoiceLineId: line.id, updatedAt: new Date() })
+            .where(
+              and(
+                eq(ticketTimeEntries.tenantId, request.tenantId),
+                sql`${ticketTimeEntries.id} = ANY(${g.entries}::uuid[])`,
+              ),
+            );
+        }
+
+        await recalcInvoiceTotals(tx, invoice.id, request.tenantId);
+
+        await logAudit(tx as any, {
+          tenantId: request.tenantId,
+          actorType: 'user',
+          actorId: request.user.sub,
+          action: 'invoice.billing_batch_generated',
+          entityType: 'invoice',
+          entityId: invoice.id,
+          changes: {
+            entryCount: { old: null, new: rows.length },
+            groupCount: { old: null, new: groups.size },
+            customerId: { old: null, new: customerId },
+          },
+          ipAddress: request.ip,
+        });
+
+        return { invoiceId: invoice.id, entryCount: rows.length, groupCount: groups.size };
+      });
+
+      if (!result.invoiceId) {
+        reply.code(409);
+        return { error: 'nothing_to_bill', message: 'No unbilled billable or overage time entries for this customer.' };
+      }
+      reply.code(201);
+      return result;
+    },
+  );
+
   // Create invoice
   fastify.post('/api/v1/invoices', { preHandler: [fastify.authenticate, requirePermission('invoices:write')] }, async (request, reply) => {
     const body = createInvoiceSchema.parse(request.body);

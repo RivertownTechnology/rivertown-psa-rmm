@@ -88,33 +88,37 @@ const hoursToCents = (hours: number, ratePerHourCents: number) =>
   Math.round(hours * ratePerHourCents);
 
 /**
- * Computes live block balance from the materialized used counter PLUS any
- * unbilled consumption since the last cache rebuild. We trust blockHoursUsed
- * as the cache and recompute on demand here for safety.
+ * Computes live block balance by summing consumption from ticketTimeEntries.
  *
- * Returns remaining hours (can be negative if over).
+ * For block lines with resetCadence, `periodStartDate` filters out time from
+ * prior periods so monthly/quarterly/annual blocks reset cleanly.
+ *
+ * Returns remaining hours (can be negative if over-consumed).
  */
-async function liveBlockBalanceHours(
+export async function liveBlockBalanceHours(
   tx: Database,
-  lineItem: { id: string; blockHours: string | null; tenantId: string },
+  lineItem: { id: string; blockHours: string | null; tenantId: string; periodStartDate?: string | null },
 ): Promise<number> {
   const totalBlock = parseFloat(lineItem.blockHours ?? '0');
   if (totalBlock <= 0) return 0;
+
+  const whereClauses = [
+    eq(ticketTimeEntries.tenantId, lineItem.tenantId),
+    eq(ticketTimeEntries.contractLineItemId, lineItem.id),
+    sql`${ticketTimeEntries.classification} IN ('covered', 'overage')`,
+    // Comms-flagged entries don't decrement block balance — see design note.
+    sql`${ticketTimeEntries.nonBillableReason} IS NULL`,
+  ];
+  if (lineItem.periodStartDate) {
+    whereClauses.push(sql`${ticketTimeEntries.startedAt} >= ${lineItem.periodStartDate}::timestamptz`);
+  }
 
   const [row] = await tx
     .select({
       usedMinutes: sql<number>`COALESCE(SUM(${ticketTimeEntries.durationMinutes}), 0)`.as('used_minutes'),
     })
     .from(ticketTimeEntries)
-    .where(
-      and(
-        eq(ticketTimeEntries.tenantId, lineItem.tenantId),
-        eq(ticketTimeEntries.contractLineItemId, lineItem.id),
-        sql`${ticketTimeEntries.classification} IN ('covered', 'overage')`,
-        // Comms-flagged entries don't decrement block balance — see design note.
-        sql`${ticketTimeEntries.nonBillableReason} IS NULL`,
-      ),
-    );
+    .where(and(...whereClauses));
 
   const usedHours = minutesToHours(Number(row?.usedMinutes ?? 0));
   return totalBlock - usedHours;
@@ -270,7 +274,7 @@ export async function resolveTimeEntry(
     SELECT id, tenant_id AS "tenantId", coverage_policy AS "coveragePolicy",
            block_hours AS "blockHours", overage_rate_cents AS "overageRateCents",
            unit_price_cents AS "unitPriceCents", warn_at_pct AS "warnAtPct",
-           expires_at AS "expiresAt"
+           expires_at AS "expiresAt", period_start_date AS "periodStartDate"
     FROM contract_line_items
     WHERE id = ${lineItemId} AND tenant_id = ${tenantId}
     FOR UPDATE
@@ -370,6 +374,7 @@ export async function resolveTimeEntry(
     id: lineItemId,
     blockHours: lineItem.blockHours,
     tenantId,
+    periodStartDate: lineItem.periodStartDate ?? null,
   });
 
   // Fully covered by remaining block

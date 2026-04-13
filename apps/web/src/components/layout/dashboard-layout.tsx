@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
 import { TrialBanner } from './trial-banner';
+import { OnboardingBanner } from './onboarding-banner';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -37,6 +38,7 @@ export function DashboardLayout({ children, title, currentPath, onNavigate }: Da
 
       <div className="flex-1 flex flex-col min-w-0">
         <TrialBanner onNavigate={onNavigate} />
+        <OnboardingBanner onNavigate={onNavigate} />
         <Header
           title={title}
           onNavigate={onNavigate}
