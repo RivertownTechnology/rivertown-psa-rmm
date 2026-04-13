@@ -346,6 +346,17 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     }
   }, 5000);
 
+  // Backfill: every tenant must have an "Internal" contract so overhead time has
+  // somewhere to land. ensureInternalContractForAllTenants is idempotent — it
+  // creates missing rows and leaves existing ones alone. New tenants get one in
+  // the signup transaction; this covers tenants that predate Phase 1.
+  try {
+    const { ensureInternalContractForAllTenants } = await import('@rivertown/db');
+    await ensureInternalContractForAllTenants(db);
+  } catch (err) {
+    fastify.log.error({ err }, '[BOOT] Internal-contract backfill failed (non-fatal)');
+  }
+
   // Contract-hours maintenance: period resets, expiry alerts, warn-threshold emails.
   // Runs hourly; each sub-task is idempotent and no-ops when nothing is due.
   const { runContractHoursNightly } = await import('./jobs/contract-hours-nightly.js');
