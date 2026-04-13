@@ -22,7 +22,7 @@ import { NotFoundError } from '../../common/errors.js';
 import { paginationToOffset, paginate } from '../../common/pagination.js';
 import { logAudit } from '../../common/audit.js';
 import { moduleEvents } from '../registry.js';
-import { determineTimeBillability } from '../contracts/billing-logic.js';
+import { resolveTimeEntry, ResolveError } from '../contracts/billing-logic.js';
 
 async function getNextTicketNumber(db: any, tenantId: string): Promise<number> {
   const [result] = await db
@@ -317,7 +317,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     },
   );
 
-  // Add time entry
+  // Add time entry — resolver-driven, transactional, may insert two rows for block overage splits.
   fastify.post(
     '/api/v1/tickets/:id/time-entries',
     { preHandler: [fastify.authenticate, requirePermission('time-entries:write')] },
@@ -325,62 +325,215 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       const { id } = request.params as { id: string };
       const body = createTimeEntrySchema.parse(request.body);
 
-      const [entry] = await fastify.db
-        .insert(ticketTimeEntries)
-        .values({
-          tenantId: request.tenantId,
-          ticketId: id,
-          userId: request.user.sub,
-          startedAt: new Date(body.startedAt),
-          endedAt: body.endedAt ? new Date(body.endedAt) : undefined,
-          durationMinutes: body.durationMinutes,
-          isBillable: body.isBillable,
-          rateCents: body.rateCents,
-          notes: body.notes,
-        })
-        .returning();
+      const startedAt = new Date(body.startedAt);
+      const endedAt = body.endedAt ? new Date(body.endedAt) : undefined;
+      const durationMinutes =
+        body.durationMinutes ??
+        (endedAt ? Math.max(1, Math.round((endedAt.getTime() - startedAt.getTime()) / 60000)) : undefined);
 
-      // Auto-determine billability if not explicitly set
-      const bodyRaw = request.body as Record<string, unknown>;
-      if (bodyRaw.isBillable === undefined || bodyRaw.isBillable === null) {
-        const billing = await determineTimeBillability(fastify.db, request.tenantId, id, body.durationMinutes ?? 0);
-        if (entry.isBillable !== billing.isBillable || entry.rateCents !== billing.rateCents) {
-          const [updated] = await fastify.db.update(ticketTimeEntries).set({
-            isBillable: billing.isBillable,
-            rateCents: billing.rateCents,
-          }).where(eq(ticketTimeEntries.id, entry.id)).returning();
-          reply.code(201);
-          return { ...updated, billingReason: billing.reason };
-        }
+      if (!durationMinutes || durationMinutes <= 0) {
+        reply.code(400);
+        return { error: 'duration_required', message: 'durationMinutes (or endedAt) is required and must be > 0' };
       }
 
-      reply.code(201);
-      return entry;
+      try {
+        const result = await fastify.db.transaction(async (tx) => {
+          const resolved = await resolveTimeEntry(tx as any, {
+            tenantId: request.tenantId,
+            ticketId: id,
+            userId: request.user.sub,
+            durationMinutes,
+            contractLineItemId: body.contractLineItemId,
+            classification: body.classification,
+            internalCategory: body.internalCategory,
+            nonBillableReason: body.nonBillableReason,
+          });
+
+          // Multiple resolved entries = overage split. The covered portion gets the
+          // provided startedAt; the overage portion picks up where it left off.
+          const inserts = resolved.entries.map((re, idx) => {
+            const offsetMinutes = resolved.entries
+              .slice(0, idx)
+              .reduce((sum, e) => sum + e.durationMinutes, 0);
+            const partStarted = new Date(startedAt.getTime() + offsetMinutes * 60000);
+            const partEnded = new Date(partStarted.getTime() + re.durationMinutes * 60000);
+            return {
+              tenantId: request.tenantId,
+              ticketId: id,
+              userId: request.user.sub,
+              startedAt: partStarted,
+              endedAt: endedAt ? partEnded : undefined,
+              durationMinutes: re.durationMinutes,
+              contractId: re.contractId,
+              contractLineItemId: re.contractLineItemId,
+              classification: re.classification,
+              internalCategory: re.internalCategory,
+              nonBillableReason: re.nonBillableReason,
+              costRateCents: re.costRateCents,
+              billRateCents: re.billRateCents,
+              costCents: re.costCents,
+              billableCents: re.billableCents,
+              isBillable: re.isBillable,
+              rateCents: re.rateCents,
+              notes: body.notes,
+            };
+          });
+
+          const inserted = await tx.insert(ticketTimeEntries).values(inserts).returning();
+          return { inserted, reason: resolved.reason, warning: resolved.warning };
+        });
+
+        reply.code(201);
+        return {
+          entries: result.inserted,
+          billingReason: result.reason,
+          warning: result.warning,
+        };
+      } catch (err) {
+        if (err instanceof ResolveError) {
+          // 422 for business-rule rejections (no contract, block exhausted, expired, etc.)
+          reply.code(422);
+          return { error: err.code, message: err.message };
+        }
+        throw err;
+      }
     },
   );
 
-  // Update time entry
+  // Update time entry — locked once invoiced.
   fastify.patch(
     '/api/v1/time-entries/:entryId',
     { preHandler: [fastify.authenticate, requirePermission('time-entries:write')] },
-    async (request) => {
+    async (request, reply) => {
       const { entryId } = request.params as { entryId: string };
-      const body = request.body as Partial<{ durationMinutes: number; isBillable: boolean; rateCents: number; notes: string }>;
-      const [updated] = await fastify.db.update(ticketTimeEntries)
-        .set({ ...body, updatedAt: new Date() })
+      const body = request.body as Partial<{
+        durationMinutes: number;
+        notes: string;
+        contractLineItemId: string;
+        classification: 'covered' | 'billable' | 'overage' | 'internal';
+        internalCategory: string;
+        nonBillableReason: string | null;
+      }>;
+
+      const [existing] = await fastify.db
+        .select()
+        .from(ticketTimeEntries)
         .where(and(eq(ticketTimeEntries.id, entryId), eq(ticketTimeEntries.tenantId, request.tenantId)))
-        .returning();
-      return updated;
+        .limit(1);
+
+      if (!existing) {
+        reply.code(404);
+        return { error: 'not_found' };
+      }
+      if (existing.isBilled) {
+        reply.code(409);
+        return {
+          error: 'entry_locked',
+          message: 'This entry is already billed. Use void & re-log instead of editing.',
+        };
+      }
+
+      // For now: notes-only edit goes through; structural edits (duration, classification,
+      // line item) re-run the resolver in a transaction so cost/billable stay snapshotted
+      // and block balance stays consistent.
+      const isStructural =
+        body.durationMinutes != null ||
+        body.contractLineItemId != null ||
+        body.classification != null ||
+        body.nonBillableReason !== undefined;
+
+      if (!isStructural) {
+        const [updated] = await fastify.db
+          .update(ticketTimeEntries)
+          .set({ notes: body.notes, updatedAt: new Date() })
+          .where(eq(ticketTimeEntries.id, entryId))
+          .returning();
+        return updated;
+      }
+
+      try {
+        const updated = await fastify.db.transaction(async (tx) => {
+          const newDuration = body.durationMinutes ?? existing.durationMinutes ?? 0;
+          // Reverse old consumption by deleting the row, then re-resolve.
+          await tx.delete(ticketTimeEntries).where(eq(ticketTimeEntries.id, entryId));
+
+          const resolved = await resolveTimeEntry(tx as any, {
+            tenantId: request.tenantId,
+            ticketId: existing.ticketId,
+            userId: existing.userId,
+            durationMinutes: newDuration,
+            contractLineItemId: body.contractLineItemId ?? existing.contractLineItemId ?? undefined,
+            classification: body.classification ?? (existing.classification as any),
+            internalCategory: (body.internalCategory ?? existing.internalCategory) as any,
+            nonBillableReason:
+              body.nonBillableReason === null
+                ? undefined
+                : ((body.nonBillableReason ?? existing.nonBillableReason) as any),
+          });
+
+          const inserts = resolved.entries.map((re, idx) => {
+            const offsetMinutes = resolved.entries
+              .slice(0, idx)
+              .reduce((sum, e) => sum + e.durationMinutes, 0);
+            const partStarted = new Date(existing.startedAt.getTime() + offsetMinutes * 60000);
+            return {
+              tenantId: request.tenantId,
+              ticketId: existing.ticketId,
+              userId: existing.userId,
+              startedAt: partStarted,
+              endedAt: existing.endedAt
+                ? new Date(partStarted.getTime() + re.durationMinutes * 60000)
+                : undefined,
+              durationMinutes: re.durationMinutes,
+              contractId: re.contractId,
+              contractLineItemId: re.contractLineItemId,
+              classification: re.classification,
+              internalCategory: re.internalCategory,
+              nonBillableReason: re.nonBillableReason,
+              costRateCents: re.costRateCents,
+              billRateCents: re.billRateCents,
+              costCents: re.costCents,
+              billableCents: re.billableCents,
+              isBillable: re.isBillable,
+              rateCents: re.rateCents,
+              notes: body.notes ?? existing.notes,
+            };
+          });
+
+          return tx.insert(ticketTimeEntries).values(inserts).returning();
+        });
+        return updated;
+      } catch (err) {
+        if (err instanceof ResolveError) {
+          reply.code(422);
+          return { error: err.code, message: err.message };
+        }
+        throw err;
+      }
     },
   );
 
-  // Delete time entry
+  // Delete time entry — locked once invoiced.
   fastify.delete(
     '/api/v1/time-entries/:entryId',
     { preHandler: [fastify.authenticate, requirePermission('time-entries:write')] },
     async (request, reply) => {
       const { entryId } = request.params as { entryId: string };
-      await fastify.db.delete(ticketTimeEntries)
+      const [existing] = await fastify.db
+        .select({ isBilled: ticketTimeEntries.isBilled })
+        .from(ticketTimeEntries)
+        .where(and(eq(ticketTimeEntries.id, entryId), eq(ticketTimeEntries.tenantId, request.tenantId)))
+        .limit(1);
+      if (!existing) {
+        reply.code(404);
+        return { error: 'not_found' };
+      }
+      if (existing.isBilled) {
+        reply.code(409);
+        return { error: 'entry_locked', message: 'This entry is already billed.' };
+      }
+      await fastify.db
+        .delete(ticketTimeEntries)
         .where(and(eq(ticketTimeEntries.id, entryId), eq(ticketTimeEntries.tenantId, request.tenantId)));
       reply.code(204).send();
     },

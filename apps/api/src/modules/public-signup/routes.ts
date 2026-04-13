@@ -257,6 +257,10 @@ export async function publicSignupRoutes(fastify: FastifyInstance) {
           }
         }
 
+        // Internal contract — every tenant needs one so overhead time has somewhere to land.
+        const { ensureInternalContract } = await import('@rivertown/db');
+        await ensureInternalContract(tx as any, t.id);
+
         return { tenant: t, user: u };
       });
 

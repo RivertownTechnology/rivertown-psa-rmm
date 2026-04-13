@@ -1,6 +1,7 @@
 import { createDb } from '../client.js';
 import { tenants, users, tenantSequences } from '../schema/index.js';
 import { hash } from 'bcryptjs';
+import { ensureInternalContract } from './seed-internal-contract.js';
 
 async function seed() {
   const databaseUrl =
@@ -60,6 +61,11 @@ async function seed() {
   ]);
 
   console.log('Initialized tenant sequences');
+
+  // Internal contract — every tenant needs one so overhead time has somewhere to land.
+  const refs = await ensureInternalContract(db, tenant.id);
+  console.log(`Created Internal contract: ${refs.contractId}`);
+
   console.log('Seed complete!');
   process.exit(0);
 }

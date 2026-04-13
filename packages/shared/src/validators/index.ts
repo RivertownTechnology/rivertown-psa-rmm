@@ -16,6 +16,11 @@ import {
   CONTRACT_LINE_ITEM_TYPES,
   LINE_ITEM_CATEGORIES,
   PAYMENT_METHODS,
+  COVERAGE_POLICIES,
+  RESET_CADENCES,
+  TIME_ENTRY_CLASSIFICATIONS,
+  INTERNAL_CATEGORIES,
+  NON_BILLABLE_REASONS,
 } from '../constants/index.js';
 
 // Common
@@ -143,14 +148,26 @@ export const createTicketCommentSchema = z.object({
 });
 
 // Time Entries
+//
+// The server (resolveTimeEntry) decides classification, rates, and billable amounts.
+// The tech can OPTIONALLY:
+//   - pick a contractLineItemId (otherwise we fall back to ticket.contractId's default)
+//   - mark classification='internal' with an internalCategory (overhead time)
+//   - set nonBillableReason to demote a billable entry to $0 (e.g. quick comms)
+// `isBillable` and `rateCents` are accepted for back-compat but ignored by the resolver.
 export const createTimeEntrySchema = z.object({
   ticketId: z.string().uuid(),
   startedAt: z.string().datetime(),
   endedAt: z.string().datetime().optional(),
   durationMinutes: z.number().int().min(1).optional(),
-  isBillable: z.boolean().default(false),
-  rateCents: z.number().int().min(0).optional(),
+  contractLineItemId: z.string().uuid().optional(),
+  classification: z.enum(TIME_ENTRY_CLASSIFICATIONS).optional(),
+  internalCategory: z.enum(INTERNAL_CATEGORIES).optional(),
+  nonBillableReason: z.enum(NON_BILLABLE_REASONS).optional(),
   notes: z.string().optional(),
+  // Deprecated — accepted but ignored by the resolver. Kept so existing clients don't break.
+  isBillable: z.boolean().optional(),
+  rateCents: z.number().int().min(0).optional(),
 });
 
 export const updateTimeEntrySchema = createTimeEntrySchema.partial().omit({ ticketId: true });
@@ -166,6 +183,10 @@ export const createContractSchema = z.object({
   billingCycle: z.enum(BILLING_CYCLES).default('monthly'),
   autoRenew: z.boolean().default(true),
   notes: z.string().optional(),
+  // Default labor line item the time-entry resolver falls back to when a tech
+  // doesn't pick one. Optional on create (no line items exist yet); the API
+  // backfills this when the first labor line is added or admin sets it.
+  defaultLaborLineItemId: z.string().uuid().optional(),
 });
 
 export const updateContractSchema = createContractSchema.partial().omit({ customerId: true });
@@ -206,6 +227,14 @@ export const createLineItemSchema = z.object({
   unitCostCents: z.number().int().min(0).optional(),
   quantity: z.string().default('1'),
   blockHours: z.string().optional(),
+  // Coverage policy is the v1 billing-behavior driver. Defaults to 'inclusive'
+  // for managed-services lines; admin must explicitly choose 'block' or 'billable'.
+  coveragePolicy: z.enum(COVERAGE_POLICIES).default('inclusive'),
+  overageRateCents: z.number().int().min(0).optional(),       // null on a 'block' line = reject overage
+  resetCadence: z.enum(RESET_CADENCES).optional(),            // null = one-time block
+  // Accept ISO string from clients; transform to Date so it lands cleanly in a timestamptz column.
+  expiresAt: z.string().datetime().transform((s) => new Date(s)).optional(),
+  warnAtPct: z.number().int().min(1).max(100).default(80),
   taxable: z.boolean().default(true),
   sortOrder: z.number().int().default(0),
 });

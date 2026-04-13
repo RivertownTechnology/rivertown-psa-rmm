@@ -87,10 +87,23 @@ export const ticketTimeEntries = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
     endedAt: timestamp('ended_at', { withTimezone: true }),
     durationMinutes: integer('duration_minutes'),
+    // Contract attribution. contractLineItemId is null only for 'internal' classification
+    // before the seed-internal step has run; afterwards it always points at Internal/Overhead.
+    contractId: uuid('contract_id'),
+    contractLineItemId: uuid('contract_line_item_id'),
+    // Billing decision, set server-side by resolveTimeEntry.
+    classification: text('classification').notNull(),         // 'covered' | 'billable' | 'overage' | 'internal'
+    internalCategory: text('internal_category'),              // 'admin' | 'training' | 'sales' | 'rnd' | 'pto' | 'travel_unbillable'
+    nonBillableReason: text('non_billable_reason'),           // null | 'communication' | 'goodwill' | 'rework' | 'travel'
+    // Snapshots taken at write time — must NOT change retroactively.
+    costRateCents: integer('cost_rate_cents').notNull(),
+    billRateCents: integer('bill_rate_cents'),                // null for covered/internal
+    costCents: integer('cost_cents').notNull().default(0),
+    billableCents: integer('billable_cents').notNull().default(0),
     isBillable: boolean('is_billable').default(false).notNull(),
     isBilled: boolean('is_billed').default(false).notNull(),
     invoiceLineId: uuid('invoice_line_id'),
-    rateCents: integer('rate_cents'),
+    rateCents: integer('rate_cents'),                         // legacy; kept for back-compat reads
     notes: text('notes'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -98,5 +111,8 @@ export const ticketTimeEntries = pgTable(
   (table) => [
     index('time_entries_ticket_idx').on(table.ticketId),
     index('time_entries_tenant_billable_idx').on(table.tenantId, table.isBillable, table.isBilled),
+    index('time_entries_contract_idx').on(table.contractId),
+    index('time_entries_contract_line_idx').on(table.contractLineItemId),
+    index('time_entries_tenant_classification_idx').on(table.tenantId, table.classification, table.isBilled),
   ],
 );

@@ -44,6 +44,36 @@ export const CONTRACT_LINE_ITEM_TYPES = [
 ] as const;
 export type ContractLineItemType = (typeof CONTRACT_LINE_ITEM_TYPES)[number];
 
+// Coverage policy is the v1 billing-behavior driver on a contract line item.
+//   inclusive — covered, no balance (managed services)
+//   block     — decrement balance; overage bills at overageRateCents or rejects when null
+//   billable  — always bills at unitPriceCents (T&M / break-fix)
+export const COVERAGE_POLICIES = ['inclusive', 'block', 'billable'] as const;
+export type CoveragePolicy = (typeof COVERAGE_POLICIES)[number];
+
+export const RESET_CADENCES = ['monthly', 'quarterly', 'annual'] as const;
+export type ResetCadence = (typeof RESET_CADENCES)[number];
+
+// Server-decided billing classification for a single time entry.
+export const TIME_ENTRY_CLASSIFICATIONS = ['covered', 'billable', 'overage', 'internal'] as const;
+export type TimeEntryClassification = (typeof TIME_ENTRY_CLASSIFICATIONS)[number];
+
+// Required when classification = 'internal' (work that hits the per-tenant Internal contract).
+export const INTERNAL_CATEGORIES = [
+  'admin',
+  'training',
+  'sales',
+  'rnd',
+  'pto',
+  'travel_unbillable',
+] as const;
+export type InternalCategory = (typeof INTERNAL_CATEGORIES)[number];
+
+// Optional override that demotes a 'billable' or 'overage' entry to $0 (still cost-tracked).
+// Block lines also do NOT decrement when set — the time is a freebie either way.
+export const NON_BILLABLE_REASONS = ['communication', 'goodwill', 'rework', 'travel'] as const;
+export type NonBillableReason = (typeof NON_BILLABLE_REASONS)[number];
+
 export const LINE_ITEM_CATEGORIES = [
   'license',
   'security',

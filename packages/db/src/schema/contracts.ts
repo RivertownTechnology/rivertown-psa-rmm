@@ -23,6 +23,9 @@ export const contracts = pgTable(
     billingCycle: text('billing_cycle').default('monthly'),
     autoRenew: boolean('auto_renew').default(true).notNull(),
     notes: text('notes'),
+    // Default labor line item used by time-entry resolution when a tech doesn't
+    // explicitly pick one. Backfilled from the most-likely labor line per contract.
+    defaultLaborLineItemId: uuid('default_labor_line_item_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -50,6 +53,12 @@ export const contractLineItems = pgTable(
     category: text('category'),
     blockHours: numeric('block_hours'),
     blockHoursUsed: numeric('block_hours_used').default('0'),
+    // Coverage policy drives billing behavior at write-time: 'inclusive' | 'block' | 'billable'.
+    coveragePolicy: text('coverage_policy').default('inclusive').notNull(),
+    overageRateCents: integer('overage_rate_cents'),         // null on a 'block' line = reject overage
+    resetCadence: text('reset_cadence'),                     // null | 'monthly' | 'quarterly' | 'annual'
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    warnAtPct: integer('warn_at_pct').default(80).notNull(),
     taxable: boolean('taxable').default(true).notNull(),
     pax8SubscriptionId: text('pax8_subscription_id'),
     catalogItemId: uuid('catalog_item_id').references(() => serviceCatalogItems.id),
