@@ -7,10 +7,10 @@ export function Terms({ navigate: _navigate }: { navigate: (p: string) => void }
   );
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-      <h1 className="text-4xl font-bold text-slate-900 mb-2">Terms of Service</h1>
-      <p className="text-sm text-slate-500 mb-10">Last updated: April 12, 2026</p>
+      <h1 className="text-4xl font-bold text-slate-900 dark:text-white mb-2">Terms of Service</h1>
+      <p className="text-sm text-slate-500 dark:text-slate-400 mb-10">Last updated: April 12, 2026</p>
 
-      <div className="prose prose-slate max-w-none space-y-6 text-slate-700 leading-relaxed">
+      <div className="prose prose-slate dark:prose-invert max-w-none space-y-6 text-slate-700 dark:text-slate-200 leading-relaxed">
         <Section title="1. Agreement">
           <p>
             These Terms of Service ("Terms") govern your use of ForgePSA (the "Service"), operated by
@@ -187,7 +187,7 @@ export function Terms({ navigate: _navigate }: { navigate: (p: string) => void }
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="text-xl font-semibold text-slate-900 mt-6 mb-3">{title}</h2>
+      <h2 className="text-xl font-semibold text-slate-900 dark:text-white mt-6 mb-3">{title}</h2>
       <div className="space-y-3">{children}</div>
     </section>
   );

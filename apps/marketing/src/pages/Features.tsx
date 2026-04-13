@@ -12,16 +12,16 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
   return (
     <>
       {/* Header */}
-      <section className="bg-gradient-to-br from-brand-50 via-white to-slate-50">
+      <section className="bg-gradient-to-br from-brand-50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-950 dark:to-slate-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-16 text-center">
-          <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-full px-3 py-1 text-xs font-medium text-slate-700 mb-6 shadow-sm">
-            <Sparkles className="h-3.5 w-3.5 text-brand-600" />
+          <div className="inline-flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 mb-6 shadow-sm">
+            <Sparkles className="h-3.5 w-3.5 text-brand-600 dark:text-brand-400" />
             Every feature. Every plan.
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-slate-900 mb-4">
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-slate-900 dark:text-white mb-4">
             Everything an MSP actually needs.
           </h1>
-          <p className="text-xl text-slate-600 max-w-2xl mx-auto">
+          <p className="text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto">
             A modern PSA built around tickets, time, contracts, and a customer portal —
             with deep integrations to NinjaRMM, Pax8, QuickBooks, Stripe, and the tools you already pay for.
           </p>
@@ -138,11 +138,11 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
       />
 
       {/* Integrations grid */}
-      <section className="py-24 bg-slate-50">
+      <section className="py-24 bg-slate-50 dark:bg-slate-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-3">Integrations that actually work</h2>
-            <p className="text-lg text-slate-600 max-w-2xl mx-auto">
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white mb-3">Integrations that actually work</h2>
+            <p className="text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto">
               Encrypted credentials per-tenant. OAuth where possible. Built-in, not bolted-on.
             </p>
           </div>
@@ -165,14 +165,14 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
       </section>
 
       {/* Security */}
-      <section className="py-24 bg-white">
+      <section className="py-24 bg-white dark:bg-slate-950">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-10">
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 text-brand-600 mb-4">
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-950/50 text-brand-600 dark:text-brand-400 mb-4">
               <Shield className="h-6 w-6" />
             </div>
-            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-3">Built for MSP security standards</h2>
-            <p className="text-lg text-slate-600">
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white mb-3">Built for MSP security standards</h2>
+            <p className="text-lg text-slate-600 dark:text-slate-300">
               We know what our customers are audited on — ForgePSA is built to pass.
             </p>
           </div>
@@ -191,7 +191,7 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
       </section>
 
       {/* CTA */}
-      <section className="py-24 bg-slate-50">
+      <section className="py-24 bg-slate-50 dark:bg-slate-900">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <div className="bg-gradient-to-br from-brand-600 to-brand-800 rounded-3xl px-8 py-16 text-white shadow-2xl shadow-brand-600/30">
             <Zap className="h-12 w-12 text-white mx-auto mb-4" />
@@ -220,20 +220,20 @@ function FeatureSection({
   screenshot?: string; screenshotAlt?: string;
 }) {
   return (
-    <section className="py-20 bg-white">
+    <section className="py-20 bg-white dark:bg-slate-950">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className={`grid gap-12 lg:grid-cols-2 items-center ${reversed ? 'lg:grid-flow-dense' : ''}`}>
           <div className={reversed ? 'lg:col-start-2' : ''}>
-            <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 text-brand-600 mb-4">
+            <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 dark:bg-brand-950/50 text-brand-600 dark:text-brand-400 mb-4">
               {icon}
             </div>
-            <div className="text-sm font-semibold text-brand-600 uppercase tracking-wide mb-2">{eyebrow}</div>
-            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">{title}</h2>
-            <p className="text-lg text-slate-600 mb-6">{desc}</p>
+            <div className="text-sm font-semibold text-brand-600 dark:text-brand-400 uppercase tracking-wide mb-2">{eyebrow}</div>
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white mb-4">{title}</h2>
+            <p className="text-lg text-slate-600 dark:text-slate-300 mb-6">{desc}</p>
             <ul className="space-y-2">
               {bullets.map((b, i) => (
-                <li key={i} className="flex items-start gap-2 text-slate-700">
-                  <span className="text-brand-600 font-bold mt-1">›</span>
+                <li key={i} className="flex items-start gap-2 text-slate-700 dark:text-slate-200">
+                  <span className="text-brand-600 dark:text-brand-400 font-bold mt-1">›</span>
                   <span>{b}</span>
                 </li>
               ))}
@@ -241,18 +241,17 @@ function FeatureSection({
           </div>
           <div className={reversed ? 'lg:col-start-1 lg:row-start-1' : ''}>
             {screenshot ? (
-              // Soft gradient backdrop + subtle border on the screenshot for a "framed" look
-              <div className="relative rounded-2xl bg-gradient-to-br from-brand-50 to-slate-100 p-3 shadow-xl ring-1 ring-slate-900/5">
+              <div className="relative rounded-2xl bg-gradient-to-br from-brand-50 to-slate-100 dark:from-brand-950/30 dark:to-slate-800 p-3 shadow-xl ring-1 ring-slate-900/5 dark:ring-white/10">
                 <img
                   src={screenshot}
                   alt={screenshotAlt ?? title}
                   loading="lazy"
-                  className="rounded-lg w-full h-auto block border border-slate-200 shadow-sm"
+                  className="rounded-lg w-full h-auto block border border-slate-200 dark:border-slate-700 shadow-sm"
                 />
               </div>
             ) : (
-              <div className="bg-gradient-to-br from-brand-50 to-slate-100 rounded-2xl h-80 border border-slate-200 flex items-center justify-center">
-                <div className="text-slate-400 text-sm">Screenshot</div>
+              <div className="bg-gradient-to-br from-brand-50 to-slate-100 dark:from-brand-950/30 dark:to-slate-800 rounded-2xl h-80 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
+                <div className="text-slate-400 dark:text-slate-500 text-sm">Screenshot</div>
               </div>
             )}
           </div>
@@ -264,21 +263,21 @@ function FeatureSection({
 
 function Integration({ icon, name, desc }: { icon: React.ReactNode; name: string; desc: string }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-brand-200 transition-all">
-      <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-brand-600 mb-3">
+    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:shadow-md hover:border-brand-200 dark:hover:border-brand-700 transition-all">
+      <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 dark:bg-brand-950/50 text-brand-600 dark:text-brand-400 mb-3">
         {icon}
       </div>
-      <div className="font-semibold text-slate-900 mb-1">{name}</div>
-      <div className="text-sm text-slate-600">{desc}</div>
+      <div className="font-semibold text-slate-900 dark:text-white mb-1">{name}</div>
+      <div className="text-sm text-slate-600 dark:text-slate-300">{desc}</div>
     </div>
   );
 }
 
 function SecurityItem({ label }: { label: string }) {
   return (
-    <div className="flex items-start gap-3 p-4 rounded-lg border border-slate-200 bg-slate-50">
-      <Shield className="h-5 w-5 text-brand-600 shrink-0 mt-0.5" />
-      <span className="text-sm text-slate-700">{label}</span>
+    <div className="flex items-start gap-3 p-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+      <Shield className="h-5 w-5 text-brand-600 dark:text-brand-400 shrink-0 mt-0.5" />
+      <span className="text-sm text-slate-700 dark:text-slate-200">{label}</span>
     </div>
   );
 }

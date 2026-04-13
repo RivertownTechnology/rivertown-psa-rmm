@@ -23,21 +23,27 @@ export function MarketingHeader({ pathname, navigate }: { pathname: string; navi
 
   return (
     <header className="sticky top-0 z-40 bg-white/80 dark:bg-slate-950/80 backdrop-blur border-b border-slate-200 dark:border-slate-800">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
-        <button onClick={() => { navigate('/'); setOpen(false); }} className="flex items-center shrink-0" aria-label="ForgePSA home">
+      {/* 3-column grid on desktop so the center nav is *visually* centered on the page,
+          not just placed wherever flex justify-between leaves room. Falls back to flex on mobile. */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex md:grid md:grid-cols-3 items-center justify-between md:justify-stretch gap-2">
+        <button
+          onClick={() => { navigate('/'); setOpen(false); }}
+          className="flex items-center shrink-0 md:justify-self-start"
+          aria-label="ForgePSA home"
+        >
           <img src="/forgepsa-logo.png" alt="ForgePSA" className="h-10 sm:h-12 w-auto" />
         </button>
 
-        {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-6 lg:gap-8">
+        {/* Desktop nav — center column of the grid */}
+        <nav className="hidden md:flex items-center justify-center gap-6 lg:gap-8 md:justify-self-center">
           {navItem('Features', '/features')}
           {navItem('Pricing', '/pricing')}
           {navItem('FAQ', '/faq')}
           {navItem('Support', '/support')}
         </nav>
 
-        {/* Desktop CTAs */}
-        <div className="hidden sm:flex items-center gap-2">
+        {/* Desktop CTAs — right column */}
+        <div className="hidden sm:flex items-center gap-2 md:justify-self-end">
           <a
             href={appUrl}
             className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-semibold text-sm px-3 lg:px-4 py-2 rounded-lg transition-colors"

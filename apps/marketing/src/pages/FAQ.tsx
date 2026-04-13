@@ -158,22 +158,22 @@ export function FAQ({ navigate }: { navigate: (p: string) => void }) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
       />
       {/* Header */}
-      <section className="bg-gradient-to-br from-brand-50 via-white to-slate-50">
+      <section className="bg-gradient-to-br from-brand-50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-950 dark:to-slate-900">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-12 text-center">
-          <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-full px-3 py-1 text-xs font-medium text-slate-700 mb-6 shadow-sm">
-            <Sparkles className="h-3.5 w-3.5 text-brand-600" />
+          <div className="inline-flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 mb-6 shadow-sm">
+            <Sparkles className="h-3.5 w-3.5 text-brand-600 dark:text-brand-400" />
             Questions we hear a lot
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-slate-900 mb-4">
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-slate-900 dark:text-white mb-4">
             Frequently asked questions
           </h1>
-          <p className="text-xl text-slate-600">
+          <p className="text-xl text-slate-600 dark:text-slate-300">
             Can't find what you're looking for?{' '}
-            <button onClick={() => navigate('/support')} className="text-brand-600 hover:text-brand-700 font-semibold">
+            <button onClick={() => navigate('/support')} className="text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-semibold">
               Visit our support portal
             </button>
             {' '}or{' '}
-            <a href="mailto:support@forgepsa.com" className="text-brand-600 hover:text-brand-700 font-semibold">
+            <a href="mailto:support@forgepsa.com" className="text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-semibold">
               email support
             </a>.
           </p>
@@ -181,11 +181,11 @@ export function FAQ({ navigate }: { navigate: (p: string) => void }) {
       </section>
 
       {/* FAQ sections */}
-      <section className="py-16 bg-white">
+      <section className="py-16 bg-white dark:bg-slate-950">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
           {SECTIONS.map((section) => (
             <div key={section.title}>
-              <h2 className="text-xl font-bold text-slate-900 mb-4 border-b border-slate-200 pb-2">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4 border-b border-slate-200 dark:border-slate-700 pb-2">
                 {section.title}
               </h2>
               <div className="space-y-2">
@@ -199,10 +199,10 @@ export function FAQ({ navigate }: { navigate: (p: string) => void }) {
       </section>
 
       {/* CTA */}
-      <section className="py-20 bg-slate-50">
+      <section className="py-20 bg-slate-50 dark:bg-slate-900">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Still have questions?</h2>
-          <p className="text-lg text-slate-600 mb-8">
+          <h2 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white mb-4">Still have questions?</h2>
+          <p className="text-lg text-slate-600 dark:text-slate-300 mb-8">
             Start the trial and try it yourself, or talk to us first.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
@@ -214,7 +214,7 @@ export function FAQ({ navigate }: { navigate: (p: string) => void }) {
             </button>
             <a
               href="mailto:hello@forgepsa.com"
-              className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-900 font-semibold px-8 py-3 rounded-lg transition-colors"
+              className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-semibold px-8 py-3 rounded-lg transition-colors"
             >
               Talk to sales
             </a>
@@ -228,20 +228,20 @@ export function FAQ({ navigate }: { navigate: (p: string) => void }) {
 function Accordion({ q, a }: { q: string; a: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="border border-slate-200 rounded-lg bg-white">
+    <div className="border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between gap-4 text-left px-5 py-4 hover:bg-slate-50 transition-colors"
+        className="w-full flex items-center justify-between gap-4 text-left px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
       >
-        <span className="font-semibold text-slate-900">{q}</span>
+        <span className="font-semibold text-slate-900 dark:text-white">{q}</span>
         {open ? (
-          <ChevronUp className="h-4 w-4 text-slate-500 shrink-0" />
+          <ChevronUp className="h-4 w-4 text-slate-500 dark:text-slate-400 shrink-0" />
         ) : (
-          <ChevronDown className="h-4 w-4 text-slate-500 shrink-0" />
+          <ChevronDown className="h-4 w-4 text-slate-500 dark:text-slate-400 shrink-0" />
         )}
       </button>
       {open && (
-        <div className="px-5 pb-4 text-slate-600 leading-relaxed">
+        <div className="px-5 pb-4 text-slate-600 dark:text-slate-300 leading-relaxed">
           {a}
         </div>
       )}

@@ -18,9 +18,18 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-slate-900 dark:text-white mb-4">
             One price. All features. No games.
           </h1>
-          <p className="text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto">
+          <p className="text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto mb-8">
             Every plan includes every integration, every feature, and unlimited tickets. Pay per tech, cancel anytime.
           </p>
+          <div className="max-w-3xl mx-auto bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl px-6 py-4 text-left sm:text-center">
+            <p className="text-base sm:text-lg text-amber-900 dark:text-amber-200 font-medium">
+              Tired of 7- or 14-day trials that don't even cover one billing cycle?
+              <span className="block sm:inline mt-1 sm:mt-0 sm:ml-2 font-bold text-amber-950 dark:text-amber-100">Yeaaaah, so were we.</span>
+            </p>
+            <p className="text-sm text-amber-800 dark:text-amber-300 mt-1">
+              ForgePSA gives you a <strong>full 45 days</strong> — enough time to actually run an invoice cycle, onboard a customer, and decide.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -111,6 +120,7 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                 <Row label="Tickets, tasks, time tracking" s pro ent />
+                <Row label="Email-to-ticket integration" s pro ent />
                 <Row label="Contracts & recurring invoicing" s pro ent />
                 <Row label="Customer portal with passkeys" s pro ent />
                 <Row label="Quotes & approvals" s pro ent />
@@ -130,7 +140,6 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
                 <Row label="Microsoft Entra SSO" pro ent />
                 <Row label="ConnectWise / CSV data import" pro ent />
                 <Row label="Custom fields on every entity" pro ent />
-                <Row label="Support ticket inbox to ForgePSA" s pro ent />
                 <Row label="SAML 2.0 SSO" ent />
                 <Row label="Dedicated database instance" ent />
                 <Row label="Custom portal subdomain" ent />

@@ -7,10 +7,10 @@ export function Privacy({ navigate: _navigate }: { navigate: (p: string) => void
   );
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-      <h1 className="text-4xl font-bold text-slate-900 mb-2">Privacy Policy</h1>
-      <p className="text-sm text-slate-500 mb-10">Last updated: April 12, 2026</p>
+      <h1 className="text-4xl font-bold text-slate-900 dark:text-white mb-2">Privacy Policy</h1>
+      <p className="text-sm text-slate-500 dark:text-slate-400 mb-10">Last updated: April 12, 2026</p>
 
-      <div className="space-y-6 text-slate-700 leading-relaxed">
+      <div className="space-y-6 text-slate-700 dark:text-slate-200 leading-relaxed">
         <Section title="1. Who we are">
           <p>
             ForgePSA is operated by Rivertown Technology ("ForgePSA", "we", "us"). This Privacy
@@ -40,9 +40,9 @@ export function Privacy({ navigate: _navigate }: { navigate: (p: string) => void
             <li>To detect, prevent, and respond to fraud and abuse</li>
             <li>To comply with legal obligations</li>
           </ul>
-          <div className="bg-brand-50 border border-brand-200 rounded-lg p-4 mt-4">
-            <p className="font-semibold text-brand-900 mb-1">Our commitments, in plain language:</p>
-            <ul className="list-disc pl-5 space-y-1 text-brand-900">
+          <div className="bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-800 rounded-lg p-4 mt-4">
+            <p className="font-semibold text-brand-900 dark:text-brand-200 mb-1">Our commitments, in plain language:</p>
+            <ul className="list-disc pl-5 space-y-1 text-brand-900 dark:text-brand-200">
               <li><strong>We never sell your data.</strong> Not to advertisers, not to data brokers, not to anyone. Ever.</li>
               <li><strong>We never use Customer Data to train AI models.</strong></li>
               <li><strong>We never send marketing SMS.</strong> SMS is used only for security (see section 10 below).</li>
@@ -173,7 +173,7 @@ export function Privacy({ navigate: _navigate }: { navigate: (p: string) => void
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="text-xl font-semibold text-slate-900 mt-6 mb-3">{title}</h2>
+      <h2 className="text-xl font-semibold text-slate-900 dark:text-white mt-6 mb-3">{title}</h2>
       <div className="space-y-3">{children}</div>
     </section>
   );

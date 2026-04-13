@@ -11,15 +11,15 @@ export function Support({ navigate }: { navigate: (p: string) => void }) {
   return (
     <>
       {/* Header */}
-      <section className="bg-gradient-to-br from-brand-50 via-white to-slate-50">
+      <section className="bg-gradient-to-br from-brand-50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-950 dark:to-slate-900">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-12 text-center">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 text-brand-600 mb-6 mx-auto">
+          <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-950/50 text-brand-600 dark:text-brand-400 mb-6 mx-auto">
             <LifeBuoy className="h-6 w-6" />
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-slate-900 mb-4">
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-slate-900 dark:text-white mb-4">
             Support &amp; documentation
           </h1>
-          <p className="text-xl text-slate-600 max-w-2xl mx-auto">
+          <p className="text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto">
             Our knowledge base, API docs, and ticket submission are available to active customers.
             Sign in to access everything.
           </p>
@@ -27,14 +27,14 @@ export function Support({ navigate }: { navigate: (p: string) => void }) {
       </section>
 
       {/* Sign-in gate */}
-      <section className="py-12 bg-white">
+      <section className="py-12 bg-white dark:bg-slate-950">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-700 mb-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-8 text-center">
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 mb-4">
               <Lock className="h-5 w-5" />
             </div>
-            <h2 className="text-2xl font-bold text-slate-900 mb-2">Sign in for full access</h2>
-            <p className="text-slate-600 mb-6">
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Sign in for full access</h2>
+            <p className="text-slate-600 dark:text-slate-300 mb-6">
               The support portal is available to anyone with a ForgePSA account —
               trial, active, or past customer. Sign in with your existing credentials.
             </p>
@@ -47,7 +47,7 @@ export function Support({ navigate }: { navigate: (p: string) => void }) {
               </a>
               <button
                 onClick={() => navigate('/signup')}
-                className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-900 font-semibold px-6 py-3 rounded-lg transition-colors"
+                className="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 font-semibold px-6 py-3 rounded-lg transition-colors"
               >
                 Don't have an account? Start free
               </button>
@@ -57,9 +57,9 @@ export function Support({ navigate }: { navigate: (p: string) => void }) {
       </section>
 
       {/* What's inside */}
-      <section className="py-16 bg-slate-50">
+      <section className="py-16 bg-slate-50 dark:bg-slate-900">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl font-bold text-slate-900 text-center mb-10">
+          <h2 className="text-3xl font-bold text-slate-900 dark:text-white text-center mb-10">
             What's inside the support portal
           </h2>
           <div className="grid gap-6 md:grid-cols-3">
@@ -83,21 +83,21 @@ export function Support({ navigate }: { navigate: (p: string) => void }) {
       </section>
 
       {/* Emergency contact */}
-      <section className="py-16 bg-white">
+      <section className="py-16 bg-white dark:bg-slate-950">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-8">
+          <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-8">
             <div className="flex items-start gap-4">
-              <div className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-white text-slate-700 border border-slate-200">
+              <div className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                 <Mail className="h-5 w-5" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-900 mb-1">Urgent issue and can't sign in?</h3>
-                <p className="text-slate-600 mb-3">
-                  Email <a href="mailto:support@forgepsa.com" className="text-brand-600 hover:underline font-semibold">support@forgepsa.com</a> from the email address on your account.
+                <h3 className="font-bold text-slate-900 dark:text-white mb-1">Urgent issue and can't sign in?</h3>
+                <p className="text-slate-600 dark:text-slate-300 mb-3">
+                  Email <a href="mailto:support@forgepsa.com" className="text-brand-600 dark:text-brand-400 hover:underline font-semibold">support@forgepsa.com</a> from the email address on your account.
                   We respond to production-down issues 24/7.
                 </p>
-                <p className="text-sm text-slate-500">
-                  Billing questions? <a href="mailto:billing@forgepsa.com" className="text-brand-600 hover:underline">billing@forgepsa.com</a> — one business day response.
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Billing questions? <a href="mailto:billing@forgepsa.com" className="text-brand-600 dark:text-brand-400 hover:underline">billing@forgepsa.com</a> — one business day response.
                 </p>
               </div>
             </div>
@@ -106,19 +106,19 @@ export function Support({ navigate }: { navigate: (p: string) => void }) {
       </section>
 
       {/* Footer CTA */}
-      <section className="py-16 bg-slate-50">
+      <section className="py-16 bg-slate-50 dark:bg-slate-900">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-2xl font-bold text-slate-900 mb-4">Have a sales question instead?</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Have a sales question instead?</h2>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
               onClick={() => navigate('/faq')}
-              className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-900 font-semibold px-6 py-3 rounded-lg transition-colors"
+              className="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 font-semibold px-6 py-3 rounded-lg transition-colors"
             >
               Read the FAQ
             </button>
             <a
               href="mailto:hello@forgepsa.com"
-              className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-900 font-semibold px-6 py-3 rounded-lg transition-colors"
+              className="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 font-semibold px-6 py-3 rounded-lg transition-colors"
             >
               Email sales
             </a>
@@ -131,12 +131,12 @@ export function Support({ navigate }: { navigate: (p: string) => void }) {
 
 function PortalCard({ icon, title, desc }: { icon: React.ReactNode; title: string; desc: string }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-all">
-      <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 text-brand-600 mb-4">
+    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 hover:shadow-md transition-all">
+      <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 dark:bg-brand-950/50 text-brand-600 dark:text-brand-400 mb-4">
         {icon}
       </div>
-      <h3 className="font-semibold text-slate-900 mb-2">{title}</h3>
-      <p className="text-sm text-slate-600 leading-relaxed">{desc}</p>
+      <h3 className="font-semibold text-slate-900 dark:text-white mb-2">{title}</h3>
+      <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">{desc}</p>
     </div>
   );
 }
