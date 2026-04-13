@@ -48,9 +48,11 @@ export function useOnboarding() {
       api<{ connected?: boolean }>('/settings/quickbooks/status'),
     ]);
 
-    if (results[0].status === 'fulfilled') setStats(results[0].value);
-    if (results[1].status === 'fulfilled') {
-      setIntegrations((s) => ({ ...s, quickbooks: { connected: !!results[1].value?.connected } }));
+    const statsResult = results[0];
+    const qboResult = results[1];
+    if (statsResult.status === 'fulfilled') setStats(statsResult.value);
+    if (qboResult.status === 'fulfilled') {
+      setIntegrations((s) => ({ ...s, quickbooks: { connected: !!qboResult.value?.connected } }));
     }
     setLoading(false);
   }, []);

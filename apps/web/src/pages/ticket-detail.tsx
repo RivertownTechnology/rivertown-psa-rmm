@@ -1519,4 +1519,3 @@ function ClassificationBadge({ entry }: { entry: TimeEntry }) {
       return <Badge variant="secondary">{entry.classification}</Badge>;
   }
 }
-}
