@@ -36,7 +36,7 @@ export function Demo({ navigate }: { navigate: (p: string) => void }) {
           </h1>
           <p className="text-xl text-slate-600 dark:text-slate-300">
             Talk to an operator, not a BDR. We'll show you the screens that matter for your shop —
-            ticketing, billing, Pax8 margins, NinjaRMM sync, whatever you want to see.
+            ticketing, billing, Pax8 margins, NinjaOne workflow, whatever you want to see.
           </p>
         </div>
       </section>

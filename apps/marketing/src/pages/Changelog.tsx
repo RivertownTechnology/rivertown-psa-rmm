@@ -10,11 +10,11 @@ const releases: Release[] = [
     date: 'April 12, 2026',
     version: '2026.04.3',
     entries: [
-      { type: 'feature', title: 'ConnectWise-format CSV importer', desc: 'Settings → Import now accepts ConnectWise-format exports for companies, contacts, contracts, and tickets.' },
+      { type: 'feature', title: 'ConnectWise-format companies importer', desc: 'Settings → Import now accepts ConnectWise-format company exports with auto-detected column mappings. Contacts, contracts, and tickets importers are up next.' },
       { type: 'feature', title: 'Launch pricing — $29/$49/tech', desc: 'Locked in for life for anyone who signs up during launch.' },
       { type: 'feature', title: 'Comparison pages', desc: 'We published honest side-by-side comparisons to HaloPSA, ConnectWise, Syncro, SuperOps, and NinjaOne.' },
       { type: 'improvement', title: 'Marketing site dark mode', desc: 'Auto-detects system preference with a manual toggle in the header. Dark-mode contrast pass across every page.' },
-      { type: 'improvement', title: 'AI ticket reply redaction', desc: 'Credentials, API keys, and tokens are redacted from the ticket body before the AI prompt is sent.' },
+      { type: 'improvement', title: 'AI prompt-injection hardening', desc: 'Ticket content is wrapped in delimiters before being sent to Claude so untrusted user text can\'t override our instructions.' },
     ],
   },
   {
@@ -39,7 +39,7 @@ const releases: Release[] = [
     date: 'March 22, 2026',
     version: '2026.03.4',
     entries: [
-      { type: 'feature', title: 'SLA escalation workflows', desc: 'Auto-escalate tickets on SLA breach — reassign, change priority, or notify a manager.' },
+      { type: 'feature', title: 'SLA policies with response + resolution timers', desc: 'Assign a contract SLA to a ticket and the clocks run. Breach-behaviour escalations are shipping next.' },
       { type: 'improvement', title: 'Customer portal passkeys', desc: 'WebAuthn login for portal users. No more password resets.' },
       { type: 'fix', title: 'QuickBooks Online sync edge cases', desc: 'Merged customers, voided invoices, and partial refunds now round-trip correctly.' },
     ],
@@ -48,8 +48,8 @@ const releases: Release[] = [
     date: 'March 15, 2026',
     version: '2026.03.3',
     entries: [
-      { type: 'feature', title: 'NinjaRMM two-way sync', desc: 'Devices, patch state, agent status, and scripts now flow into ForgePSA. Create a ticket from a Ninja device alert.' },
-      { type: 'feature', title: 'White-labeled customer portal', desc: 'Custom logo, colors, and subdomain on the portal — Enterprise plan.' },
+      { type: 'feature', title: 'NinjaOne credential storage + settings UI', desc: 'Settings → Integrations → NinjaOne accepts your API client ID/secret and region. Two-way device, patch, and alert sync is next on the roadmap.' },
+      { type: 'feature', title: 'Customer portal white-label (logo + colors)', desc: 'Custom logo and brand colors applied across the portal. Custom portal subdomain is still in flight.' },
       { type: 'improvement', title: '45-day trial (up from 30)', desc: 'Because 14 days isn\'t enough to run a billing cycle. Neither was 30.' },
     ],
   },

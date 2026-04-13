@@ -29,20 +29,23 @@ export function Philosophy({ navigate }: { navigate: (p: string) => void }) {
             I run an MSP. Before building ForgePSA, I ran my own business on three different PSAs.
             Every one of them worked — and every one of them drove me, and my techs, up a wall.
           </p>
-          <p>
-            The legacy tools (Halo, ConnectWise) are staggeringly capable, but getting a junior tech
-            productive on one takes a week of training. Changing a ticket status requires a consultant.
-            Pricing is a maze — the feature you want is always one tier up.
+            <p>
+            HaloPSA is genuinely good software — modern UI, deep features — but the 5-user minimum
+            and ~$85/seat mean you\'re committing to $400+/mo before the first ticket. ConnectWise
+            Manage is the incumbent: deep, slow, legacy UI, and priced like enterprise software.
+            Both are hard to justify for a 3–15 tech MSP. Changing a ticket status shouldn\'t
+            require a consultant.
           </p>
           <p>
             The newer all-in-ones (Syncro, SuperOps) are cleaner, but they lock you into their RMM.
-            We already had NinjaRMM. It's the best RMM we've used. We weren't going to rip it out to
+            We already had NinjaOne. It\'s the best RMM we\'ve used. We weren\'t going to rip it out to
             get a nicer ticket screen.
           </p>
           <p>
-            So we built the middle path. A modern PSA that plays nicely with NinjaRMM (and the other
-            RMMs MSPs actually use, coming soon). One price. All integrations. A real trial long
-            enough to run a billing cycle through. No sales call required.
+            So we built the middle path. A modern PSA that plays nicely with NinjaOne (and the other
+            RMMs MSPs actually use, coming soon). Per-tech pricing with no minimum seats. Core
+            integrations in on every plan. A real trial long enough to run a billing cycle through.
+            No sales call required.
           </p>
         </div>
       </section>
@@ -68,8 +71,8 @@ export function Philosophy({ navigate }: { navigate: (p: string) => void }) {
               desc="Customer data does not train AI models. Period. Our AI features use prompts that are redacted before sending and responses that are not retained for training."
             />
             <Principle
-              title="Gate integrations behind the top tier."
-              desc="Every integration works on every plan. QuickBooks, Pax8, Stripe, ConnectBooster, CrewHu, Twilio — all included."
+              title="Gate the essentials behind the top tier."
+              desc="Pax8 margin tracking, Stripe, Google SSO, portal passkeys, and your RMM credentials are in on every plan — including Starter. Pro unlocks QuickBooks, AI, SMS, and SLA automation without an enterprise contract."
             />
             <Principle
               title="Force a sales call to try the product."

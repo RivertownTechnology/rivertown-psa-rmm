@@ -4,7 +4,7 @@ import { useDocumentTitle } from '@/lib/useDocumentTitle';
 export function Pricing({ navigate }: { navigate: (p: string) => void }) {
   useDocumentTitle(
     'Pricing — ForgePSA',
-    'Simple per-tech pricing for ForgePSA. Starter $49, Pro $79, Enterprise custom. Every plan includes NinjaRMM and Pax8. 45-day free trial, no credit card.',
+    'Simple per-tech pricing for ForgePSA. Starter $29, Pro $49, Enterprise custom (launch pricing, locked for life). Pax8 on every plan. 45-day free trial, no credit card.',
   );
   return (
     <>
@@ -19,7 +19,7 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
             One price. All features. No games.
           </h1>
           <p className="text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto mb-8">
-            Every plan includes every integration, every feature, and unlimited tickets. Pay per tech, cancel anytime.
+            Core PSA features and Pax8 are in on every plan. Pro unlocks QuickBooks, AI, SMS, and advanced SSO. Unlimited tickets. Pay per tech. Cancel anytime.
           </p>
           <div className="max-w-3xl mx-auto bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl px-6 py-4 text-left sm:text-center">
             <p className="text-base sm:text-lg text-amber-900 dark:text-amber-200 font-medium">
@@ -48,11 +48,13 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
                 'Up to 3 techs',
                 'Unlimited tickets & contacts',
                 'All core PSA features',
-                'NinjaRMM sync included',
                 'Pax8 licensing + cost tracking',
-                'Gmail + SMTP email',
+                'Gmail OAuth + SMTP email',
+                'Mailjet billing emails',
                 'Stripe payment links',
-                'Google SSO',
+                'Google Workspace SSO',
+                'Customer portal with passkeys',
+                'NinjaOne credentials storage (sync coming soon)',
                 'Email support',
               ]}
               cta="Start free trial"
@@ -64,18 +66,19 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
               originalPrice="$79"
               introBadge="Launch pricing"
               sub="per tech / month"
-              desc="Growing MSPs that need accounting, AI, SLAs, and advanced SSO."
+              desc="Growing MSPs that need accounting, AI, and SLA automation."
               features={[
                 '4–15 techs',
                 'Everything in Starter',
                 'QuickBooks Online sync',
-                'ConnectBooster payments',
-                'CrewHu CSAT surveys',
                 'AI ticket assistant (Claude)',
-                'SLA policies + escalation rules',
-                'Twilio SMS per-tenant',
-                'Microsoft Entra SSO',
-                'ConnectWise / CSV data import',
+                'SLA policies',
+                'Twilio SMS per tenant',
+                'ConnectWise companies importer',
+                'ConnectBooster payments (coming soon)',
+                'CrewHu CSAT surveys (coming soon)',
+                'Microsoft Entra SSO (coming soon)',
+                'SLA escalation workflows (coming soon)',
                 'Priority email + chat support',
               ]}
               cta="Start free trial"
@@ -90,8 +93,9 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
               features={[
                 '16+ techs',
                 'Everything in Pro',
-                'SAML 2.0 SSO (Okta, Duo, OneLogin, JumpCloud)',
-                'Dedicated database instance option',
+                'SAML 2.0 SSO (coming soon)',
+                'Dedicated database instance (coming soon)',
+                'Custom portal subdomain (coming soon)',
                 'Custom SLA with response guarantees',
                 'Named customer success manager',
                 'Annual contracts available',
@@ -128,25 +132,26 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
                 <Row label="Contracts & recurring invoicing" s pro ent />
                 <Row label="Customer portal with passkeys" s pro ent />
                 <Row label="Quotes & approvals" s pro ent />
-                <Row label="Product catalog" s pro ent />
+                <Row label="Product catalog with margin tracking" s pro ent />
                 <Row label="Stripe payment links" s pro ent />
-                <Row label="Gmail / SMTP email" s pro ent />
-                <Row label="Google SSO" s pro ent />
-                <Row label="NinjaRMM integration" s pro ent />
+                <Row label="Gmail OAuth / SMTP / Mailjet email" s pro ent />
+                <Row label="Google Workspace SSO" s pro ent />
                 <Row label="Pax8 license sync + margin tracking" s pro ent />
+                <Row label="NinjaOne / NinjaRMM sync" s="soon" pro="soon" ent="soon" soon />
                 <Row label="QuickBooks Online sync" pro ent />
-                <Row label="ConnectBooster payments" pro ent />
-                <Row label="CrewHu CSAT surveys" pro ent />
                 <Row label="AI ticket assistant (Claude)" pro ent />
                 <Row label="SLA policies" pro ent />
-                <Row label="SLA escalation workflows" pro ent />
-                <Row label="Twilio SMS (per-tenant)" pro ent />
-                <Row label="Microsoft Entra SSO" pro ent />
-                <Row label="ConnectWise / CSV data import" pro ent />
+                <Row label="Twilio SMS (per tenant)" pro ent />
+                <Row label="ConnectWise companies importer" pro ent />
                 <Row label="Custom fields on every entity" pro ent />
-                <Row label="SAML 2.0 SSO" ent />
-                <Row label="Dedicated database instance" ent />
-                <Row label="Custom portal subdomain" ent />
+                <Row label="Contacts / tickets / contracts importer" pro="soon" ent="soon" soon />
+                <Row label="SLA escalation workflows" pro="soon" ent="soon" soon />
+                <Row label="ConnectBooster payments" pro="soon" ent="soon" soon />
+                <Row label="CrewHu CSAT surveys" pro="soon" ent="soon" soon />
+                <Row label="Microsoft Entra SSO" pro="soon" ent="soon" soon />
+                <Row label="SAML 2.0 SSO" ent="soon" soon />
+                <Row label="Dedicated database instance" ent="soon" soon />
+                <Row label="Custom portal subdomain" ent="soon" soon />
                 <Row label="Named CSM + priority SLA response" ent />
               </tbody>
             </table>
@@ -164,7 +169,7 @@ export function Pricing({ navigate }: { navigate: (p: string) => void }) {
             <FAQ q="Can I change plans later?" a="Yes — upgrade or downgrade at any time from your billing settings. Changes prorate automatically." />
             <FAQ q="How does per-tech billing work?" a="You're billed monthly for each active user with a 'tech' or 'admin' role. Portal users (your customers) are always free and unlimited." />
             <FAQ q="Do you offer discounts for annual billing?" a="Yes — 15% off for annual prepay. Available on all plans at checkout." />
-            <FAQ q="What integrations are included?" a="Every plan includes every integration we support. Pro unlocks the third-party ones that require a paid account on the other side (QuickBooks, Pax8, etc.)." />
+            <FAQ q="What integrations are included on each plan?" a="Starter gets Pax8, Stripe, Gmail/SMTP/Mailjet email, and Google SSO. Pro adds QuickBooks Online, AI ticket assistant, SLA policies, Twilio SMS, and the ConnectWise companies importer. Enterprise adds SAML 2.0 SSO (coming soon) plus dedicated-instance options. NinjaOne/NinjaRMM, ConnectBooster, CrewHu, and Microsoft Entra SSO have credentials UI live today with full sync shipping soon." />
           </div>
         </div>
       </section>
@@ -255,21 +260,28 @@ function Plan({
   );
 }
 
-function Row({ label, s, pro, ent }: { label: string; s?: boolean; pro?: boolean; ent?: boolean }) {
+type Cell = boolean | 'soon';
+
+function Row({ label, s, pro, ent, soon }: { label: string; s?: Cell; pro?: Cell; ent?: Cell; soon?: boolean }) {
   return (
     <tr>
-      <td className="px-6 py-3 text-slate-700 dark:text-slate-200">{label}</td>
-      <td className="px-6 py-3 text-center">
-        {s ? <Check className="h-4 w-4 text-brand-600 dark:text-brand-400 inline" /> : <X className="h-4 w-4 text-slate-300 dark:text-slate-600 inline" />}
+      <td className="px-6 py-3 text-slate-700 dark:text-slate-200">
+        {label}
+        {soon && (
+          <span className="ml-2 inline-block text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500 text-white align-middle">Soon</span>
+        )}
       </td>
-      <td className="px-6 py-3 text-center bg-brand-50/40 dark:bg-brand-950/30">
-        {pro ? <Check className="h-4 w-4 text-brand-600 dark:text-brand-400 inline" /> : <X className="h-4 w-4 text-slate-300 dark:text-slate-600 inline" />}
-      </td>
-      <td className="px-6 py-3 text-center">
-        {ent ? <Check className="h-4 w-4 text-brand-600 dark:text-brand-400 inline" /> : <X className="h-4 w-4 text-slate-300 dark:text-slate-600 inline" />}
-      </td>
+      <td className="px-6 py-3 text-center"><RowCell v={s} /></td>
+      <td className="px-6 py-3 text-center bg-brand-50/40 dark:bg-brand-950/30"><RowCell v={pro} /></td>
+      <td className="px-6 py-3 text-center"><RowCell v={ent} /></td>
     </tr>
   );
+}
+
+function RowCell({ v }: { v?: Cell }) {
+  if (v === 'soon') return <span className="inline-block text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500 text-white">Soon</span>;
+  if (v === true) return <Check className="h-4 w-4 text-brand-600 dark:text-brand-400 inline" />;
+  return <X className="h-4 w-4 text-slate-300 dark:text-slate-600 inline" />;
 }
 
 function FAQ({ q, a }: { q: string; a: string }) {

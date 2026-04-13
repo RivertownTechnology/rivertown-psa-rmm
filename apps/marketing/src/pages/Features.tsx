@@ -74,7 +74,7 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
         bullets={[
           'Unlimited customers, sites, and contacts',
           'Custom fields tenant-defined (industry, territory, anything)',
-          'Bulk import from ConnectWise, Autotask, CSV',
+          'Bulk import from ConnectWise or CSV (contacts + tickets coming soon)',
           'Portal access per-contact with role-based permissions',
           'Passkey (WebAuthn) + SMS MFA on the customer portal',
           'Fully white-labeled portal — your logo, your colors',
@@ -143,23 +143,29 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
           <div className="text-center mb-12">
             <h2 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white mb-3">Integrations that actually work</h2>
             <p className="text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto">
-              Encrypted credentials per-tenant. OAuth where possible. Built-in, not bolted-on.
+              Encrypted credentials per tenant. OAuth where possible. Shipping in public — we label what's live today and what's next.
             </p>
           </div>
 
+          <div className="text-xs font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400 mb-3 text-center">Live today</div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-12">
+            <Integration icon={<DollarSign />} name="QuickBooks Online" desc="Two-way sync of customers, invoices, and payments. (Pro)" />
+            <Integration icon={<CreditCard />} name="Stripe" desc="Card + ACH payment links on every invoice. (All plans)" />
+            <Integration icon={<Package />} name="Pax8" desc="License sync, cost tracking, gross-margin reporting. (All plans)" />
+            <Integration icon={<Mail />} name="Gmail + SMTP" desc="Tenant-level email sending via Google OAuth or SMTP. (All plans)" />
+            <Integration icon={<Mail />} name="Mailjet" desc="Transactional billing emails with deliverability tracking. (All plans)" />
+            <Integration icon={<MessageSquare />} name="Twilio SMS" desc="Per-tenant SMS for MFA and urgent security alerts. (Pro)" />
+            <Integration icon={<Sparkles />} name="Anthropic Claude" desc="AI that summarizes tickets and drafts replies. (Pro)" />
+            <Integration icon={<Shield />} name="Google Workspace SSO" desc="OAuth SSO for your techs. (All plans)" />
+          </div>
+
+          <div className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-3 text-center">Coming soon — credentials UI live, sync/wiring in flight</div>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Integration icon={<DollarSign />} name="QuickBooks Online" desc="Two-way sync of customers, invoices, and payments." />
-            <Integration icon={<CreditCard />} name="Stripe" desc="Card + ACH payment links on every invoice." />
-            <Integration icon={<CreditCard />} name="ConnectBooster" desc="MSP-native payment processing with lower card fees." />
-            <Integration icon={<Package />} name="Pax8" desc="License sync, cost tracking, gross margin reports." />
-            <Integration icon={<Mail />} name="Gmail + SMTP" desc="Tenant-level email sending via Google OAuth or SMTP." />
-            <Integration icon={<Mail />} name="Mailjet" desc="Transactional billing emails with deliverability tracking." />
-            <Integration icon={<MessageSquare />} name="Twilio SMS" desc="Per-tenant SMS for MFA, reminders, and customer updates." />
-            <Integration icon={<BarChart3 />} name="NinjaRMM" desc="Device, patch, and monitoring sync into the PSA. (More RMMs coming.)" />
-            <Integration icon={<Sparkles />} name="Anthropic Claude" desc="AI that summarizes tickets and drafts replies." />
-            <Integration icon={<Users />} name="CrewHu" desc="Automated CSAT surveys on ticket close." />
-            <Integration icon={<Shield />} name="Microsoft Entra" desc="OAuth SSO for your techs (Pro plan)." />
-            <Integration icon={<Shield />} name="Google Workspace" desc="OAuth SSO for your techs (every plan)." />
+            <Integration icon={<BarChart3 />} name="NinjaOne (NinjaRMM)" desc="Device + patch + alert sync. Credentials store today; two-way sync is next on the roadmap." soon />
+            <Integration icon={<CreditCard />} name="ConnectBooster" desc="MSP-native payment processing with lower card fees." soon />
+            <Integration icon={<Users />} name="CrewHu" desc="Automated CSAT surveys on ticket close." soon />
+            <Integration icon={<Shield />} name="Microsoft Entra SSO" desc="OAuth SSO for your techs (Pro plan)." soon />
+            <Integration icon={<Shield />} name="SAML 2.0 SSO" desc="Okta, Duo, OneLogin, JumpCloud (Enterprise)." soon />
           </div>
         </div>
       </section>
@@ -183,7 +189,7 @@ export function Features({ navigate }: { navigate: (p: string) => void }) {
             <SecurityItem label="CSRF protection on all state-changing endpoints" />
             <SecurityItem label="Rate limiting per IP + per user" />
             <SecurityItem label="Passkey (WebAuthn) + SMS MFA for portal users" />
-            <SecurityItem label="SSO via Microsoft Entra, Google Workspace, SAML" />
+            <SecurityItem label="Google Workspace SSO today; Microsoft Entra + SAML coming soon" />
             <SecurityItem label="Full audit log of admin actions" />
             <SecurityItem label="Tenant-isolated data at every query boundary" />
           </div>
@@ -261,10 +267,23 @@ function FeatureSection({
   );
 }
 
-function Integration({ icon, name, desc }: { icon: React.ReactNode; name: string; desc: string }) {
+function Integration({ icon, name, desc, soon }: { icon: React.ReactNode; name: string; desc: string; soon?: boolean }) {
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:shadow-md hover:border-brand-200 dark:hover:border-brand-700 transition-all">
-      <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 dark:bg-brand-950/50 text-brand-600 dark:text-brand-400 mb-3">
+    <div className={`relative rounded-xl border p-5 hover:shadow-md transition-all ${
+      soon
+        ? 'bg-amber-50/40 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800 hover:border-amber-300 dark:hover:border-amber-700'
+        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-brand-200 dark:hover:border-brand-700'
+    }`}>
+      {soon && (
+        <span className="absolute top-3 right-3 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500 text-white">
+          Soon
+        </span>
+      )}
+      <div className={`inline-flex h-9 w-9 items-center justify-center rounded-lg mb-3 ${
+        soon
+          ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400'
+          : 'bg-brand-50 dark:bg-brand-950/50 text-brand-600 dark:text-brand-400'
+      }`}>
         {icon}
       </div>
       <div className="font-semibold text-slate-900 dark:text-white mb-1">{name}</div>

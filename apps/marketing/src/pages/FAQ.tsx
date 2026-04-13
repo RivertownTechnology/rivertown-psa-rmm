@@ -62,11 +62,11 @@ const SECTIONS: Section[] = [
       },
       {
         q: 'Is ForgePSA an RMM?',
-        a: 'No — ForgePSA is a PSA. It integrates with the RMM you already use. NinjaRMM is supported today and additional RMM integrations are on the roadmap.',
+        a: 'No — ForgePSA is a PSA. It integrates with the RMM you already use. NinjaOne (NinjaRMM) credential storage is live today; full two-way device + patch + alert sync is the next shipped feature on our roadmap. Additional RMM integrations follow after that.',
       },
       {
         q: 'What RMM platforms do you integrate with?',
-        a: 'NinjaRMM is integrated today. We have additional RMM integrations on the roadmap and prioritize them based on customer demand — let us know which one you use.',
+        a: 'NinjaOne is next on the roadmap — credentials store today and sync is shipping as the next release. Datto RMM, Atera, and N-able N-central follow, prioritized by customer demand. Tell us which one you use.',
       },
       {
         q: 'Can I use my own Stripe account?',

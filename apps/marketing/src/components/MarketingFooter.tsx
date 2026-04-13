@@ -15,7 +15,7 @@ export function MarketingFooter({ navigate }: { navigate: (p: string) => void })
             <img src="/forgepsa-logo.png" alt="ForgePSA" className="h-12 w-auto" />
           </button>
           <p className="text-sm text-slate-400 max-w-sm mb-5">
-            A modern PSA built by an MSP, for MSPs. Native NinjaRMM integration, every feature on every plan, 45-day no-card trial.
+            A modern PSA built by an MSP, for MSPs. No user minimum, NinjaOne integration coming next, 45-day no-card trial.
           </p>
           <div className="flex items-center gap-2">
             <SocialLink href={SOCIAL_X} label="ForgePSA on X"><Twitter className="h-4 w-4" /></SocialLink>

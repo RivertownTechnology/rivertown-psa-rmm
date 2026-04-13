@@ -62,8 +62,8 @@ export function MigrationChecklist({ navigate }: { navigate: (p: string) => void
             title="3 weeks before"
             items={[
               'Sign up for ForgePSA\'s 45-day trial (no card, no sales call)',
-              'Create your tenant, add your team, configure SSO (Microsoft Entra or Google)',
-              'Set up your integrations: NinjaRMM, QuickBooks, Pax8, Stripe, Mailjet',
+              'Create your tenant, add your team, configure Google Workspace SSO (Microsoft Entra coming soon)',
+              'Set up integrations that are live today: Pax8, QuickBooks (Pro), Stripe, Mailjet. Store NinjaOne credentials — full sync ships next.',
               'Configure ticket statuses, priorities, and default SLA policies to match your current tool',
               'Create your first test customer, test ticket, test contract, test invoice end-to-end',
               'Generate a test invoice → send it to a real email → verify it renders + pays correctly',

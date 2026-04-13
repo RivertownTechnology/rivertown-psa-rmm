@@ -21,44 +21,45 @@ const competitors: Competitor[] = [
     slug: 'halopsa',
     name: 'HaloPSA',
     shortName: 'Halo',
-    blurb: 'The feature-heavyweight. Deep, deployable, expensive, and slow to onboard.',
+    blurb: 'The capable, modern heavyweight. Genuinely good software — with a 5-user minimum and a high floor.',
     honestSummary:
-      'HaloPSA is the feature-complete pick. If you can afford the seat price and the 4-to-8-week implementation, it can do almost anything. ForgePSA wins on speed to value, price, and UX for growing MSPs that don\'t need a consultant to change a ticket status.',
+      'HaloPSA is legitimately good. Modern UI, deep feature set, active development. The catch is cost and commitment: ~$85/agent with a 5-user minimum means your floor is ~$425/mo before your first invoice — whether you have 2 techs or 5. ForgePSA wins on the first-dollar cost, the 1-tech entry point, and the speed-to-first-invoice for MSPs that don\'t need ITIL-depth reporting.',
     niceThings: [
+      'Modern, well-designed UI (the legacy-PSA comparison doesn\'t fit Halo)',
       'Genuinely deep feature set — reporting, ITIL workflows, CMDB',
       'Strong community and training ecosystem',
-      'Well-suited to large deployments with dedicated admins',
+      'Well-suited to 25+ tech deployments with dedicated admins',
       'Solid integration catalog',
     ],
     matrix: [
       { label: 'Starting price / tech / mo', forge: '$29', them: '~$85' },
-      { label: 'Free trial', forge: '45 days, no card', them: '30 days, card required*' },
-      { label: 'Typical onboarding time', forge: '< 1 day', them: '4–8 weeks' },
-      { label: 'UI stack', forge: 'React 19, 2020s', them: 'Legacy — feels dated' },
-      { label: 'All integrations on every plan', forge: true, them: false },
-      { label: 'Bring your own RMM', forge: true, them: true },
+      { label: 'Minimum users billed', forge: '1', them: '5-user minimum' },
+      { label: 'Effective monthly floor', forge: '$29', them: '~$425' },
+      { label: 'Free trial', forge: '45 days, no card', them: '30 days, card typically required' },
+      { label: 'Typical time to first invoice', forge: 'Same day', them: '2–4 weeks' },
       { label: 'Customer portal passkeys', forge: true, them: false },
-      { label: 'Launch-priced for life', forge: true, them: false },
-      { label: 'AI with per-ticket redaction', forge: true, them: 'Basic' },
+      { label: 'Launch pricing locked for life', forge: true, them: false },
+      { label: 'Pax8 margin tracking on Starter', forge: true, them: false },
+      { label: 'QuickBooks included on Pro (no uplift)', forge: true, them: 'Tier-gated' },
     ],
     losesDealsTo: [
       {
-        title: 'You\'re a 3–25 tech MSP and implementation cost is a deal-breaker',
-        desc: 'Halo implementations regularly run 4–8 weeks with a partner fee. ForgePSA gets you invoicing the same day you sign up.',
+        title: 'You\'re under 5 techs and Halo\'s minimum forces you to pay for seats you don\'t have',
+        desc: 'Halo\'s 5-user minimum means a 2-tech shop pays for 3 extra seats. At ~$85/seat, that\'s $255/mo for nothing. ForgePSA bills what you use — 1 tech or 100.',
       },
       {
-        title: 'Your techs don\'t want to learn another Windows-2012-looking UI',
-        desc: 'Halo is capable, but it doesn\'t feel modern. Tech retention matters; tools they actually like using matter.',
+        title: 'You want to start in minutes, not weeks',
+        desc: 'Halo is a real implementation — design sessions, customization, data mapping, training. Legitimate for 25-tech shops; overkill if you just want tickets and invoicing today.',
       },
       {
-        title: 'You want QuickBooks + SSO without paying the top-tier uplift',
-        desc: 'ForgePSA includes every integration on every plan. QBO, Entra, Pax8 — included.',
+        title: 'You want your Pax8 margins on the starter plan, not gated behind Pro',
+        desc: 'Pax8 product sync with cost + margin tracking is on every ForgePSA plan. We think margin visibility should be the default, not an upsell.',
       },
     ],
     stillRightFor:
-      'A 50+ tech MSP with dedicated PSA admins, custom ITIL workflows, and heavy reporting demands. Halo goes deeper than we do for those shops, and that\'s OK.',
+      'A 25+ tech MSP with dedicated PSA admins, custom ITIL workflows, and heavy reporting demands. Halo goes deeper than we do for those shops, and that\'s OK.',
     migration:
-      'ForgePSA has a CSV-based importer in Settings → Import (ConnectWise-format export also supported). Most Halo-exported tickets, contacts, and companies land in under an hour.',
+      'ForgePSA has a CSV + ConnectWise-format importer for companies today (contacts, tickets, and contracts are next). Halo can export to CSV from most of its screens — email us with a sample and we\'ll walk the mapping.',
   },
   {
     slug: 'connectwise',
@@ -78,16 +79,15 @@ const competitors: Competitor[] = [
       { label: 'Free trial', forge: '45 days, no card', them: 'Sales-gated' },
       { label: 'Typical onboarding time', forge: '< 1 day', them: '6–12 weeks' },
       { label: 'Modern UI / UX', forge: true, them: false },
-      { label: 'All integrations on every plan', forge: true, them: false },
+      { label: 'Pax8 margin tracking on starter plan', forge: true, them: false },
       { label: 'Bring your own RMM', forge: true, them: true },
-      { label: 'Native ConnectWise-format import', forge: true, them: '—' },
-      { label: 'Launch-priced for life', forge: true, them: false },
-      { label: 'Dedicated CSM included (Enterprise)', forge: true, them: '$$$' },
+      { label: 'Native ConnectWise-format companies import', forge: true, them: '—' },
+      { label: 'Launch pricing locked for life', forge: true, them: false },
     ],
     losesDealsTo: [
       {
         title: 'Your last implementation took 3 months and you don\'t want another',
-        desc: 'We built an importer that accepts ConnectWise-format exports in Settings. Companies, contacts, and tickets come in. You\'re up in hours.',
+        desc: 'We built an importer that accepts ConnectWise-format exports in Settings. Companies come in today; contacts, tickets, and contracts import is rolling out in the coming weeks. The cutover is hours of work, not weeks.',
       },
       {
         title: 'Your techs file tickets in other systems to avoid opening Manage',
@@ -101,7 +101,7 @@ const competitors: Competitor[] = [
     stillRightFor:
       'You\'re a 100+ tech MSP already on ConnectWise with custom workflows, CPQ, and financial integrations you can\'t live without. Switching for switching\'s sake is not the play.',
     migration:
-      'ForgePSA ships with a ConnectWise-format CSV importer in Settings → Import. Companies, sites, contacts, tickets, and time entries are all mapped. We\'ll help you plan the cutover — email us.',
+      'ForgePSA ships with a ConnectWise-format CSV importer in Settings → Import. Companies are live today; contacts, tickets, contracts, and time entry imports are rolling out. We\'ll help you plan the cutover — email us.',
   },
   {
     slug: 'syncro',
@@ -119,18 +119,17 @@ const competitors: Competitor[] = [
     matrix: [
       { label: 'Starting price / tech / mo', forge: '$29', them: '$139 flat' },
       { label: 'Free trial', forge: '45 days', them: '14 days' },
-      { label: 'Bring your own RMM (e.g. NinjaRMM)', forge: true, them: false },
+      { label: 'Bring your own RMM (e.g. NinjaOne)', forge: true, them: false },
       { label: 'Scales past 15 techs cleanly', forge: true, them: 'Tight' },
-      { label: 'AI with credential redaction', forge: true, them: false },
-      { label: 'SLA policies + escalation rules', forge: true, them: 'Basic' },
-      { label: 'ConnectBooster support', forge: true, them: false },
-      { label: 'Dedicated instance option', forge: true, them: false },
-      { label: 'Launch-priced for life', forge: true, them: false },
+      { label: 'AI ticket assistant (Claude)', forge: true, them: 'Limited' },
+      { label: 'SLA policies', forge: true, them: 'Basic' },
+      { label: 'QuickBooks Online sync on Pro', forge: true, them: 'Add-on' },
+      { label: 'Launch pricing locked for life', forge: true, them: false },
     ],
     losesDealsTo: [
       {
-        title: 'You already run NinjaRMM and don\'t want to replace it',
-        desc: 'Syncro bundles their own RMM. ForgePSA integrates with NinjaRMM natively. You keep the tool your techs already know.',
+        title: 'You already run NinjaOne / NinjaRMM and don\'t want to replace it',
+        desc: 'Syncro bundles their own RMM. ForgePSA stores per-tenant NinjaOne credentials today and ships two-way device + patch sync next on the roadmap — so you keep the RMM your techs already know.',
       },
       {
         title: 'You\'re past 15 techs and the flat-rate model is pinching',
@@ -163,17 +162,15 @@ const competitors: Competitor[] = [
       { label: 'Starting price / tech / mo', forge: '$29', them: '~$79' },
       { label: 'Free trial', forge: '45 days, no card', them: '21 days, card required' },
       { label: 'Bring your own RMM', forge: true, them: false },
-      { label: 'All integrations on every plan', forge: true, them: false },
-      { label: 'Pax8 margin tracking on every plan', forge: true, them: 'Paid add-on' },
-      { label: 'ConnectWise-format CSV import', forge: true, them: false },
-      { label: 'Dedicated instance option', forge: true, them: false },
-      { label: 'AI with per-ticket redaction', forge: true, them: 'Varies' },
-      { label: 'Launch-priced for life', forge: true, them: false },
+      { label: 'Pax8 margin tracking on starter plan', forge: true, them: 'Paid add-on' },
+      { label: 'ConnectWise companies CSV import', forge: true, them: false },
+      { label: 'AI ticket assistant (Claude)', forge: true, them: 'Varies' },
+      { label: 'Launch pricing locked for life', forge: true, them: false },
     ],
     losesDealsTo: [
       {
-        title: 'You want to run NinjaRMM with a modern PSA',
-        desc: 'That\'s exactly what we built ForgePSA to be. SuperOps ships its own RMM; you\'d be asked to replace yours.',
+        title: 'You want to run NinjaOne with a modern PSA',
+        desc: 'That\'s exactly what we built ForgePSA to be. SuperOps ships its own RMM; you\'d be asked to replace yours. We store NinjaOne credentials today and ship device + patch sync as our next release.',
       },
       {
         title: 'Your Pax8 margin matters and you don\'t want it behind an add-on',
@@ -195,7 +192,7 @@ const competitors: Competitor[] = [
     shortName: 'NinjaOne',
     blurb: 'A world-class RMM with a young PSA. Great stack — with ForgePSA as the PSA.',
     honestSummary:
-      'NinjaOne makes the best RMM we\'ve ever integrated with. Their PSA is newer and still maturing. The right move for most of our customers is NinjaRMM for endpoints + ForgePSA for the business layer. Two best-in-class tools, one clean integration.',
+      'NinjaOne makes the best RMM we\'ve ever used. Their PSA is newer and still maturing. The right move for most MSPs we talk to is NinjaOne for endpoints + ForgePSA for the business layer. Full disclosure: ForgePSA stores NinjaOne credentials today, with two-way device + patch sync as our next shipped feature.',
     niceThings: [
       'Best-in-class RMM UX, full stop',
       'Fast patching, clean device management',
@@ -203,33 +200,33 @@ const competitors: Competitor[] = [
       'Their PSA is improving quickly',
     ],
     matrix: [
-      { label: 'PSA maturity', forge: 'Mature, growing', them: 'Newer, growing' },
-      { label: 'Native two-way NinjaRMM sync', forge: true, them: '(Same vendor)' },
-      { label: 'Launch-priced for life', forge: true, them: false },
-      { label: 'Dedicated instance option', forge: true, them: false },
-      { label: 'ConnectWise-format CSV import', forge: true, them: 'Varies' },
-      { label: 'Pax8 margin tracking', forge: true, them: 'Varies' },
+      { label: 'Starting price / tech / mo', forge: '$29', them: '~$75+' },
+      { label: 'NinjaOne credential storage today', forge: true, them: '(same vendor)' },
+      { label: 'NinjaOne two-way sync', forge: 'Next release', them: '(same vendor)' },
+      { label: 'Launch pricing locked for life', forge: true, them: false },
       { label: 'Customer portal with passkeys', forge: true, them: 'Varies' },
-      { label: 'AI with per-ticket redaction', forge: true, them: 'Varies' },
+      { label: 'ConnectWise companies CSV import', forge: true, them: 'Varies' },
+      { label: 'Pax8 margin tracking on starter', forge: true, them: 'Varies' },
+      { label: 'AI ticket assistant (Claude, opt-in)', forge: true, them: 'Varies' },
     ],
     losesDealsTo: [
       {
-        title: 'You love NinjaRMM but need a mature PSA now, not in 12 months',
-        desc: 'Ship today: NinjaRMM for endpoints, ForgePSA for tickets, contracts, invoicing. We sync natively.',
+        title: 'You love NinjaOne\'s RMM but want a mature PSA now, not in 12 months',
+        desc: 'Tickets, contracts, invoicing, customer portal, and Pax8 margin tracking are all shipped in ForgePSA today. Their PSA side is newer and less battle-tested.',
       },
       {
         title: 'You want pricing that doesn\'t move',
-        desc: 'Our launch pricing locks for life. We\'re not going to double it once you\'re on it.',
+        desc: 'Launch pricing locks for life. We\'re not going to quietly uplift you at renewal.',
       },
       {
-        title: 'Your portal needs passkeys + white-labeling',
-        desc: 'Included on every plan. No add-on fee, no tier uplift.',
+        title: 'You value portal passkeys',
+        desc: 'Passkey (WebAuthn) login for portal users is live on every plan.',
       },
     ],
     stillRightFor:
-      'If you want every logo in your stack to say "NinjaOne" on it, their first-party bundle is the answer. Otherwise pair NinjaRMM with ForgePSA.',
+      'If you want one vendor for RMM + PSA + the rest of the stack, NinjaOne\'s first-party bundle is the obvious pick. Otherwise pair NinjaOne with ForgePSA.',
     migration:
-      'Already running NinjaRMM? Great — just drop your API key into ForgePSA and devices, agents, and patch state sync in minutes.',
+      'Already running NinjaOne? Drop your API credentials into ForgePSA today — storage is live. Two-way device + patch + alert sync is shipping as our next release; we\'ll notify your tenant the moment it lands.',
   },
 ];
 

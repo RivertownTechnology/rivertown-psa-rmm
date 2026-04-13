@@ -163,23 +163,27 @@ function HaloPsaAlternatives() {
 
       <h2>Why MSPs look for Halo alternatives</h2>
       <ul>
-        <li><strong>Price per seat.</strong> $85/agent starts to hurt once you're past 10 techs.</li>
-        <li><strong>UI feels dated.</strong> Functional, but not fast to learn. Tech onboarding takes longer than it should.</li>
-        <li><strong>Implementation is a project.</strong> Partner-led, 4–8 weeks, $5k–$15k — before you log your first ticket.</li>
+        <li><strong>The 5-user minimum.</strong> A 2-tech shop pays for 3 unused seats. At ~$85/agent, that\'s $255/mo for nothing.</li>
+        <li><strong>Price per seat.</strong> $85/agent starts to hurt once you\'re past 10 techs.</li>
+        <li><strong>Implementation overhead.</strong> Halo is deep enough that real deployments still need design sessions and data mapping — weeks of work before your first ticket.</li>
         <li><strong>Top-tier feature gating.</strong> Integrations you need are often plan-gated.</li>
       </ul>
       <p>
-        None of this is disqualifying for a 50+ tech enterprise MSP. It's a lot for a 5–25 tech shop.
+        None of this is disqualifying for a 25+ tech MSP with dedicated PSA admins. It\'s a lot for a
+        1–15 tech shop. (And to be clear: Halo\'s UI is modern and genuinely good — this isn\'t a
+        "legacy software" complaint.)
       </p>
 
       <h2>The shortlist</h2>
 
       <h3>ForgePSA</h3>
       <p>
-        The alternative we built. Modern stack, $29/tech launch pricing (locked for life), every
-        integration included on every plan, 45-day no-card trial. NinjaRMM-native. ConnectWise-format
-        CSV import in settings. For 3–50 tech MSPs that want to keep their RMM and get a modern
-        PSA today, this is what we'd pick.
+        The alternative we built. Modern stack, $29/tech launch pricing (locked for life), no user
+        minimum, 45-day no-card trial. Pax8 margin tracking and Google SSO are on every plan; Pro
+        unlocks QuickBooks Online, AI ticket assistance, and SLA policies. NinjaOne credentials
+        store today with two-way sync shipping as our next release. ConnectWise companies importer
+        is live (contacts, tickets, and contracts are rolling out). For 3–50 tech MSPs that want to
+        keep their RMM and land on a modern PSA today, this is what we\'d pick.
       </p>
 
       <h3>Syncro</h3>
@@ -210,9 +214,9 @@ function HaloPsaAlternatives() {
 
       <h3>NinjaOne (their PSA)</h3>
       <p>
-        Newer to PSA than it is to RMM. Maturing quickly. If you love NinjaRMM and want a
-        single-vendor bundle in the future, it's worth a look. If you want a mature PSA today, pair
-        NinjaRMM with ForgePSA.
+        Newer to PSA than it is to RMM. Maturing quickly. If you want a single-vendor bundle in the
+        future, it\'s worth a look. If you want a mature PSA today, pair NinjaOne\'s RMM with
+        ForgePSA.
       </p>
 
       <h2>How to actually pick</h2>

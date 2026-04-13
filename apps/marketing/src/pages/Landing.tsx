@@ -8,7 +8,7 @@ import { useDocumentTitle } from '@/lib/useDocumentTitle';
 export function Landing({ navigate }: { navigate: (p: string) => void }) {
   useDocumentTitle(
     'ForgePSA — The PSA that doesn\'t make you switch RMMs',
-    'Modern PSA for MSPs. Keep NinjaRMM. Every integration included on every plan. 45-day trial, no credit card. Built by an MSP, for MSPs.',
+    'Modern PSA for MSPs. Keep your RMM. No user minimum, 45-day no-card trial, fair plan tiers. Built by an MSP, for MSPs.',
   );
   return (
     <>
@@ -31,8 +31,8 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
               <span className="text-brand-600 dark:text-brand-400">switch RMMs</span>.
             </h1>
             <p className="text-xl text-slate-600 dark:text-slate-300 mb-8 leading-relaxed">
-              Modern ticketing, contracts, billing, and a customer portal — priced per tech, with every
-              integration included. Keep NinjaRMM. Keep your data. Actually try it for 45 days.
+              Modern ticketing, contracts, billing, and a customer portal — priced per tech, with
+              essentials like NinjaOne and Pax8 on every plan. Keep your RMM. Keep your data. Actually try it for 45 days.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
@@ -91,8 +91,8 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
               desc="HaloPSA, ConnectWise, Autotask — powerful, but you need a consultant to change a ticket status. Techs work around it instead of in it."
             />
             <ProblemCard
-              title="Every integration is behind the top tier."
-              desc="QuickBooks? Top tier. SSO? Top tier. Reporting? Top tier. Either pay $85/seat or export CSVs at month-end and reconcile by hand."
+              title="The integration you need is always one tier up."
+              desc="QuickBooks? Top tier. Reporting? Top tier. ConnectWise won't tell you the price until a sales call. HaloPSA forces a 5-user minimum before you've even decided."
             />
             <ProblemCard
               title="'Free trial' means 14 days and a sales call."
@@ -111,11 +111,11 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
               The approach
             </div>
             <h2 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white mb-4">
-              One PSA. Every integration. Every plan.
+              One PSA. Fair tiers. No sales gate.
             </h2>
             <p className="text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto">
-              No feature gating by plan. No sales-led integration unlocks. The only thing that
-              changes as you grow is how many techs you have.
+              NinjaOne and Pax8 are in on every plan. Pro unlocks QuickBooks, AI, and the rest —
+              without doubling your bill. Enterprise adds SSO for larger teams. No minimums. No sales call.
             </p>
           </div>
 
@@ -179,8 +179,12 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
                   highlight
                 />
                 <CompareRow
+                  label="Minimum user count"
+                  values={['1', '5-user min', '10-seat typical', '1', '3']}
+                />
+                <CompareRow
                   label="Free trial length"
-                  values={['45 days', '30 days*', 'Sales call', '14 days', '21 days']}
+                  values={['45 days', '30 days', 'Sales call', '14 days', '21 days']}
                 />
                 <CompareRow
                   label="No credit card required"
@@ -191,16 +195,12 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
                   values={[true, true, true, false, false]}
                 />
                 <CompareRow
-                  label="All integrations on every plan"
-                  values={[true, false, false, 'Most', false]}
-                />
-                <CompareRow
-                  label="Built on a 2020s stack"
-                  values={[true, false, false, true, true]}
+                  label="Core integrations unlocked on starter plan"
+                  values={['NinjaOne + Pax8', false, false, 'Most', false]}
                 />
                 <CompareRow
                   label="Typical onboarding time"
-                  values={['< 1 day', '4-8 weeks', '6-12 weeks', '1-2 weeks', '1-2 weeks']}
+                  values={['< 1 day', '2-4 weeks', '6-12 weeks', '1-2 weeks', '1-2 weeks']}
                 />
               </tbody>
             </table>
@@ -239,13 +239,13 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
               <ul className="space-y-4">
                 <AutomationRow
                   icon={<Sparkles />}
-                  title="AI reply drafts, with credentials redacted first"
-                  desc="Secrets (passwords, keys, tokens) are stripped from the ticket before it ever leaves your tenant. You keep the draft. You ship it."
+                  title="AI reply drafts + ticket summaries"
+                  desc="Claude summarizes the whole thread and rewrites drafts in a professional tone. Prompts are hardened against injection, and the feature is opt-in per tenant with your own Anthropic key."
                 />
                 <AutomationRow
                   icon={<Cpu />}
-                  title="Auto-route by contract, priority, or SLA"
-                  desc="New ticket from a Platinum-tier contract? Routed, SLA'd, and assigned before a human looks at it."
+                  title="SLA policies with response + resolution timers"
+                  desc="Assign a ticket to a contract, inherit the SLA, and the clocks run. Breach behaviour is configurable per policy. Escalation workflows are rolling out next."
                 />
                 <AutomationRow
                   icon={<Clock />}
@@ -273,12 +273,15 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
             Plays nicely with the tools you already pay for.
           </h2>
           <p className="text-base text-slate-600 dark:text-slate-300 mb-10 max-w-2xl mx-auto">
-            Every integration below works on every plan. Encrypted credentials per tenant, OAuth where possible.
+            Encrypted credentials per tenant. OAuth where possible. Pax8 and Google SSO are in on every plan; QuickBooks, AI, and SMS unlock on Pro.
           </p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+
+          <div className="text-xs font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400 mb-3">Live today</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-10">
             {[
-              'NinjaRMM', 'Pax8', 'QuickBooks', 'Stripe', 'ConnectBooster',
-              'CrewHu', 'Twilio', 'Microsoft Entra', 'Google Workspace', 'Anthropic',
+              'Pax8', 'QuickBooks Online', 'Stripe', 'Gmail OAuth',
+              'SMTP', 'Mailjet', 'Twilio SMS', 'Anthropic (AI)',
+              'Google Workspace SSO', 'Google Calendar', 'CSV Import', 'ConnectWise Companies',
             ].map((name) => (
               <div
                 key={name}
@@ -288,12 +291,28 @@ export function Landing({ navigate }: { navigate: (p: string) => void }) {
               </div>
             ))}
           </div>
+
+          <div className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-3">On the roadmap — credentials UI live, sync shipping soon</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+            {[
+              'NinjaOne sync', 'ConnectBooster', 'CrewHu CSAT', 'Microsoft Entra SSO', 'SAML 2.0 SSO',
+            ].map((name) => (
+              <div
+                key={name}
+                className="relative flex items-center justify-center px-4 py-4 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/30 text-sm font-semibold text-slate-700 dark:text-slate-200"
+              >
+                {name}
+                <span className="absolute -top-2 right-2 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500 text-white">Soon</span>
+              </div>
+            ))}
+          </div>
+
           <div className="mt-8">
             <button
               onClick={() => navigate('/features')}
               className="inline-flex items-center gap-2 text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-semibold text-sm"
             >
-              See every integration <ArrowRight className="h-4 w-4" />
+              See the full integration list <ArrowRight className="h-4 w-4" />
             </button>
           </div>
         </div>
