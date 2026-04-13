@@ -1,5 +1,5 @@
 /**
- * Google OAuth2 SSO - Sign in with Google for Rivertown PSA
+ * Google OAuth2 SSO - Sign in with Google for ForgePSA
  *
  * Flow:
  *   1. GET /api/v1/auth/google → redirect to Google consent (with CSRF state)
@@ -29,7 +29,7 @@ function getGoogleConfig() {
     clientId: process.env.GOOGLE_CLIENT_ID || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
     redirectUri: process.env.GOOGLE_REDIRECT_URI || '',
-    frontendUrl: process.env.FRONTEND_URL || 'https://psa.rivertowntechnology.com',
+    frontendUrl: process.env.FRONTEND_URL || 'https://app.forgepsa.com',
   };
 }
 

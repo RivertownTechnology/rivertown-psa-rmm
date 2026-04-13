@@ -2,8 +2,37 @@ import { FastifyInstance } from 'fastify';
 import { randomUUID } from 'crypto';
 import { eq, and, desc, sql, count } from 'drizzle-orm';
 import { compare, hash } from 'bcryptjs';
-import { contacts, tickets, ticketComments, quotes, invoices, assets, tenantSequences } from '@rivertown/db';
+import { contacts, tenants, tickets, ticketComments, quotes, invoices, assets, tenantSequences } from '@rivertown/db';
 import { ValidationError, NotFoundError } from '../../common/errors.js';
+
+// Resolve a tenant slug → tenant row. Used by every public portal endpoint
+// so a contact from tenant A can't log in on tenant B's branded URL.
+async function resolveTenantBySlug(db: FastifyInstance['db'], slug: string) {
+  if (!slug || typeof slug !== 'string') return null;
+  const [tenant] = await db
+    .select({ id: tenants.id, name: tenants.name, settings: tenants.settings })
+    .from(tenants)
+    .where(eq(tenants.slug, slug.toLowerCase()))
+    .limit(1);
+  return tenant ?? null;
+}
+
+// Shape the public portal consumes. Everything non-sensitive — this endpoint
+// is unauthenticated so the login page can brand itself before login.
+function tenantBranding(tenant: { id: string; name: string; settings: unknown }) {
+  const s = (tenant.settings ?? {}) as Record<string, string>;
+  return {
+    tenantId: tenant.id,
+    // businessName is what the end customer sees; fallback to tenant.name (no platform brand leaks).
+    businessName: s.businessName || tenant.name,
+    businessLogo: s.businessLogo || '',
+    businessPhone: s.businessPhone || '',
+    businessEmail: s.businessEmail || '',
+    businessWebsite: s.businessWebsite || '',
+    primaryColor: s.primaryColor || '',
+    portalWelcomeText: s.portalWelcomeText || '',
+  };
+}
 
 type PortalUser = { sub: string; tid: string; cid: string; role: string; portalRole: string; perms: string[] };
 
@@ -20,15 +49,41 @@ function requirePerm(user: PortalUser, perm: string) {
 }
 
 export async function portalRoutes(fastify: FastifyInstance) {
+  // ===== PUBLIC BRANDING =====
+  // End customer lands on portal.forgepsa.com/:slug — this endpoint feeds the
+  // login page with the MSP's logo, colors, phone, email. No auth, no tenantId
+  // in the path of the regular portal routes — `slug` is the public handle.
+  fastify.get('/api/v1/portal/branding/:slug', {
+    config: { public: true, rateLimit: { max: 60, timeWindow: '1 minute' } } as any,
+  }, async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const tenant = await resolveTenantBySlug(fastify.db, slug);
+    if (!tenant) {
+      return reply.code(404).send({ error: 'NOT_FOUND', message: 'No portal found for this URL.' });
+    }
+    return { slug, ...tenantBranding(tenant) };
+  });
+
   // ===== AUTH =====
 
   fastify.post('/api/v1/portal/auth/login', { config: { public: true, rateLimit: { max: 5, timeWindow: '5 minutes' } } as any }, async (request, reply) => {
-    const { email, password } = request.body as { email: string; password: string };
+    const { email, password, slug } = request.body as { email: string; password: string; slug?: string };
+
+    // Slug is required. Portal is always served under /:slug — a request without
+    // one is almost certainly a stale client, not a legitimate user.
+    if (!slug) {
+      return reply.code(400).send({ error: 'SLUG_REQUIRED', message: 'Portal slug missing. Reload the page.' });
+    }
+    const tenant = await resolveTenantBySlug(fastify.db, slug);
+    if (!tenant) {
+      return reply.code(404).send({ error: 'UNKNOWN_PORTAL', message: 'This portal does not exist.' });
+    }
 
     const [contact] = await fastify.db.select().from(contacts)
-      .where(eq(contacts.email, email.toLowerCase())).limit(1);
+      .where(and(eq(contacts.email, email.toLowerCase()), eq(contacts.tenantId, tenant.id))).limit(1);
 
     if (!contact || !contact.portalEnabled || !contact.portalPasswordHash) {
+      // Generic message — don't leak whether the email exists in this tenant vs another.
       return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'Invalid credentials' });
     }
 
@@ -66,7 +121,8 @@ export async function portalRoutes(fastify: FastifyInstance) {
         tenantId: contact.tenantId, contactId: contact.id, codeHash,
         purpose: 'login', expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       });
-      sendSms({ to: contact.portalMfaPhone, message: `Your Rivertown Technology verification code is ${code}. Expires in 10 minutes.` }, fastify.db, contact.tenantId)
+      const brandName = tenantBranding(tenant).businessName;
+      sendSms({ to: contact.portalMfaPhone, message: `Your ${brandName} verification code is ${code}. Expires in 10 minutes.` }, fastify.db, contact.tenantId)
         .catch(e => console.error('[SMS] Send failed:', e));
 
       return reply.send({
@@ -206,7 +262,13 @@ export async function portalRoutes(fastify: FastifyInstance) {
       portalMfaPhone: e164, updatedAt: new Date(),
     }).where(and(eq(contacts.id, user.sub), eq(contacts.tenantId, user.tid)));
 
-    const result = await sendSms({ to: e164, message: `Your Rivertown Technology setup code is ${code}. Expires in 10 minutes.` }, fastify.db, user.tid);
+    // Look up the tenant's business name so the SMS identifies the sender
+    // to the end customer. Falls back to tenant.name (never leaks platform brand).
+    const [tenant] = await fastify.db
+      .select({ id: tenants.id, name: tenants.name, settings: tenants.settings })
+      .from(tenants).where(eq(tenants.id, user.tid)).limit(1);
+    const brandName = tenant ? tenantBranding(tenant).businessName : 'verification';
+    const result = await sendSms({ to: e164, message: `Your ${brandName} setup code is ${code}. Expires in 10 minutes.` }, fastify.db, user.tid);
     if (!result.success) throw new ValidationError(result.error || 'Failed to send SMS');
 
     return { success: true, phoneHint: '***-***-' + e164.slice(-4) };
@@ -832,13 +894,15 @@ export async function portalRoutes(fastify: FastifyInstance) {
     return { success: true, message: 'Passkey registered successfully' };
   });
 
-  // Generate authentication options (public — takes email)
+  // Generate authentication options (public — takes optional email + slug).
+  // Passkeys are scoped to an RP (hostname) not a tenant, so slug is advisory
+  // here; the post-auth login endpoint is what enforces tenant match.
   fastify.post('/api/v1/portal/auth/passkey/login-options', {
     config: { public: true, rateLimit: { max: 10, timeWindow: '1 minute' } } as any,
   }, async (request) => {
     const { passkeyCredentials } = await import('@rivertown/db');
     const { generateAuthenticationOptions } = await import('@simplewebauthn/server');
-    const { email } = (request.body ?? {}) as { email?: string };
+    const { email, slug } = (request.body ?? {}) as { email?: string; slug?: string };
 
     // Discoverable-credential flow (no email) — user's device picks which passkey
     if (!email) {
@@ -852,9 +916,15 @@ export async function portalRoutes(fastify: FastifyInstance) {
       return options;
     }
 
-    // Email-scoped flow (legacy)
+    // Email-scoped flow — if slug is provided, restrict lookup to that tenant
+    // so the browser's suggested passkey doesn't cross tenants.
+    const conditions = [eq(contacts.email, email.toLowerCase().trim())];
+    if (slug) {
+      const tenant = await resolveTenantBySlug(fastify.db, slug);
+      if (tenant) conditions.push(eq(contacts.tenantId, tenant.id));
+    }
     const [contact] = await fastify.db.select({ id: contacts.id, tenantId: contacts.tenantId })
-      .from(contacts).where(eq(contacts.email, email.toLowerCase().trim())).limit(1);
+      .from(contacts).where(and(...conditions)).limit(1);
 
     if (!contact) {
       // Don't reveal if contact exists — return generic discoverable options
@@ -944,6 +1014,15 @@ export async function portalRoutes(fastify: FastifyInstance) {
       .where(and(eq(contacts.id, cred.contactId), eq(contacts.tenantId, cred.tenantId))).limit(1);
 
     if (!contact || !contact.portalEnabled) throw new ValidationError('Portal access not enabled');
+
+    // Slug enforcement: if the client sent one, it must match the contact's tenant.
+    // Prevents "logged in with Acme passkey on BigCorp's branded URL" edge case.
+    if (body.slug) {
+      const tenant = await resolveTenantBySlug(fastify.db, body.slug);
+      if (!tenant || tenant.id !== contact.tenantId) {
+        throw new ValidationError('This passkey is not valid for this portal.');
+      }
+    }
 
     const portalRole = contact.portalRole || 'user';
     const portalPerms = portalRole === 'admin' ? ['tickets', 'billing'] : ((contact.portalPermissions ?? ['tickets']) as string[]);

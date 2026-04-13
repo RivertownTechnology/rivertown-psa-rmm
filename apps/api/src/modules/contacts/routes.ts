@@ -186,9 +186,14 @@ export async function contactRoutes(fastify: FastifyInstance) {
         const tpl = templates.find(t => t.templateType === 'portal_welcome');
 
         if (tpl) {
-          const portalUrl = settings.portalUrl || process.env.PORTAL_URL || 'https://portal.rivertowntechnology.com';
+          // Build the portal URL from tenant slug + env base. This is the
+          // branded URL every MSP's customers log in through.
+          const portalBase = process.env.PORTAL_BASE_URL || process.env.PORTAL_URL || 'https://portal.forgepsa.com';
+          const slug = (tenant as { slug?: string } | undefined)?.slug ?? '';
+          const portalUrl = settings.portalUrl || (slug ? `${portalBase.replace(/\/$/, '')}/${slug}` : portalBase);
           const vars: Record<string, string> = {
-            businessName: settings.businessName || 'Rivertown Technology',
+            // Fall back to the tenant's display name, never a hardcoded brand.
+            businessName: settings.businessName || tenant?.name || '',
             businessLogo: settings.businessLogo || '',
             businessPhone: settings.businessPhone || '',
             businessEmail: settings.businessEmail || '',

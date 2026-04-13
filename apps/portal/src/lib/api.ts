@@ -81,15 +81,45 @@ export class ApiError extends Error {
   }
 }
 
-// Auth - uses standard login for now; portal-specific endpoint can be added later
+// The portal is served under /:slug and every auth call includes the slug so
+// the server can (a) scope the login to the right tenant and (b) reject a
+// contact from tenant A trying to log in on tenant B's branded URL.
+export function getSlugFromPath(): string {
+  // /acme-msp/login → "acme-msp"
+  const seg = window.location.pathname.split('/').filter(Boolean)[0];
+  return seg ?? '';
+}
+
 export async function login(email: string, password: string) {
   const res = await fetch(`${API_BASE}/portal/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, slug: getSlugFromPath() }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: 'Login failed' }));
+    throw new ApiError(res.status, err.message);
+  }
+  return res.json();
+}
+
+// Branding — fetched before login so the login page can render the MSP's logo/colors.
+export interface PortalBranding {
+  slug: string;
+  tenantId: string;
+  businessName: string;
+  businessLogo: string;
+  businessPhone: string;
+  businessEmail: string;
+  businessWebsite: string;
+  primaryColor: string;
+  portalWelcomeText: string;
+}
+
+export async function fetchBranding(slug: string): Promise<PortalBranding> {
+  const res = await fetch(`${API_BASE}/portal/branding/${encodeURIComponent(slug)}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: 'Portal not found' }));
     throw new ApiError(res.status, err.message);
   }
   return res.json();

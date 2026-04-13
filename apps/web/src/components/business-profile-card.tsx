@@ -5,24 +5,42 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { Building, Upload } from 'lucide-react';
+import { Building, Upload, Copy, Check, ExternalLink } from 'lucide-react';
 
 interface Profile {
   businessName: string; businessAddress: string; businessCity: string;
   businessState: string; businessZip: string; businessPhone: string;
   businessEmail: string; businessWebsite: string; businessLogo: string;
+  primaryColor: string; portalWelcomeText: string;
+  // Read-only: surfaced by the API so we can show the branded portal URL.
+  slug: string; portalBaseUrl: string;
 }
 
 const emptyProfile: Profile = {
   businessName: '', businessAddress: '', businessCity: '',
   businessState: '', businessZip: '', businessPhone: '',
   businessEmail: '', businessWebsite: '', businessLogo: '',
+  primaryColor: '', portalWelcomeText: '',
+  slug: '', portalBaseUrl: '',
 };
 
 export function BusinessProfileCard() {
   const [profile, setProfile] = useState<Profile>({ ...emptyProfile });
   const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const portalUrl = profile.slug && profile.portalBaseUrl
+    ? `${profile.portalBaseUrl.replace(/\/$/, '')}/${profile.slug}`
+    : '';
+
+  function copyPortalUrl() {
+    if (!portalUrl) return;
+    navigator.clipboard.writeText(portalUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
 
   useEffect(() => {
     api<Profile>('/settings/business-profile')
@@ -84,7 +102,8 @@ export function BusinessProfileCard() {
 
         <div className="space-y-2">
           <Label>Business Name</Label>
-          <Input value={profile.businessName} onChange={e => setProfile(p => ({ ...p, businessName: e.target.value }))} placeholder="Rivertown MSP" />
+          <Input value={profile.businessName} onChange={e => setProfile(p => ({ ...p, businessName: e.target.value }))} placeholder="Your MSP name" />
+          <p className="text-xs text-muted-foreground">Shown on invoices, quotes, portal header, and in SMS verification codes.</p>
         </div>
 
         <div className="space-y-2">
@@ -119,6 +138,69 @@ export function BusinessProfileCard() {
           <div className="space-y-2">
             <Label>Website</Label>
             <Input value={profile.businessWebsite} onChange={e => setProfile(p => ({ ...p, businessWebsite: e.target.value }))} placeholder="https://company.com" />
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Customer Portal branding */}
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold">Customer Portal</h3>
+            <p className="text-xs text-muted-foreground">What your clients see when they log in to submit tickets, pay invoices, and approve quotes.</p>
+          </div>
+
+          {portalUrl && (
+            <div className="rounded-md border bg-muted/40 p-3 space-y-2">
+              <div className="text-xs text-muted-foreground">Your portal URL</div>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-sm font-mono break-all">{portalUrl}</code>
+                <Button size="sm" variant="outline" onClick={copyPortalUrl} type="button">
+                  {copied ? <><Check className="h-3 w-3 mr-1" />Copied</> : <><Copy className="h-3 w-3 mr-1" />Copy</>}
+                </Button>
+                <a href={portalUrl} target="_blank" rel="noreferrer" className="inline-flex">
+                  <Button size="sm" variant="ghost" type="button"><ExternalLink className="h-3 w-3" /></Button>
+                </a>
+              </div>
+              <p className="text-xs text-muted-foreground">Send this link to new contacts when you enable portal access.</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-[120px_1fr] gap-3 items-center">
+            <Label htmlFor="primary-color">Primary color</Label>
+            <div className="flex items-center gap-2">
+              <input
+                id="primary-color"
+                type="color"
+                className="h-9 w-14 rounded border cursor-pointer"
+                value={profile.primaryColor || '#2563eb'}
+                onChange={(e) => setProfile(p => ({ ...p, primaryColor: e.target.value }))}
+              />
+              <Input
+                value={profile.primaryColor}
+                onChange={(e) => setProfile(p => ({ ...p, primaryColor: e.target.value }))}
+                placeholder="#2563eb"
+                className="max-w-[140px] font-mono text-sm"
+              />
+              {profile.primaryColor && (
+                <Button size="sm" variant="ghost" type="button" onClick={() => setProfile(p => ({ ...p, primaryColor: '' }))}>
+                  Reset
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="welcome-text">Portal welcome text</Label>
+            <textarea
+              id="welcome-text"
+              className="flex w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              value={profile.portalWelcomeText}
+              onChange={(e) => setProfile(p => ({ ...p, portalWelcomeText: e.target.value }))}
+              placeholder="Your direct line to IT support. Submit tickets, track progress, and manage your account — all in one place."
+              maxLength={400}
+            />
+            <p className="text-xs text-muted-foreground">Shown on the portal login page under the headline.</p>
           </div>
         </div>
 

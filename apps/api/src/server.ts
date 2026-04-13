@@ -87,7 +87,6 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   // for Railway's auto-generated URLs (used before custom DNS is bound).
   // Note: updated 2026-04-12 to fix forgeadmin.forgepsa.com missing from list.
   const prodOrigins = new Set([
-    'https://psa.rivertowntechnology.com',
     'https://forgepsa.com',
     'https://www.forgepsa.com',
     'https://app.forgepsa.com',

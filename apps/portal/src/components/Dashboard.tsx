@@ -53,11 +53,20 @@ function fmtTime(d: string) { return new Date(d).toLocaleString('en-US', { month
 
 // ===== Main Component =====
 
-interface DashboardProps {
-  userName: string; portalRole: string; portalPermissions: string[]; onLogout: () => void;
+interface DashboardBranding {
+  businessName: string;
+  businessLogo: string;
 }
 
-export function Dashboard({ userName, portalRole, portalPermissions, onLogout }: DashboardProps) {
+interface DashboardProps {
+  userName: string;
+  portalRole: string;
+  portalPermissions: string[];
+  branding?: DashboardBranding | null;
+  onLogout: () => void;
+}
+
+export function Dashboard({ userName, portalRole, portalPermissions, branding, onLogout }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<TabId>('tickets');
   const [stats, setStats] = useState<Stats | null>(null);
   const isAdmin = portalRole === 'admin';
@@ -84,10 +93,14 @@ export function Dashboard({ userName, portalRole, portalPermissions, onLogout }:
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Headset className="h-4 w-4" />
-            </div>
-            <span className="text-lg font-semibold">Support Portal</span>
+            {branding?.businessLogo ? (
+              <img src={branding.businessLogo} alt={branding.businessName || 'Portal'} className="h-8 w-auto max-w-[140px] object-contain" />
+            ) : (
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <Headset className="h-4 w-4" />
+              </div>
+            )}
+            <span className="text-lg font-semibold">{branding?.businessName || 'Support Portal'}</span>
           </div>
           <div className="flex items-center gap-3">
             {userName && (

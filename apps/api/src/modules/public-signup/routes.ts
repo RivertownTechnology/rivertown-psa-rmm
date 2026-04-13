@@ -37,6 +37,18 @@ const signupSchema = z.object({
 
 const TRIAL_DAYS = 45;
 
+// Path segments the portal + marketing apps reserve. A tenant slug that collides
+// with any of these would shadow real app routes (e.g. /login, /signup), so we
+// bump collisions to a random suffix instead. Keep lowercase.
+const RESERVED_SLUGS = new Set([
+  'admin', 'api', 'assets', 'auth', 'billing', 'blog', 'changelog',
+  'contact', 'dashboard', 'docs', 'faq', 'health', '_health', 'healthz',
+  'help', 'home', 'invoices', 'legal', 'login', 'logout', 'marketing',
+  'mfa', 'oauth', 'pay', 'portal', 'pricing', 'privacy', 'public',
+  'quotes', 'reset', 'settings', 'signup', 'static', 'status', 'stripe',
+  'support', 'terms', 'tickets', 'users', 'webhook', 'webhooks', 'www',
+]);
+
 function slugify(input: string): string {
   return input
     .toLowerCase()
@@ -112,10 +124,13 @@ function buildStarterCatalogItem(
 
 async function findAvailableSlug(db: FastifyInstance['db'], base: string): Promise<string> {
   const baseSlug = slugify(base);
-  let candidate = baseSlug;
+  // If the base collides with a reserved path segment, start with a suffix.
+  let candidate = RESERVED_SLUGS.has(baseSlug) ? `${baseSlug}-msp` : baseSlug;
   for (let i = 0; i < 6; i++) {
-    const [existing] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, candidate)).limit(1);
-    if (!existing) return candidate;
+    if (!RESERVED_SLUGS.has(candidate)) {
+      const [existing] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, candidate)).limit(1);
+      if (!existing) return candidate;
+    }
     candidate = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
   }
   // Last resort: fully random

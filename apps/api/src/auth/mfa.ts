@@ -19,7 +19,7 @@ function hashBackupCode(code: string): string {
 
 function createTOTP(secret: string, email: string): OTPAuth.TOTP {
   return new OTPAuth.TOTP({
-    issuer: 'Rivertown PSA',
+    issuer: 'ForgePSA',
     label: email,
     algorithm: 'SHA1',
     digits: 6,
@@ -44,7 +44,7 @@ export async function mfaRoutes(fastify: FastifyInstance) {
 
     const secret = new OTPAuth.Secret({ size: 20 });
     const totp = new OTPAuth.TOTP({
-      issuer: 'Rivertown PSA',
+      issuer: 'ForgePSA',
       label: user.email,
       algorithm: 'SHA1',
       digits: 6,

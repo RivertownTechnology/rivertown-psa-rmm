@@ -13,7 +13,12 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
   // Public-facing API URL (used in invoice view links sent via email)
-  API_BASE_URL: z.string().default('https://rivertownapi-production.up.railway.app'),
+  API_BASE_URL: z.string().default('https://api.forgepsa.com'),
+
+  // Public-facing portal base URL — end customers land here as portal.forgepsa.com/:slug.
+  // Single domain across all MSPs for now (path-scoped multi-tenancy). Per-tenant
+  // CNAMEs are a future Enterprise feature, not v1.
+  PORTAL_BASE_URL: z.string().default('https://portal.forgepsa.com'),
 
   // Google Email OAuth (uses same Google OAuth app as SSO)
   GOOGLE_EMAIL_REDIRECT_URI: z.string().optional(),
@@ -32,9 +37,10 @@ const envSchema = z.object({
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_PHONE_NUMBER: z.string().optional(),
 
-  // Passkeys (WebAuthn)
-  PASSKEY_RP_ID: z.string().default('portal.rivertowntechnology.com'),
-  PASSKEY_ORIGIN: z.string().default('https://portal.rivertowntechnology.com'),
+  // Passkeys (WebAuthn). One RP across every MSP — path-scoped multi-tenancy means
+  // all portals share portal.forgepsa.com, so all passkeys share the same RP ID.
+  PASSKEY_RP_ID: z.string().default('portal.forgepsa.com'),
+  PASSKEY_ORIGIN: z.string().default('https://portal.forgepsa.com'),
 
   // QuickBooks Online
   QBO_CLIENT_ID: z.string().optional(),

@@ -863,6 +863,12 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       businessEmail: settings.businessEmail ?? '',
       businessWebsite: settings.businessWebsite ?? '',
       businessLogo: settings.businessLogo ?? '',
+      // Portal branding — what end customers see when they log in under /:slug
+      primaryColor: settings.primaryColor ?? '',
+      portalWelcomeText: settings.portalWelcomeText ?? '',
+      // The slug + base URL are surfaced so the admin UI can show the branded portal URL.
+      slug: tenant?.slug ?? '',
+      portalBaseUrl: process.env.PORTAL_BASE_URL || 'https://portal.forgepsa.com',
       invoiceStyle: settings.invoiceStyle ?? 'modern',
       quoteStyle: settings.quoteStyle ?? 'modern',
       invoiceFooter: settings.invoiceFooter ?? 'Thank you for your business!',
