@@ -127,6 +127,7 @@ export const createTicketSchema = z.object({
 
 export const updateTicketSchema = z.object({
   assignedTo: z.string().uuid().nullable().optional(),
+  contactId: z.string().uuid().nullable().optional(),
   subject: z.string().min(1).max(500).optional(),
   description: z.string().optional(),
   status: z.enum(TICKET_STATUSES).optional(),
