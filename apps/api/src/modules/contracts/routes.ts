@@ -266,9 +266,11 @@ export async function contractRoutes(fastify: FastifyInstance) {
   // Delete line item
   fastify.delete('/api/v1/contracts/:id/line-items/:lineId', { preHandler: [fastify.authenticate, requirePermission('contracts:write')] }, async (request, reply) => {
     const { lineId } = request.params as { id: string; lineId: string };
-    // Unlink any pax8 subscription referencing this line item before deleting
+    // Unlink all FK references to this line item before deleting
     await fastify.db.update(pax8Subscriptions).set({ contractLineItemId: null, updatedAt: new Date() })
       .where(eq(pax8Subscriptions.contractLineItemId, lineId));
+    await fastify.db.update(invoiceLineItems).set({ contractLineItemId: null })
+      .where(eq(invoiceLineItems.contractLineItemId, lineId));
     await fastify.db.delete(contractLineItems)
       .where(and(eq(contractLineItems.id, lineId), eq(contractLineItems.tenantId, request.tenantId)));
     reply.code(204).send();
