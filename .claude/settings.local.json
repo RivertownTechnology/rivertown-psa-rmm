@@ -97,7 +97,10 @@
       "Bash(git reset:*)",
       "Bash(find *)",
       "Bash(git stash *)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(ls packages/db/drizzle/)",
+      "Bash(find packages/db -name \"drizzle*\" -type d)",
+      "Bash(git *)"
     ]
   }
 }
