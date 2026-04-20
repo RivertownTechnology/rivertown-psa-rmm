@@ -167,6 +167,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
   const [slaPolicies, setSlaPolicies] = useState<SlaPolicy[]>([]);
   const [showSlaEdit, setShowSlaEdit] = useState(false);
   const [editingSlaId, setEditingSlaId] = useState<string | null>(null);
+  const [slaTimeUnit, setSlaTimeUnit] = useState<'minutes' | 'hours'>('minutes');
   const [slaForm, setSlaForm] = useState({
     name: '', description: '', isDefault: false,
     criticalResponseMinutes: '60', criticalResolutionMinutes: '240',
@@ -982,26 +983,113 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
 
             {/* SLA Edit Dialog */}
             <Dialog open={showSlaEdit} onOpenChange={setShowSlaEdit}>
-              <DialogContent className="max-w-lg">
-                <DialogHeader><DialogTitle>{editingSlaId ? 'Edit SLA Policy' : 'Add SLA Policy'}</DialogTitle></DialogHeader>
-                <form onSubmit={saveSlaPolicy} className="space-y-4">
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>{editingSlaId ? 'Edit SLA Policy' : 'Add SLA Policy'}</DialogTitle>
+                  <p className="text-sm text-muted-foreground">Define response and resolution targets for each priority level</p>
+                </DialogHeader>
+                <form onSubmit={saveSlaPolicy} className="space-y-5">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2"><Label>Policy Name</Label><Input required value={slaForm.name} onChange={e => setSlaForm({...slaForm, name: e.target.value})} placeholder="Standard" /></div>
-                    <div className="space-y-2"><Label>Description</Label><Input value={slaForm.description} onChange={e => setSlaForm({...slaForm, description: e.target.value})} /></div>
+                    <div className="space-y-2"><Label>Description</Label><Input value={slaForm.description} onChange={e => setSlaForm({...slaForm, description: e.target.value})} placeholder="Default SLA for all customers" /></div>
                   </div>
-                  <div className="flex items-center gap-2"><input type="checkbox" checked={slaForm.isDefault} onChange={e => setSlaForm({...slaForm, isDefault: e.target.checked})} className="h-4 w-4" /><Label>Default policy (applied to customers without a specific SLA)</Label></div>
-                  <Separator />
-                  <div className="text-sm font-medium">Response / Resolution Times (minutes)</div>
-                  {(['critical', 'high', 'medium', 'low'] as const).map(pri => (
-                    <div key={pri} className="grid grid-cols-3 gap-3 items-center">
-                      <Label className="capitalize">{pri}</Label>
-                      <div className="space-y-1"><Input type="number" min="1" value={(slaForm as any)[`${pri}ResponseMinutes`]} onChange={e => setSlaForm({...slaForm, [`${pri}ResponseMinutes`]: e.target.value})} /><span className="text-xs text-muted-foreground">Response</span></div>
-                      <div className="space-y-1"><Input type="number" min="1" value={(slaForm as any)[`${pri}ResolutionMinutes`]} onChange={e => setSlaForm({...slaForm, [`${pri}ResolutionMinutes`]: e.target.value})} /><span className="text-xs text-muted-foreground">Resolution</span></div>
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <button type="button" role="switch" aria-checked={slaForm.isDefault}
+                        onClick={() => setSlaForm({...slaForm, isDefault: !slaForm.isDefault})}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${slaForm.isDefault ? 'bg-primary' : 'bg-input'}`}>
+                        <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${slaForm.isDefault ? 'translate-x-4' : 'translate-x-0'}`} />
+                      </button>
+                      <span className="text-sm">Default policy for new customers</span>
+                    </label>
+                    {/* Unit toggle */}
+                    <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
+                      <button type="button"
+                        onClick={() => setSlaTimeUnit('minutes')}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-all duration-150 ${slaTimeUnit === 'minutes' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+                        Minutes
+                      </button>
+                      <button type="button"
+                        onClick={() => setSlaTimeUnit('hours')}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-all duration-150 ${slaTimeUnit === 'hours' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+                        Hours
+                      </button>
                     </div>
-                  ))}
+                  </div>
+
+                  <div className="rounded-lg border overflow-hidden">
+                    {/* Column headers */}
+                    <div className="grid grid-cols-[100px_1fr_1fr] bg-muted/50 border-b">
+                      <div className="p-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Priority</div>
+                      <div className="p-3 text-xs font-medium text-muted-foreground uppercase tracking-wider text-center">Response ({slaTimeUnit === 'hours' ? 'hrs' : 'min'})</div>
+                      <div className="p-3 text-xs font-medium text-muted-foreground uppercase tracking-wider text-center">Resolution ({slaTimeUnit === 'hours' ? 'hrs' : 'min'})</div>
+                    </div>
+                    {/* Priority rows */}
+                    {(['critical', 'high', 'medium', 'low'] as const).map((pri, i) => {
+                      const respKey = `${pri}ResponseMinutes` as keyof typeof slaForm;
+                      const resKey = `${pri}ResolutionMinutes` as keyof typeof slaForm;
+                      const respMins = parseInt(slaForm[respKey] as string) || 0;
+                      const resMins = parseInt(slaForm[resKey] as string) || 0;
+
+                      const displayResp = slaTimeUnit === 'hours' ? parseFloat((respMins / 60).toFixed(1)) : respMins;
+                      const displayRes = slaTimeUnit === 'hours' ? parseFloat((resMins / 60).toFixed(1)) : resMins;
+                      const stepVal = slaTimeUnit === 'hours' ? 0.5 : (respMins >= 480 ? 30 : respMins >= 60 ? 15 : 5);
+
+                      const setResp = (v: number) => {
+                        const mins = slaTimeUnit === 'hours' ? Math.round(v * 60) : v;
+                        setSlaForm(f => ({ ...f, [respKey]: String(Math.max(1, mins)) }));
+                      };
+                      const setRes = (v: number) => {
+                        const mins = slaTimeUnit === 'hours' ? Math.round(v * 60) : v;
+                        setSlaForm(f => ({ ...f, [resKey]: String(Math.max(1, mins)) }));
+                      };
+
+                      const priColors: Record<string, string> = {
+                        critical: 'text-red-500 dark:text-red-400',
+                        high: 'text-orange-500 dark:text-orange-400',
+                        medium: 'text-blue-500 dark:text-blue-400',
+                        low: 'text-gray-500 dark:text-gray-400',
+                      };
+                      const priDots: Record<string, string> = {
+                        critical: 'bg-red-500',
+                        high: 'bg-orange-500',
+                        medium: 'bg-blue-500',
+                        low: 'bg-gray-400',
+                      };
+
+                      return (
+                        <div key={pri} className={`grid grid-cols-[100px_1fr_1fr] items-center ${i < 3 ? 'border-b' : ''}`}>
+                          <div className="p-3 flex items-center gap-2">
+                            <span className={`h-2 w-2 rounded-full ${priDots[pri]}`} />
+                            <span className={`text-sm font-medium capitalize ${priColors[pri]}`}>{pri}</span>
+                          </div>
+                          <div className="p-2 flex justify-center">
+                            <NumberStepper
+                              value={displayResp}
+                              onChange={setResp}
+                              min={slaTimeUnit === 'hours' ? 0.5 : 1}
+                              max={slaTimeUnit === 'hours' ? 168 : 10080}
+                              step={stepVal}
+                            />
+                          </div>
+                          <div className="p-2 flex justify-center">
+                            <NumberStepper
+                              value={displayRes}
+                              onChange={setRes}
+                              min={slaTimeUnit === 'hours' ? 0.5 : 1}
+                              max={slaTimeUnit === 'hours' ? 168 : 10080}
+                              step={stepVal}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Values are stored in minutes internally. Switching between units converts the display only.</p>
+
                   <DialogFooter>
                     <Button type="button" variant="outline" onClick={() => setShowSlaEdit(false)}>Cancel</Button>
-                    <Button type="submit">{editingSlaId ? 'Save' : 'Create'}</Button>
+                    <Button type="submit">{editingSlaId ? 'Save Changes' : 'Create Policy'}</Button>
                   </DialogFooter>
                 </form>
               </DialogContent>

@@ -25,13 +25,15 @@ export function NumberStepper({
   const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
+  // Round to avoid floating point drift (e.g. 0.1 + 0.2 = 0.30000000000000004)
+  const round = (v: number) => parseFloat(v.toFixed(10));
 
   function increment() {
-    onChange(clamp(value + step));
+    onChange(clamp(round(value + step)));
   }
 
   function decrement() {
-    onChange(clamp(value - step));
+    onChange(clamp(round(value - step)));
   }
 
   function startHold(direction: 'up' | 'down') {
@@ -67,11 +69,14 @@ export function NumberStepper({
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     const raw = e.target.value;
     if (raw === '') return;
-    const parsed = parseInt(raw, 10);
+    const parsed = parseFloat(raw);
     if (!isNaN(parsed)) {
-      onChange(clamp(parsed));
+      onChange(clamp(round(parsed)));
     }
   }
+
+  // Format display value: drop trailing .0 for integers
+  const displayValue = Number.isInteger(value) ? String(value) : value.toFixed(1);
 
   const atMin = value <= min;
   const atMax = value >= max;
@@ -102,9 +107,8 @@ export function NumberStepper({
       <div className="relative flex items-center border-x">
         <input
           type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={value}
+          inputMode="decimal"
+          value={displayValue}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           aria-label={suffix ? `Value in ${suffix}` : 'Value'}
@@ -112,7 +116,7 @@ export function NumberStepper({
             'h-9 bg-transparent text-center font-semibold tabular-nums text-sm',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:rounded-sm',
             'selection:bg-primary/20',
-            suffix ? 'w-10 pr-0' : 'w-12',
+            suffix ? 'w-12 pr-0' : 'w-14',
           )}
         />
         {suffix && (
