@@ -21,6 +21,7 @@ import { Pax8Page } from '@/pages/pax8';
 import { DispatchPage } from '@/pages/dispatch';
 import { SearchResultsPage } from '@/pages/search';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
+import { CommandPalette } from '@/components/command-palette';
 
 function useLocation() {
   const getPath = () => window.location.pathname;
@@ -172,9 +173,12 @@ function AppRouter() {
   }
 
   return (
-    <DashboardLayout title={title} currentPath={currentNav} onNavigate={navigate}>
-      {content}
-    </DashboardLayout>
+    <>
+      <CommandPalette onNavigate={navigate} />
+      <DashboardLayout title={title} currentPath={currentNav} onNavigate={navigate}>
+        {content}
+      </DashboardLayout>
+    </>
   );
 }
 

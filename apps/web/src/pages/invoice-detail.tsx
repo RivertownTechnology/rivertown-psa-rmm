@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Combobox } from '@/components/ui/combobox';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   ArrowLeft, Plus, DollarSign, Send, Trash2, CreditCard, XCircle, Pencil, FileText,
 } from 'lucide-react';
@@ -54,6 +56,9 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
   const [showCancel, setShowCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelCustomerNote, setCancelCustomerNote] = useState('');
+
+  // Credit confirm dialog
+  const [creditConfirm, setCreditConfirm] = useState<{open: boolean, id: string, amount: string}>({open: false, id: '', amount: ''});
 
   const loadInvoice = useCallback(async () => {
     const data = await api<Invoice>(`/invoices/${invoiceId}`);
@@ -197,13 +202,8 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
             <Button size="sm" variant="destructive" onClick={() => setShowCancel(true)}><XCircle className="h-4 w-4 mr-1" />Cancel Invoice</Button>
           )}
           {!['cancelled', 'void'].includes(invoice.status) && invoice.totalCents > 0 && (
-            <Button size="sm" variant="outline" onClick={async () => {
-              if (!confirm(`Credit $${(invoice.totalCents / 100).toFixed(2)} to the customer's account and cancel this invoice?`)) return;
-              try {
-                const res = await api<{ credited: number; newBalance: number }>(`/invoices/${invoiceId}/credit`, { method: 'POST', body: JSON.stringify({ reason: 'Invoice reversal' }) });
-                setMessage(`Credited $${(res.credited / 100).toFixed(2)} to account. New credit balance: $${(res.newBalance / 100).toFixed(2)}`);
-                loadInvoice();
-              } catch (e: unknown) { setMessage(e instanceof Error ? e.message : 'Failed'); }
+            <Button size="sm" variant="outline" onClick={() => {
+              setCreditConfirm({open: true, id: invoiceId, amount: (invoice.totalCents / 100).toFixed(2)});
             }}>Credit to Account</Button>
           )}
           {balanceCents > 0 && !['paid', 'cancelled', 'void'].includes(invoice.status) && (
@@ -427,9 +427,17 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
           <form onSubmit={recordPayment} className="space-y-4">
             <div className="space-y-2"><Label>Amount ($)</Label><Input type="number" step="0.01" min="0.01" required value={paymentForm.amountCents} onChange={e => setPaymentForm({ ...paymentForm, amountCents: e.target.value })} /></div>
             <div className="space-y-2"><Label>Payment Method</Label>
-              <select value={paymentForm.paymentMethod} onChange={e => setPaymentForm({ ...paymentForm, paymentMethod: e.target.value })} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                <option value="manual">Manual</option><option value="check">Check</option><option value="stripe">Stripe</option><option value="qbo">QuickBooks</option>
-              </select>
+              <Combobox
+                options={[
+                  {value: 'manual', label: 'Manual'},
+                  {value: 'check', label: 'Check'},
+                  {value: 'stripe', label: 'Stripe'},
+                  {value: 'qbo', label: 'QuickBooks'},
+                ]}
+                value={paymentForm.paymentMethod}
+                onValueChange={(v) => setPaymentForm({ ...paymentForm, paymentMethod: v })}
+                placeholder="Select method..."
+              />
             </div>
             <div className="space-y-2"><Label>Reference (optional)</Label><Input value={paymentForm.reference} onChange={e => setPaymentForm({ ...paymentForm, reference: e.target.value })} placeholder="Check #, transaction ID, etc." /></div>
             <DialogFooter>
@@ -439,6 +447,23 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={creditConfirm.open}
+        onOpenChange={(open) => setCreditConfirm(prev => ({...prev, open}))}
+        title="Credit to Account"
+        description={`Credit $${creditConfirm.amount} to the customer's account and cancel this invoice?`}
+        confirmLabel="Credit"
+        variant="destructive"
+        onConfirm={async () => {
+          try {
+            const res = await api<{ credited: number; newBalance: number }>(`/invoices/${creditConfirm.id}/credit`, { method: 'POST', body: JSON.stringify({ reason: 'Invoice reversal' }) });
+            setMessage(`Credited $${(res.credited / 100).toFixed(2)} to account. New credit balance: $${(res.newBalance / 100).toFixed(2)}`);
+            setCreditConfirm({open: false, id: '', amount: ''});
+            loadInvoice();
+          } catch (e: unknown) { setMessage(e instanceof Error ? e.message : 'Failed'); }
+        }}
+      />
 
       {/* Cancel Invoice Dialog */}
       <Dialog open={showCancel} onOpenChange={setShowCancel}>

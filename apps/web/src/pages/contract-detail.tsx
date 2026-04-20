@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
+import { Combobox } from '@/components/ui/combobox';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   ArrowLeft, Plus, DollarSign, TrendingUp, PieChart, Clock, Pencil, Trash2,
   ShieldCheck, Cpu, Shield, HardDrive, Package, Headphones, Wrench, MoreHorizontal,
@@ -97,6 +99,7 @@ export function ContractDetailPage({ contractId, onBack, onNavigateToCustomer }:
     description: '', itemType: 'recurring', category: 'other',
     unitPriceCents: '', unitCostCents: '', quantity: '1', blockHours: '',
   });
+  const [deleteConfirm, setDeleteConfirm] = useState<{open: boolean, id: string, name: string}>({open: false, id: '', name: ''});
 
   const load = useCallback(async () => {
     const data = await api<ContractDetail>(`/contracts/${contractId}`);
@@ -197,10 +200,9 @@ export function ContractDetailPage({ contractId, onBack, onNavigateToCustomer }:
     load();
   }
 
-  async function deleteContract() {
-    if (!confirm(`Delete contract "${contract?.name}"? This will remove all line items and cannot be undone.`)) return;
-    await api(`/contracts/${contractId}`, { method: 'DELETE' });
-    onBack();
+  function deleteContract() {
+    if (!contract) return;
+    setDeleteConfirm({open: true, id: contractId, name: contract.name});
   }
 
   if (!contract) return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
@@ -504,28 +506,36 @@ export function ContractDetailPage({ contractId, onBack, onNavigateToCustomer }:
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Type</Label>
-                <select value={itemForm.itemType} onChange={e => setItemForm({ ...itemForm, itemType: e.target.value })}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                  <option value="recurring">Recurring</option>
-                  <option value="per_device">Per Device</option>
-                  <option value="per_user">Per User</option>
-                  <option value="block_time">Block Time</option>
-                  <option value="one_time">One Time</option>
-                </select>
+                <Combobox
+                  options={[
+                    {value: 'recurring', label: 'Recurring'},
+                    {value: 'per_device', label: 'Per Device'},
+                    {value: 'per_user', label: 'Per User'},
+                    {value: 'block_time', label: 'Block Time'},
+                    {value: 'one_time', label: 'One Time'},
+                  ]}
+                  value={itemForm.itemType}
+                  onValueChange={(v) => setItemForm({ ...itemForm, itemType: v })}
+                  placeholder="Select type..."
+                />
               </div>
               <div className="space-y-2">
                 <Label>Category</Label>
-                <select value={itemForm.category} onChange={e => setItemForm({ ...itemForm, category: e.target.value })}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                  <option value="license">License</option>
-                  <option value="rmm">RMM</option>
-                  <option value="edr_av">EDR/AV</option>
-                  <option value="backup">Backup</option>
-                  <option value="managed_service">Managed Service</option>
-                  <option value="support_hours">Support Hours</option>
-                  <option value="hardware">Hardware</option>
-                  <option value="other">Other</option>
-                </select>
+                <Combobox
+                  options={[
+                    {value: 'license', label: 'License'},
+                    {value: 'rmm', label: 'RMM'},
+                    {value: 'edr_av', label: 'EDR/AV'},
+                    {value: 'backup', label: 'Backup'},
+                    {value: 'managed_service', label: 'Managed Service'},
+                    {value: 'support_hours', label: 'Support Hours'},
+                    {value: 'hardware', label: 'Hardware'},
+                    {value: 'other', label: 'Other'},
+                  ]}
+                  value={itemForm.category}
+                  onValueChange={(v) => setItemForm({ ...itemForm, category: v })}
+                  placeholder="Select category..."
+                />
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3">
@@ -616,6 +626,20 @@ export function ContractDetailPage({ contractId, onBack, onNavigateToCustomer }:
         </DialogContent>
       </Dialog>
 
+      <ConfirmDialog
+        open={deleteConfirm.open}
+        onOpenChange={(open) => setDeleteConfirm(prev => ({...prev, open}))}
+        title="Delete Contract"
+        description={`Delete contract "${deleteConfirm.name}"? This will remove all line items and cannot be undone.`}
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={async () => {
+          await api(`/contracts/${deleteConfirm.id}`, { method: 'DELETE' });
+          setDeleteConfirm({open: false, id: '', name: ''});
+          onBack();
+        }}
+      />
+
       {/* Edit Contract Dialog */}
       <Dialog open={showEditContract} onOpenChange={setShowEditContract}>
         <DialogContent className="max-w-lg">
@@ -628,37 +652,49 @@ export function ContractDetailPage({ contractId, onBack, onNavigateToCustomer }:
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Type</Label>
-                <select value={editForm.contractType} onChange={e => setEditForm({ ...editForm, contractType: e.target.value })}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                  <option value="managed_services">Managed Services</option>
-                  <option value="break_fix">Break/Fix</option>
-                  <option value="per_device">Per Device</option>
-                  <option value="per_user">Per User</option>
-                  <option value="block_time">Block Time</option>
-                  <option value="recurring_flat">Flat Rate</option>
-                  <option value="ad_hoc">Ad-Hoc</option>
-                </select>
+                <Combobox
+                  options={[
+                    {value: 'managed_services', label: 'Managed Services'},
+                    {value: 'break_fix', label: 'Break/Fix'},
+                    {value: 'per_device', label: 'Per Device'},
+                    {value: 'per_user', label: 'Per User'},
+                    {value: 'block_time', label: 'Block Time'},
+                    {value: 'recurring_flat', label: 'Flat Rate'},
+                    {value: 'ad_hoc', label: 'Ad-Hoc'},
+                  ]}
+                  value={editForm.contractType}
+                  onValueChange={(v) => setEditForm({ ...editForm, contractType: v })}
+                  placeholder="Select type..."
+                />
               </div>
               <div className="space-y-2">
                 <Label>Status</Label>
-                <select value={editForm.status} onChange={e => setEditForm({ ...editForm, status: e.target.value })}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                  <option value="draft">Draft</option>
-                  <option value="active">Active</option>
-                  <option value="expired">Expired</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
+                <Combobox
+                  options={[
+                    {value: 'draft', label: 'Draft'},
+                    {value: 'active', label: 'Active'},
+                    {value: 'expired', label: 'Expired'},
+                    {value: 'cancelled', label: 'Cancelled'},
+                  ]}
+                  value={editForm.status}
+                  onValueChange={(v) => setEditForm({ ...editForm, status: v })}
+                  placeholder="Select status..."
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Billing Cycle</Label>
-                <select value={editForm.billingCycle} onChange={e => setEditForm({ ...editForm, billingCycle: e.target.value })}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                  <option value="monthly">Monthly</option>
-                  <option value="quarterly">Quarterly</option>
-                  <option value="annual">Annual</option>
-                </select>
+                <Combobox
+                  options={[
+                    {value: 'monthly', label: 'Monthly'},
+                    {value: 'quarterly', label: 'Quarterly'},
+                    {value: 'annual', label: 'Annual'},
+                  ]}
+                  value={editForm.billingCycle}
+                  onValueChange={(v) => setEditForm({ ...editForm, billingCycle: v })}
+                  placeholder="Select billing cycle..."
+                />
               </div>
               <div className="space-y-2 flex items-end pb-1">
                 <label className="flex items-center gap-2 text-sm">

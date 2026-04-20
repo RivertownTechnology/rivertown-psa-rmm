@@ -3,7 +3,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -12,7 +12,11 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Plus, Search, Trash2 } from 'lucide-react';
+import { Combobox } from '@/components/ui/combobox';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Plus, Search, Trash2, Users } from 'lucide-react';
 
 interface Customer {
   id: string;
@@ -28,6 +32,24 @@ interface PaginatedResponse {
   pagination: { page: number; limit: number; total: number; totalPages: number };
 }
 
+const statusColor: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  active: 'default',
+  inactive: 'secondary',
+  prospect: 'outline',
+};
+
+const statusLabels: Record<string, string> = {
+  active: 'Active',
+  inactive: 'Inactive',
+  prospect: 'Prospect',
+};
+
+const sortOptions = [
+  { value: 'name_az', label: 'Name A-Z' },
+  { value: 'name_za', label: 'Name Z-A' },
+  { value: 'newest', label: 'Created (newest)' },
+];
+
 export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: string) => void }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [total, setTotal] = useState(0);
@@ -37,21 +59,34 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
   const [showCreate, setShowCreate] = useState(false);
   const [formData, setFormData] = useState({ name: '', billingEmail: '', ccBillingEmail: '', phone: '', address: '', city: '', state: '', zip: '', website: '' });
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Delete confirmation
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; description: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchCustomers = useCallback(async () => {
-    const params = new URLSearchParams({ page: String(page), limit: '25' });
-    if (search) params.set('search', search);
-    const data = await api<PaginatedResponse>(`/customers?${params}`);
-    setCustomers(data.data);
-    setTotal(data.pagination.total);
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: '25' });
+      if (search) params.set('search', search);
+      const data = await api<PaginatedResponse>(`/customers?${params}`);
+      setCustomers(data.data);
+      setTotal(data.pagination.total);
+    } catch {
+      // handled
+    } finally {
+      setLoading(false);
+    }
   }, [page, search]);
 
   useEffect(() => {
     fetchCustomers();
   }, [fetchCustomers]);
 
-  async function handleDelete(id: string, name: string) {
-    // Fetch related data counts
+  async function initiateDelete(id: string, name: string) {
+    // Fetch related data counts for the confirmation message
+    let description = `Delete "${name}"? This cannot be undone.`;
     try {
       const [tickets, contacts, contracts, invoices] = await Promise.all([
         api<{ pagination: { total: number } }>(`/tickets?customerId=${id}&limit=1`),
@@ -59,18 +94,28 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
         api<{ pagination: { total: number } }>(`/contracts?customerId=${id}&limit=1`),
         api<{ pagination: { total: number } }>(`/invoices?customerId=${id}&limit=1`),
       ]);
-      const total = tickets.pagination.total + contacts.pagination.total + contracts.pagination.total + invoices.pagination.total;
-      const msg = total > 0
-        ? `Delete "${name}"? This customer has ${tickets.pagination.total} tickets, ${contacts.pagination.total} contacts, ${contracts.pagination.total} contracts, and ${invoices.pagination.total} invoices. This cannot be undone.`
-        : `Delete "${name}"? This cannot be undone.`;
-      if (!confirm(msg)) return;
+      const relatedTotal = tickets.pagination.total + contacts.pagination.total + contracts.pagination.total + invoices.pagination.total;
+      if (relatedTotal > 0) {
+        description = `Delete "${name}"? This customer has ${tickets.pagination.total} tickets, ${contacts.pagination.total} contacts, ${contracts.pagination.total} contracts, and ${invoices.pagination.total} invoices. This cannot be undone.`;
+      }
     } catch {
-      if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+      // Use default message
     }
+    setDeleteTarget({ id, name, description });
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await api(`/customers/${id}`, { method: 'DELETE' });
+      await api(`/customers/${deleteTarget.id}`, { method: 'DELETE' });
+      setDeleteTarget(null);
       fetchCustomers();
-    } catch { /* FK constraint may prevent */ }
+    } catch {
+      // FK constraint may prevent
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -108,20 +153,9 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
     }
   });
 
-  const statusColor: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-    active: 'default',
-    inactive: 'secondary',
-    prospect: 'outline',
-  };
-
-  const statusLabels: Record<string, string> = {
-    active: 'Active Client',
-    inactive: 'Former Client',
-    prospect: 'Prospective Client',
-  };
-
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="relative w-72">
@@ -133,15 +167,13 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
               className="pl-9"
             />
           </div>
-          <select
+          <Combobox
+            options={sortOptions}
             value={sort}
-            onChange={(e) => setSort(e.target.value)}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-          >
-            <option value="name_az">Name A-Z</option>
-            <option value="name_za">Name Z-A</option>
-            <option value="newest">Created (newest)</option>
-          </select>
+            onValueChange={setSort}
+            placeholder="Sort by..."
+            className="w-44"
+          />
         </div>
         <Button onClick={() => setShowCreate(true)}>
           <Plus className="mr-2 h-4 w-4" />
@@ -149,51 +181,82 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
         </Button>
       </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Customers ({total})</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="text-left p-3 font-medium">Name</th>
-                  <th className="text-left p-3 font-medium">Status</th>
-                  <th className="text-left p-3 font-medium">Email</th>
-                  <th className="text-left p-3 font-medium">Phone</th>
-                  <th className="w-10"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedCustomers.map((c) => (
-                  <tr key={c.id} className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => onSelectCustomer?.(c.id)}>
-                    <td className="p-3 font-medium text-primary hover:underline">{c.name}</td>
-                    <td className="p-3">
-                      <Badge variant={statusColor[c.status] ?? 'secondary'}>{statusLabels[c.status] ?? c.status}</Badge>
-                    </td>
-                    <td className="p-3 text-muted-foreground">{c.billingEmail ?? '-'}</td>
-                    <td className="p-3 text-muted-foreground">{c.phone ?? '-'}</td>
-                    <td className="p-3" onClick={e => e.stopPropagation()}>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(c.id, c.name)}>
+      {/* Customer Cards */}
+      {loading ? (
+        <div className="space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Card key={i}><CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <Skeleton className="h-5 w-48" />
+                <Skeleton className="h-5 w-16" />
+              </div>
+              <Skeleton className="h-4 w-64" />
+              <Skeleton className="h-4 w-40" />
+            </CardContent></Card>
+          ))}
+        </div>
+      ) : sortedCustomers.length === 0 ? (
+        <EmptyState
+          icon={Users}
+          title="No customers found"
+          description={search ? "Try adjusting your search terms." : "Add your first customer to get started."}
+          action={!search ? { label: 'Add Customer', onClick: () => setShowCreate(true) } : undefined}
+        />
+      ) : (
+        <div className="space-y-2">
+          {sortedCustomers.map((c) => (
+            <Card
+              key={c.id}
+              className="hover:bg-muted/30 transition-colors cursor-pointer"
+              onClick={() => onSelectCustomer?.(c.id)}
+            >
+              <CardContent className="p-4">
+                {/* Line 1: Name + Status Badge */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-foreground">{c.name}</span>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={statusColor[c.status] ?? 'secondary'}>
+                      {statusLabels[c.status] ?? c.status}
+                    </Badge>
+                    <div onClick={e => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        onClick={() => initiateDelete(c.id, c.name)}
+                      >
                         <Trash2 className="h-3 w-3" />
                       </Button>
-                    </td>
-                  </tr>
-                ))}
-                {sortedCustomers.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="p-8 text-center text-muted-foreground">
-                      No customers found
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                    </div>
+                  </div>
+                </div>
 
+                {/* Line 2: Email + Phone */}
+                <div className="flex items-center gap-4 mt-1.5">
+                  {c.billingEmail && (
+                    <span className="text-sm text-muted-foreground">{c.billingEmail}</span>
+                  )}
+                  {c.phone && (
+                    <span className="text-sm text-muted-foreground">{c.phone}</span>
+                  )}
+                  {!c.billingEmail && !c.phone && (
+                    <span className="text-sm text-muted-foreground italic">No contact info</span>
+                  )}
+                </div>
+
+                {/* Line 3: Health summary placeholder */}
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="text-xs text-muted-foreground">
+                    Added {new Date(c.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Pagination */}
       {total > 25 && (
         <div className="flex justify-center gap-2">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
@@ -208,6 +271,19 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
         </div>
       )}
 
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        title="Delete Customer"
+        description={deleteTarget?.description ?? ''}
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={handleDelete}
+        loading={deleting}
+      />
+
+      {/* Create Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent>
           <DialogHeader>

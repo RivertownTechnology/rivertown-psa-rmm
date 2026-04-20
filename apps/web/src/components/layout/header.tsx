@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/theme';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -10,7 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LogOut, User, Sun, Moon, Palette, Search, Menu, Settings as SettingsIcon } from 'lucide-react';
+import { LogOut, User, Sun, Moon, Menu, Settings as SettingsIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface HeaderProps {
@@ -19,17 +18,9 @@ interface HeaderProps {
   onMenuToggle: () => void;
 }
 
-const colorOptions = [
-  { value: 'blue' as const, label: 'Blue', class: 'bg-blue-500' },
-  { value: 'red' as const, label: 'Red', class: 'bg-red-500' },
-  { value: 'green' as const, label: 'Green', class: 'bg-green-500' },
-  { value: 'orange' as const, label: 'Orange', class: 'bg-orange-500' },
-];
-
 export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
   const { user, logout } = useAuth();
-  const { mode, color, setMode, setColor } = useTheme();
-  const [searchQuery, setSearchQuery] = useState('');
+  const { mode, setMode } = useTheme();
 
   const initials = user?.displayName
     .split(' ')
@@ -37,6 +28,10 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
     .join('')
     .toUpperCase()
     .slice(0, 2) ?? '??';
+
+  function openCommandPalette() {
+    window.dispatchEvent(new CustomEvent('open-command-palette'));
+  }
 
   return (
     <header className="h-14 border-b bg-card px-3 sm:px-6 flex items-center justify-between sticky top-0 z-10 gap-2">
@@ -47,61 +42,22 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
         <h2 className="text-lg font-semibold truncate">{title}</h2>
       </div>
 
-      <div className="relative hidden sm:block w-48 md:w-64">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Search..."
-          className="w-full h-8 pl-9 pr-3 rounded-md border border-input bg-background text-sm"
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && searchQuery.trim()) { onNavigate(`/search?q=${encodeURIComponent(searchQuery)}`); setSearchQuery(''); } }}
-        />
-      </div>
-
       <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-        {/* Mobile search button */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8 sm:hidden">
-              <Search className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64 p-2">
-            <input
-              type="text"
-              placeholder="Search customers, tickets..."
-              className="w-full h-8 px-3 rounded-md border border-input bg-background text-sm"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && searchQuery.trim()) { onNavigate(`/search?q=${encodeURIComponent(searchQuery)}`); setSearchQuery(''); } }}
-              autoFocus
-            />
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* Theme color picker */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8 hidden sm:inline-flex">
-              <Palette className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Theme Color</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {colorOptions.map(opt => (
-              <DropdownMenuItem key={opt.value} onClick={() => setColor(opt.value)}>
-                <div className={`h-3 w-3 rounded-full mr-2 ${opt.class}`} />
-                {opt.label}
-                {color === opt.value && <span className="ml-auto text-xs text-muted-foreground">Active</span>}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* Command palette search hint */}
+        <button
+          onClick={openCommandPalette}
+          className="hidden sm:flex items-center text-muted-foreground text-sm border rounded-md px-3 py-1 hover:bg-accent transition-colors"
+        >
+          Search... <kbd className="ml-2 text-xs opacity-60">{'\u2318'}K</kbd>
+        </button>
 
         {/* Dark/Light toggle */}
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
+        >
           {mode === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
 

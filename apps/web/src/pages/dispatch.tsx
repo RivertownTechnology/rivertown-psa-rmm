@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ChevronLeft, ChevronRight, Plus, X, GripVertical } from 'lucide-react';
+import { Combobox } from '@/components/ui/combobox';
 
 interface CalendarEvent {
   id: string; userId: string; ticketId: string | null;
@@ -212,7 +213,9 @@ export function DispatchPage() {
   }, [interaction, preview, events, selectedDay, loadData]);
 
   async function scheduleTicket(e: React.FormEvent) {
-    e.preventDefault(); setSaving(true);
+    e.preventDefault();
+    if (!schedForm.ticketId || !schedForm.userId) return;
+    setSaving(true);
     try {
       await api('/dispatch/schedule', { method: 'POST', body: JSON.stringify({ ticketId: schedForm.ticketId, userId: schedForm.userId, startAt: `${schedForm.date}T${schedForm.startTime}:00`, endAt: `${schedForm.date}T${schedForm.endTime}:00` }) });
       setShowSchedule(false); setSchedForm({ ticketId: '', userId: '', date: '', startTime: '09:00', endTime: '10:00' }); loadData();
@@ -410,16 +413,20 @@ export function DispatchPage() {
           <DialogHeader><DialogTitle>Schedule Ticket</DialogTitle></DialogHeader>
           <form onSubmit={scheduleTicket} className="space-y-4">
             <div className="space-y-2"><Label>Ticket</Label>
-              <select required value={schedForm.ticketId} onChange={e => setSchedForm({ ...schedForm, ticketId: e.target.value })} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                <option value="">Select ticket...</option>
-                {unassigned.map(t => <option key={t.id} value={t.id}>#{t.ticketNumber} — {t.subject}</option>)}
-              </select>
+              <Combobox
+                options={unassigned.map(t => ({value: t.id, label: `#${t.ticketNumber} — ${t.subject}`}))}
+                value={schedForm.ticketId}
+                onValueChange={(v) => setSchedForm({ ...schedForm, ticketId: v })}
+                placeholder="Select ticket..."
+              />
             </div>
             <div className="space-y-2"><Label>Technician</Label>
-              <select required value={schedForm.userId} onChange={e => setSchedForm({ ...schedForm, userId: e.target.value })} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                <option value="">Select tech...</option>
-                {techs.map(t => <option key={t.id} value={t.id}>{t.displayName}</option>)}
-              </select>
+              <Combobox
+                options={techs.map(t => ({value: t.id, label: t.displayName}))}
+                value={schedForm.userId}
+                onValueChange={(v) => setSchedForm({ ...schedForm, userId: v })}
+                placeholder="Select tech..."
+              />
             </div>
             <div className="space-y-2"><Label>Date</Label><Input type="date" required value={schedForm.date} onChange={e => setSchedForm({ ...schedForm, date: e.target.value })} /></div>
             <div className="grid grid-cols-2 gap-3">

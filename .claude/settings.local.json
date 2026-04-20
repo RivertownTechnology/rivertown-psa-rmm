@@ -94,7 +94,10 @@
       "Bash(DATABASE_URL='postgresql://rivertownadmin:RtPsa2026Secure@rivertown-psa-db.postgres.database.azure.com:5432/rivertown?sslmode=require' npx --yes tsx -e \"\nimport postgres from 'postgres';\nconst sql = postgres\\(process.env.DATABASE_URL!\\);\nconst r = await sql\\\\`INSERT INTO agent_releases \\(version, platform, sha256, file_size, file_name, release_notes, is_mandatory, is_latest\\) VALUES \\('0.2.0','win-x64','a06d88040ac052a2b1d1f0c2eba6044b524edbecb31245f674d6a1e4925d7115',126949021,'rivertown-agent-0.2.0-win-x64.zip','Initial release',false,true\\)\\\\`;\nconsole.log\\('Done:', r.count\\);\nawait sql.end\\(\\);\n\" 2>&1)",
       "Bash(node_modules/.bin/tsx -e \"\nimport postgres from 'postgres';\nconst sql = postgres\\('postgresql://rivertownadmin:RtPsa2026Secure@rivertown-psa-db.postgres.database.azure.com:5432/rivertown?sslmode=require'\\);\nconst r = await sql\\\\`INSERT INTO agent_releases \\(version, platform, sha256, file_size, file_name, release_notes, is_mandatory, is_latest\\) VALUES \\('0.2.0','win-x64','a06d88040ac052a2b1d1f0c2eba6044b524edbecb31245f674d6a1e4925d7115',126949021,'rivertown-agent-0.2.0-win-x64.zip','Initial release',false,true\\)\\\\`;\nconsole.log\\('Done:', r.count\\);\nawait sql.end\\(\\);\n\" 2>&1)",
       "Bash(DATABASE_URL='postgresql://rivertownadmin:RtPsa2026Secure@rivertown-psa-db.postgres.database.azure.com:5432/rivertown?sslmode=require' pnpm --filter @rivertown/db exec tsx src/seeds/seed-agent-release.ts 2>&1)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(find *)",
+      "Bash(git stash *)",
+      "Bash(git checkout *)"
     ]
   }
 }

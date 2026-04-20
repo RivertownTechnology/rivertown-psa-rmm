@@ -12,6 +12,7 @@ import {
   CheckCircle, XCircle, RefreshCw, Package, Trash2, AlertTriangle,
 } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
+import { Combobox } from '@/components/ui/combobox';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -566,16 +567,17 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Type</Label>
-                <select
+                <Combobox
+                  options={[
+                    {value: 'recurring', label: 'Recurring'},
+                    {value: 'per_device', label: 'Per Device'},
+                    {value: 'per_user', label: 'Per User'},
+                    {value: 'one_time', label: 'One Time'},
+                  ]}
                   value={itemForm.itemType}
-                  onChange={e => setItemForm({ ...itemForm, itemType: e.target.value })}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="recurring">Recurring</option>
-                  <option value="per_device">Per Device</option>
-                  <option value="per_user">Per User</option>
-                  <option value="one_time">One Time</option>
-                </select>
+                  onValueChange={(v) => setItemForm({ ...itemForm, itemType: v })}
+                  placeholder="Select type..."
+                />
               </div>
               <div className="space-y-2">
                 <Label>Quantity</Label>
@@ -687,14 +689,15 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
             </p>
             <div className="space-y-2">
               <Label>Convert to</Label>
-              <select
+              <Combobox
+                options={[
+                  {value: 'contract', label: 'Contract'},
+                  {value: 'invoice', label: 'Invoice'},
+                ]}
                 value={convertTo}
-                onChange={e => setConvertTo(e.target.value as 'contract' | 'invoice')}
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-              >
-                <option value="contract">Contract</option>
-                <option value="invoice">Invoice</option>
-              </select>
+                onValueChange={(v) => setConvertTo(v as 'contract' | 'invoice')}
+                placeholder="Select..."
+              />
             </div>
           </div>
           <DialogFooter>

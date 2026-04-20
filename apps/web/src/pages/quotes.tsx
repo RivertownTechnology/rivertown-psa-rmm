@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Plus, Search, Trash2 } from 'lucide-react';
+import { Combobox } from '@/components/ui/combobox';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 interface Quote {
   id: string;
@@ -56,6 +58,7 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
     summary: '',
     validUntil: '',
   });
+  const [confirmState, setConfirmState] = useState<{open: boolean; id?: string; quoteNumber?: number}>({open: false});
 
   const loadQuotes = useCallback(async () => {
     const params = new URLSearchParams({ page: String(page), limit: '25' });
@@ -90,16 +93,22 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
       }
     });
 
-  async function handleDelete(id: string, quoteNumber: number) {
-    if (!confirm(`Delete quote Q-${quoteNumber}? This will remove all line items.`)) return;
+  function handleDelete(id: string, quoteNumber: number) {
+    setConfirmState({open: true, id, quoteNumber});
+  }
+
+  async function executeDelete() {
+    if (!confirmState.id) return;
     try {
-      await api(`/quotes/${id}`, { method: 'DELETE' });
+      await api(`/quotes/${confirmState.id}`, { method: 'DELETE' });
       loadQuotes();
     } catch { /* */ }
+    setConfirmState({open: false});
   }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    if (!form.customerId) return;
     setSaving(true);
     try {
       const payload: Record<string, unknown> = {
@@ -133,15 +142,17 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
                 className="pl-9"
               />
             </div>
-            <select
+            <Combobox
+              options={[
+                {value: 'newest_number', label: 'Quote # (newest)'},
+                {value: 'newest_date', label: 'Created (newest)'},
+                {value: 'total', label: 'Total'},
+              ]}
               value={sort}
-              onChange={(e) => setSort(e.target.value)}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="newest_number">Quote # (newest)</option>
-              <option value="newest_date">Created (newest)</option>
-              <option value="total">Total</option>
-            </select>
+              onValueChange={(v) => setSort(v)}
+              placeholder="Sort by..."
+              className="w-44"
+            />
           </div>
           <Button onClick={() => setShowCreate(true)}>
             <Plus className="mr-2 h-4 w-4" />New Quote
@@ -219,11 +230,12 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
           <form onSubmit={handleCreate} className="space-y-4">
             <div className="space-y-2">
               <Label>Customer</Label>
-              <select required value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })}
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                <option value="">Select customer...</option>
-                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <Combobox
+                options={customers.map(c => ({value: c.id, label: c.name}))}
+                value={form.customerId}
+                onValueChange={(v) => setForm({ ...form, customerId: v })}
+                placeholder="Select customer..."
+              />
             </div>
             <div className="space-y-2">
               <Label>Title</Label>
@@ -251,6 +263,16 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
           </form>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={confirmState.open}
+        onOpenChange={(open) => setConfirmState(s => ({...s, open}))}
+        title="Delete Quote"
+        description={`Delete quote Q-${confirmState.quoteNumber}? This will remove all line items.`}
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={executeDelete}
+      />
     </div>
   );
 }

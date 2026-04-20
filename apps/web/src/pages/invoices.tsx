@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Combobox } from '@/components/ui/combobox';
 import { Trash2, RefreshCw, Search } from 'lucide-react';
 
 interface Invoice {
@@ -171,16 +172,17 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
                 className="pl-9"
               />
             </div>
-            <select
+            <Combobox
+              options={[
+                {value: 'newest', label: 'Invoice # (newest)'},
+                {value: 'due_date', label: 'Due Date'},
+                {value: 'amount', label: 'Amount'},
+                {value: 'status', label: 'Status'},
+              ]}
               value={sort}
-              onChange={(e) => setSort(e.target.value)}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="newest">Invoice # (newest)</option>
-              <option value="due_date">Due Date</option>
-              <option value="amount">Amount</option>
-              <option value="status">Status</option>
-            </select>
+              onValueChange={(v) => setSort(v)}
+              placeholder="Sort by..."
+            />
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setShowGenerate(true)}>
@@ -332,11 +334,12 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
             </p>
             <div className="space-y-2">
               <Label>Customer</Label>
-              <select required value={createForm.customerId} onChange={e => setCreateForm({ ...createForm, customerId: e.target.value })}
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                <option value="">Select customer...</option>
-                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <Combobox
+                options={customers.map(c => ({value: c.id, label: c.name}))}
+                value={createForm.customerId}
+                onValueChange={(v) => setCreateForm({ ...createForm, customerId: v })}
+                placeholder="Select customer..."
+              />
             </div>
             <div className="space-y-2">
               <Label>Due Date</Label>

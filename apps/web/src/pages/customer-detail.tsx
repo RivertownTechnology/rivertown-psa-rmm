@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ArrowLeft, Plus, Mail, Phone, MapPin, Monitor, Ticket, FileText, Pencil, Trash2, Globe, Key } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
+import { Combobox } from '@/components/ui/combobox';
 
 function pushPath(path: string) {
   window.history.pushState(null, '', path);
@@ -216,29 +217,33 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
         <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
         <h2 className="text-xl font-semibold">{customer.name}</h2>
         <Button variant="outline" size="sm" onClick={openEditCustomer}><Pencil className="h-3 w-3 mr-1" />Edit</Button>
-        <select
+        <Combobox
+          options={[
+            {value: 'active', label: 'Active Client'},
+            {value: 'inactive', label: 'Former Client'},
+            {value: 'prospect', label: 'Prospective Client'},
+          ]}
           value={customer.status}
-          onChange={async (e) => {
-            await api(`/customers/${customerId}`, { method: 'PATCH', body: JSON.stringify({ status: e.target.value }) });
+          onValueChange={async (v) => {
+            await api(`/customers/${customerId}`, { method: 'PATCH', body: JSON.stringify({ status: v }) });
             load();
           }}
-          className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-        >
-          <option value="active">Active Client</option>
-          <option value="inactive">Former Client</option>
-          <option value="prospect">Prospective Client</option>
-        </select>
-        <select
+          placeholder="Select status..."
+          className="w-40"
+        />
+        <Combobox
+          options={[
+            {value: '', label: 'SLA: Default'},
+            ...slaPolicies.map(p => ({value: p.id, label: p.name})),
+          ]}
           value={(customer as any).slaPolicyId ?? ''}
-          onChange={async (e) => {
-            await api(`/customers/${customerId}`, { method: 'PATCH', body: JSON.stringify({ slaPolicyId: e.target.value || null }) });
+          onValueChange={async (v) => {
+            await api(`/customers/${customerId}`, { method: 'PATCH', body: JSON.stringify({ slaPolicyId: v || null }) });
             load();
           }}
-          className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-        >
-          <option value="">SLA: Default</option>
-          {slaPolicies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+          placeholder="Select SLA..."
+          className="w-44"
+        />
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>

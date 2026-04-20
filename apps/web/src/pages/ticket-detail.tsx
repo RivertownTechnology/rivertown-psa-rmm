@@ -7,6 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Combobox } from '@/components/ui/combobox';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   ArrowLeft, Clock, MessageSquare, Pencil, Check, X, ChevronDown, ChevronUp,
   Eye, EyeOff, Plus, Timer, User, Users, AlertCircle, Send, Trash2, Sparkles,
@@ -130,6 +132,75 @@ function formatDuration(minutes: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Skeleton Loading
+// ---------------------------------------------------------------------------
+
+function TicketDetailSkeleton() {
+  return (
+    <div className="space-y-4">
+      {/* Breadcrumb skeleton */}
+      <Skeleton className="h-5 w-48" />
+      {/* Header row skeleton */}
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-8 w-16" />
+        <Skeleton className="h-5 w-16" />
+        <Skeleton className="h-5 w-16" />
+        <Skeleton className="h-5 w-20" />
+      </div>
+      {/* Two-column layout skeleton */}
+      <div className="flex flex-col lg:flex-row gap-4 items-start">
+        {/* Left column */}
+        <div className="flex-1 min-w-0 space-y-4">
+          {/* Subject / description card */}
+          <div className="rounded-xl border bg-card p-4 shadow space-y-4">
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-10" />
+              <Skeleton className="h-6 w-3/4" />
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+            <Skeleton className="h-8 w-28" />
+          </div>
+          {/* Conversation card */}
+          <div className="rounded-xl border bg-card p-4 shadow space-y-4">
+            <Skeleton className="h-5 w-40" />
+            <div className="space-y-6">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="flex gap-3">
+                  <Skeleton className="h-8 w-8 rounded-full shrink-0" />
+                  <div className="space-y-2 flex-1">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-4/5" />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Skeleton className="h-20 w-full" />
+          </div>
+        </div>
+        {/* Right column */}
+        <div className="w-full lg:w-80 shrink-0 space-y-4 order-first lg:order-last">
+          <div className="rounded-xl border bg-card p-4 shadow space-y-4">
+            <Skeleton className="h-5 w-24" />
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="space-y-1.5">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -238,12 +309,12 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
     }
     init();
 
-    // Poll ticket data every 1 second for real updates (comments, status changes)
+    // Poll ticket data every 30 seconds for real updates (comments, status changes)
     const dataInterval = setInterval(() => {
       loadTicket();
       loadComments();
       loadTimeEntries();
-    }, 1000);
+    }, 30000);
 
     // Tick every second for live SLA countdown + "updated X ago" display
     const tickInterval = setInterval(() => setTick(t => t + 1), 1000);
@@ -369,16 +440,41 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
   const descriptionLong = description.length > 300;
 
   // -------------------------------------------------------------------------
-  // Loading state
+  // Loading state — Skeleton
   // -------------------------------------------------------------------------
 
   if (!ticket) {
-    return (
-      <div className="p-8 text-center text-muted-foreground">Loading ticket...</div>
-    );
+    return <TicketDetailSkeleton />;
   }
 
   const isResolved = ticket.status === 'resolved' || ticket.status === 'closed';
+
+  // -------------------------------------------------------------------------
+  // Timeline comment icon helpers
+  // -------------------------------------------------------------------------
+
+  function CommentTimelineIcon({ authorType }: { authorType: string }) {
+    if (authorType === 'system') {
+      return (
+        <div className="flex items-center justify-center h-8 w-8 rounded-full bg-gray-200 dark:bg-gray-700 shrink-0 z-10">
+          <AlertCircle className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+        </div>
+      );
+    }
+    if (authorType === 'contact') {
+      return (
+        <div className="flex items-center justify-center h-8 w-8 rounded-full bg-secondary shrink-0 z-10">
+          <Users className="h-4 w-4 text-secondary-foreground" />
+        </div>
+      );
+    }
+    // user (technician) — default
+    return (
+      <div className="flex items-center justify-center h-8 w-8 rounded-full bg-primary shrink-0 z-10">
+        <User className="h-4 w-4 text-primary-foreground" />
+      </div>
+    );
+  }
 
   // -------------------------------------------------------------------------
   // Render
@@ -491,7 +587,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
             </CardContent>
           </Card>
 
-          {/* Comments thread */}
+          {/* Comments thread — Timeline style */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
@@ -499,56 +595,55 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                 Conversation ({comments.length})
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="px-4 pb-0">
               {comments.length === 0 ? (
-                <div className="px-4 pb-4 text-sm text-muted-foreground">No comments yet. Start the conversation below.</div>
+                <div className="pb-4 text-sm text-muted-foreground">No comments yet. Start the conversation below.</div>
               ) : (
-                <div className="max-h-[500px] overflow-y-auto">
-                  {comments.map((c, i) => (
-                    <div key={c.id}>
-                      {i > 0 && <Separator />}
-                      <div className={`p-4 ${c.isInternal ? 'bg-amber-50 dark:bg-amber-950/20' : ''}`}>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          {/* Author type badge */}
-                          {c.authorType === 'user' && (
-                            <Badge variant="outline" className="text-xs gap-1 font-normal">
-                              <User className="h-3 w-3" />
-                              {c.authorName || 'Technician'}
-                            </Badge>
-                          )}
-                          {c.authorType === 'contact' && (
-                            <Badge variant="secondary" className="text-xs gap-1 font-normal">
-                              <Users className="h-3 w-3" />
-                              {c.authorName || 'Customer'}
-                            </Badge>
-                          )}
-                          {c.authorType === 'system' && (
-                            <Badge variant="outline" className="text-xs gap-1 font-normal text-muted-foreground">
-                              <AlertCircle className="h-3 w-3" />
-                              {c.authorName || 'System'}
-                            </Badge>
-                          )}
-                          {c.isInternal && (
-                            <Badge className="text-xs bg-amber-200 text-amber-900 border-amber-300 hover:bg-amber-200">
-                              <EyeOff className="h-3 w-3 mr-1" />
-                              Internal
-                            </Badge>
-                          )}
-                          <span className="text-xs text-muted-foreground ml-auto" title={formatDateTime(c.createdAt)}>
-                            {relativeTime(c.createdAt)}
-                          </span>
+                <div className="max-h-[500px] overflow-y-auto pb-2">
+                  {/* Timeline wrapper */}
+                  <div className="relative">
+                    {comments.map((c, i) => (
+                      <div key={c.id} className="relative flex gap-3">
+                        {/* Vertical timeline line */}
+                        {i < comments.length - 1 && (
+                          <div className="absolute left-4 top-8 bottom-0 w-0 border-l-2 border-border" />
+                        )}
+                        {/* Avatar circle */}
+                        <CommentTimelineIcon authorType={c.authorType} />
+                        {/* Comment content */}
+                        <div className={`flex-1 mb-4 rounded-lg p-3 ${c.isInternal ? 'bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800' : 'bg-muted/40'}`}>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            {c.authorType === 'user' && (
+                              <span className="text-sm font-medium">{c.authorName || 'Technician'}</span>
+                            )}
+                            {c.authorType === 'contact' && (
+                              <span className="text-sm font-medium">{c.authorName || 'Customer'}</span>
+                            )}
+                            {c.authorType === 'system' && (
+                              <span className="text-sm font-medium text-muted-foreground">{c.authorName || 'System'}</span>
+                            )}
+                            {c.isInternal && (
+                              <Badge className="text-xs bg-amber-200 text-amber-900 border-amber-300 hover:bg-amber-200">
+                                <EyeOff className="h-3 w-3 mr-1" />
+                                Internal
+                              </Badge>
+                            )}
+                            <span className="text-xs text-muted-foreground ml-auto" title={formatDateTime(c.createdAt)}>
+                              {relativeTime(c.createdAt)}
+                            </span>
+                          </div>
+                          <div className="text-sm whitespace-pre-wrap leading-relaxed">{c.body}</div>
                         </div>
-                        <div className="text-sm whitespace-pre-wrap leading-relaxed">{c.body}</div>
                       </div>
-                    </div>
-                  ))}
-                  <div ref={commentsEndRef} />
+                    ))}
+                    <div ref={commentsEndRef} />
+                  </div>
                 </div>
               )}
 
-              {/* New comment form */}
+              {/* Always-visible reply box */}
               <Separator />
-              <div className="p-4 space-y-3">
+              <div className="py-4 space-y-3">
                 <textarea
                   placeholder={commentInternal ? 'Write an internal note (not visible to customer)...' : 'Write a reply to the customer...'}
                   rows={3}
@@ -638,47 +733,42 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
               {/* Status */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Status</Label>
-                <select
+                <Combobox
+                  options={STATUS_OPTIONS.map(s => ({ value: s.value, label: s.label }))}
                   value={ticket.status}
+                  onValueChange={(v) => updateTicketField('status', v)}
+                  placeholder="Select status..."
                   disabled={savingField === 'status'}
-                  onChange={e => updateTicketField('status', e.target.value)}
-                  className={`w-full h-9 rounded-md border px-3 text-sm font-medium ${statusStyles[ticket.status] ?? ''}`}
-                >
-                  {STATUS_OPTIONS.map(s => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
-                  ))}
-                </select>
+                />
               </div>
 
               {/* Priority */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Priority</Label>
-                <select
+                <Combobox
+                  options={PRIORITY_OPTIONS.map(p => ({ value: p.value, label: p.label }))}
                   value={ticket.priority}
+                  onValueChange={(v) => updateTicketField('priority', v)}
+                  placeholder="Select priority..."
                   disabled={savingField === 'priority'}
-                  onChange={e => updateTicketField('priority', e.target.value)}
-                  className={`w-full h-9 rounded-md border px-3 text-sm font-medium ${priorityStyles[ticket.priority] ?? ''}`}
-                >
-                  {PRIORITY_OPTIONS.map(p => (
-                    <option key={p.value} value={p.value}>{p.label}</option>
-                  ))}
-                </select>
+                />
               </div>
 
               {/* Assigned To */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Assigned To</Label>
-                <select
+                <Combobox
+                  options={[
+                    { value: '', label: 'Unassigned' },
+                    ...techs.map(t => ({ value: t.id, label: t.displayName })),
+                  ]}
                   value={ticket.assignedTo ?? ''}
-                  onChange={async (e) => {
-                    await api(`/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify({ assignedTo: e.target.value || null }) });
+                  onValueChange={async (v) => {
+                    await api(`/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify({ assignedTo: v || null }) });
                     loadTicket();
                   }}
-                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="">Unassigned</option>
-                  {techs.map(t => <option key={t.id} value={t.id}>{t.displayName}</option>)}
-                </select>
+                  placeholder="Select technician..."
+                />
               </div>
 
               <Separator />
@@ -697,17 +787,16 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
               {/* Contract */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Contract</Label>
-                <select
+                <Combobox
+                  options={[
+                    { value: '', label: 'No contract (billable)' },
+                    ...contracts.map(c => ({ value: c.id, label: `${c.name} (${c.contractType.replace(/_/g, ' ')})` })),
+                  ]}
                   value={ticket.contractId ?? ''}
+                  onValueChange={(v) => updateTicketField('contractId', v || null)}
+                  placeholder="Select contract..."
                   disabled={savingField === 'contractId'}
-                  onChange={e => updateTicketField('contractId', e.target.value || null)}
-                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="">No contract (billable)</option>
-                  {contracts.map(c => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.contractType.replace(/_/g, ' ')})</option>
-                  ))}
-                </select>
+                />
                 <p className="text-xs text-muted-foreground">
                   {ticket.contractId ? 'Time covered under contract' : 'Time logged will be billable'}
                 </p>
@@ -718,22 +807,21 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
               {/* Category */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Category</Label>
-                <select
+                <Combobox
+                  options={[
+                    { value: '', label: 'No category' },
+                    ...categories.map(c => ({ value: c.id, label: c.name })),
+                  ]}
                   value={ticket.categoryId ?? ''}
-                  disabled={savingField === 'categoryId'}
-                  onChange={e => {
-                    const categoryId = e.target.value || null;
+                  onValueChange={(v) => {
+                    const categoryId = v || null;
                     updateTicketField('categoryId', categoryId);
                     // Clear subcategory when category changes
                     if (ticket.subcategoryId) updateTicketField('subcategoryId', null);
                   }}
-                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="">No category</option>
-                  {categories.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                  placeholder="Select category..."
+                  disabled={savingField === 'categoryId'}
+                />
               </div>
 
               {/* Subcategory — only show if a category is selected and has subcategories */}
@@ -743,17 +831,16 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                 return (
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground uppercase tracking-wide">Subcategory</Label>
-                    <select
+                    <Combobox
+                      options={[
+                        { value: '', label: 'Select subcategory' },
+                        ...cat.subcategories.map(s => ({ value: s.id, label: s.name })),
+                      ]}
                       value={ticket.subcategoryId ?? ''}
+                      onValueChange={(v) => updateTicketField('subcategoryId', v || null)}
+                      placeholder="Select subcategory..."
                       disabled={savingField === 'subcategoryId'}
-                      onChange={e => updateTicketField('subcategoryId', e.target.value || null)}
-                      className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      <option value="">Select subcategory</option>
-                      {cat.subcategories.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
+                    />
                   </div>
                 );
               })()}
@@ -851,188 +938,151 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
               </div>
             </CardContent>
           </Card>
-        </div>
-      </div>
 
-      {/* ================================================================== */}
-      {/* TIME ENTRIES SECTION — Below two columns                           */}
-      {/* ================================================================== */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Timer className="h-4 w-4" />
-              Time Entries
-              {timeEntries.length > 0 && (
-                <span className="text-sm font-normal text-muted-foreground">
-                  ({timeEntries.length} {timeEntries.length === 1 ? 'entry' : 'entries'})
-                </span>
-              )}
-            </CardTitle>
-            <Button size="sm" onClick={() => setShowTimeForm(!showTimeForm)}>
-              {showTimeForm ? (
-                <><X className="h-4 w-4 mr-1" />Cancel</>
-              ) : (
-                <><Plus className="h-4 w-4 mr-1" />Log Time</>
-              )}
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Time entry form */}
-          {showTimeForm && (
-            <form onSubmit={submitTimeEntry} className="border rounded-lg p-4 bg-muted/30 space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Duration (minutes)</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    step="1"
-                    required
-                    placeholder="30"
-                    value={timeForm.durationMinutes}
-                    onChange={e => setTimeForm({ ...timeForm, durationMinutes: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label className="text-sm">Notes</Label>
-                  <Input
-                    placeholder="What did you work on?"
-                    value={timeForm.notes}
-                    onChange={e => setTimeForm({ ...timeForm, notes: e.target.value })}
-                  />
-                </div>
-              </div>
+          {/* ============================================================== */}
+          {/* TIME ENTRIES — In sidebar                                       */}
+          {/* ============================================================== */}
+          <Card>
+            <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={timeForm.isBillable}
-                    onChange={e => setTimeForm({ ...timeForm, isBillable: e.target.checked })}
-                    className="rounded border-gray-300"
-                  />
-                  <span className="text-sm text-muted-foreground">Billable</span>
-                  {ticket.contractId && (
-                    <span className="text-xs text-muted-foreground">(contract covers this work)</span>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Timer className="h-4 w-4" />
+                  Time
+                </CardTitle>
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setShowTimeForm(!showTimeForm)}>
+                  {showTimeForm ? (
+                    <><X className="h-3 w-3" />Cancel</>
+                  ) : (
+                    <><Plus className="h-3 w-3" />Log Time</>
                   )}
-                </label>
-                <Button type="submit" size="sm" disabled={submittingTime}>
-                  {submittingTime ? 'Logging...' : 'Log Entry'}
                 </Button>
               </div>
-            </form>
-          )}
-
-          {/* Summary bar */}
-          {timeEntries.length > 0 && (
-            <div className="flex items-center gap-6 text-sm px-1">
-              <div className="flex items-center gap-1.5">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="font-medium">{formatDuration(totalMinutes)}</span>
-                <span className="text-muted-foreground">total</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-medium text-green-600">{formatDuration(billableMinutes)}</span>
-                <span className="text-muted-foreground">billable</span>
-              </div>
-              {totalMinutes - billableMinutes > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <span className="font-medium text-gray-500">{formatDuration(totalMinutes - billableMinutes)}</span>
-                  <span className="text-muted-foreground">non-billable</span>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Summary */}
+              {timeEntries.length > 0 && (
+                <div className="text-sm space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total</span>
+                    <span className="font-medium">{formatDuration(totalMinutes)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Billable</span>
+                    <span className="font-medium text-green-600">{formatDuration(billableMinutes)}</span>
+                  </div>
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Time entries table */}
-          {timeEntries.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="text-left p-3 font-medium">Date</th>
-                    <th className="text-right p-3 font-medium">Duration</th>
-                    <th className="text-left p-3 font-medium">Notes</th>
-                    <th className="text-center p-3 font-medium">Billable</th>
-                    <th className="text-right p-3 font-medium">Rate</th>
-                    <th className="w-20"></th>
-                  </tr>
-                </thead>
-                <tbody>
+              {/* Inline time entry form */}
+              {showTimeForm && (
+                <form onSubmit={submitTimeEntry} className="border rounded-lg p-3 bg-muted/30 space-y-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Duration (minutes)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      step="1"
+                      required
+                      placeholder="30"
+                      className="h-8"
+                      value={timeForm.durationMinutes}
+                      onChange={e => setTimeForm({ ...timeForm, durationMinutes: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Notes</Label>
+                    <Input
+                      placeholder="What did you work on?"
+                      className="h-8"
+                      value={timeForm.notes}
+                      onChange={e => setTimeForm({ ...timeForm, notes: e.target.value })}
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={timeForm.isBillable}
+                      onChange={e => setTimeForm({ ...timeForm, isBillable: e.target.checked })}
+                      className="rounded border-gray-300"
+                    />
+                    <span className="text-xs text-muted-foreground">Billable</span>
+                    {ticket.contractId && (
+                      <span className="text-xs text-muted-foreground">(contract)</span>
+                    )}
+                  </label>
+                  <Button type="submit" size="sm" className="w-full h-7 text-xs" disabled={submittingTime}>
+                    {submittingTime ? 'Logging...' : 'Log Entry'}
+                  </Button>
+                </form>
+              )}
+
+              {/* Compact time entries list */}
+              {timeEntries.length > 0 ? (
+                <div className="space-y-1">
                   {timeEntries.map(entry => (
                     editingTimeId === entry.id ? (
-                      <tr key={entry.id} className="border-b bg-muted/30">
-                        <td className="p-2" colSpan={2}>
-                          <Input type="number" min="1" className="w-24 h-8" value={editTimeForm.durationMinutes}
+                      <div key={entry.id} className="border rounded-lg p-2 bg-muted/30 space-y-2">
+                        <div className="flex gap-2">
+                          <Input type="number" min="1" className="w-20 h-7 text-xs" placeholder="min" value={editTimeForm.durationMinutes}
                             onChange={e => setEditTimeForm({...editTimeForm, durationMinutes: e.target.value})} />
-                        </td>
-                        <td className="p-2">
-                          <Input className="h-8" value={editTimeForm.notes}
+                          <Input className="h-7 text-xs flex-1" placeholder="Notes" value={editTimeForm.notes}
                             onChange={e => setEditTimeForm({...editTimeForm, notes: e.target.value})} />
-                        </td>
-                        <td className="p-2 text-center">
-                          <label className="flex items-center gap-1 justify-center">
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <label className="flex items-center gap-1.5 cursor-pointer">
                             <input type="checkbox" checked={editTimeForm.isBillable}
-                              onChange={e => setEditTimeForm({...editTimeForm, isBillable: e.target.checked})} />
-                            <span className="text-xs">Billable</span>
+                              onChange={e => setEditTimeForm({...editTimeForm, isBillable: e.target.checked})}
+                              className="rounded border-gray-300" />
+                            <span className="text-xs text-muted-foreground">Billable</span>
                           </label>
-                        </td>
-                        <td className="p-2"></td>
-                        <td className="p-2">
-                          <div className="flex gap-1 justify-end">
-                            <Button size="sm" className="h-7" onClick={saveTimeEdit}><Check className="h-3 w-3" /></Button>
-                            <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditingTimeId(null)}><X className="h-3 w-3" /></Button>
+                          <div className="flex gap-1">
+                            <Button size="sm" className="h-6 text-xs px-2" onClick={saveTimeEdit}><Check className="h-3 w-3" /></Button>
+                            <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => setEditingTimeId(null)}><X className="h-3 w-3" /></Button>
                           </div>
-                        </td>
-                      </tr>
+                        </div>
+                      </div>
                     ) : (
-                      <tr key={entry.id} className="border-b hover:bg-muted/30">
-                        <td className="p-3 text-muted-foreground whitespace-nowrap">
-                          {new Date(entry.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                          <span className="text-xs ml-1">
-                            {new Date(entry.startedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                          </span>
-                        </td>
-                        <td className="p-3 text-right font-medium whitespace-nowrap">
-                          {entry.durationMinutes ? formatDuration(entry.durationMinutes) : '-'}
-                        </td>
-                        <td className="p-3 text-muted-foreground max-w-xs truncate">
-                          {entry.notes || <span className="italic">No notes</span>}
-                        </td>
-                        <td className="p-3 text-center">
-                          {entry.isBillable ? (
-                            <Badge className="bg-green-100 text-green-800 border-green-200 hover:bg-green-100">Billable</Badge>
-                          ) : (
-                            <Badge variant="secondary">Non-billable</Badge>
-                          )}
-                          {entry.isBilled && (
-                            <Badge variant="outline" className="ml-1 text-xs">Billed</Badge>
-                          )}
-                        </td>
-                        <td className="p-3 text-right text-muted-foreground">
-                          {entry.rateCents ? formatCents(entry.rateCents) + '/hr' : '-'}
-                        </td>
-                        <td className="p-3">
-                          <div className="flex gap-1 justify-end">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditTime(entry)}><Pencil className="h-3 w-3" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteTimeEntry(entry.id)}><Trash2 className="h-3 w-3" /></Button>
+                      <div key={entry.id} className="flex items-start gap-2 py-1.5 group">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-medium">
+                              {entry.durationMinutes ? formatDuration(entry.durationMinutes) : '-'}
+                            </span>
+                            {entry.isBillable ? (
+                              <span className="text-xs text-green-600">$</span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">nb</span>
+                            )}
+                            {entry.isBilled && (
+                              <Badge variant="outline" className="text-[10px] h-4 px-1">Billed</Badge>
+                            )}
                           </div>
-                        </td>
-                      </tr>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {entry.notes || 'No notes'}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {new Date(entry.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            {entry.rateCents ? ` \u00b7 ${formatCents(entry.rateCents)}/hr` : ''}
+                          </div>
+                        </div>
+                        <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditTime(entry)}><Pencil className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => deleteTimeEntry(entry.id)}><Trash2 className="h-3 w-3" /></Button>
+                        </div>
+                      </div>
                     )
                   ))}
-                </tbody>
-              </table>
-            </div>
-          ) : !showTimeForm ? (
-            <div className="text-center text-muted-foreground py-6 text-sm">
-              <Clock className="h-6 w-6 mx-auto mb-2 opacity-50" />
-              No time logged yet. Click "Log Time" to add an entry.
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+                </div>
+              ) : !showTimeForm ? (
+                <div className="text-center text-muted-foreground py-4 text-xs">
+                  <Clock className="h-5 w-5 mx-auto mb-1.5 opacity-50" />
+                  No time logged yet.
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
