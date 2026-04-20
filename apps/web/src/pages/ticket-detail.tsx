@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Combobox } from '@/components/ui/combobox';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   ArrowLeft, Clock, MessageSquare, Pencil, Check, X, ChevronDown, ChevronUp,
@@ -249,6 +250,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
 
   // Saving states
   const [savingField, setSavingField] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
@@ -507,6 +509,10 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
             {ticket.status === 'resolved' ? 'Resolved' : 'Closed'} {ticket.resolvedAt ? relativeTime(ticket.resolvedAt) : ticket.closedAt ? relativeTime(ticket.closedAt) : ''}
           </span>
         )}
+        <div className="flex-1" />
+        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setShowDeleteConfirm(true)}>
+          <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+        </Button>
       </div>
 
       {/* Two-column layout */}
@@ -1112,6 +1118,19 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
           </Card>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        title="Delete Ticket"
+        description={`Permanently delete ticket #${ticket.ticketNumber} "${ticket.subject}"? This will remove all comments, time entries, and associated data. This cannot be undone.`}
+        confirmLabel="Delete Ticket"
+        variant="destructive"
+        onConfirm={async () => {
+          await api(`/tickets/${ticketId}`, { method: 'DELETE' });
+          onBack();
+        }}
+      />
     </div>
   );
 }

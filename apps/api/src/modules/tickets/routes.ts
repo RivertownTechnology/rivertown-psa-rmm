@@ -10,6 +10,8 @@ import {
   tenants,
   users,
   contacts,
+  calendarEvents,
+  emailMessages,
 } from '@rivertown/db';
 import {
   createTicketSchema,
@@ -260,6 +262,32 @@ export async function ticketRoutes(fastify: FastifyInstance) {
 
       moduleEvents.emit('ticket.updated', updated, body);
       return updated;
+    },
+  );
+
+  // Delete ticket
+  fastify.delete(
+    '/api/v1/tickets/:id',
+    { preHandler: [fastify.authenticate, requirePermission('tickets:write')] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const [existing] = await fastify.db.select().from(tickets)
+        .where(and(eq(tickets.id, id), eq(tickets.tenantId, request.tenantId))).limit(1);
+      if (!existing) throw new NotFoundError('Ticket', id);
+
+      // Delete all child records that reference this ticket
+      await fastify.db.delete(ticketTimeEntries).where(eq(ticketTimeEntries.ticketId, id));
+      await fastify.db.delete(ticketComments).where(eq(ticketComments.ticketId, id));
+      await fastify.db.update(calendarEvents).set({ ticketId: null }).where(eq(calendarEvents.ticketId, id));
+      await fastify.db.update(emailMessages).set({ ticketId: null }).where(eq(emailMessages.ticketId, id));
+      await fastify.db.delete(tickets).where(and(eq(tickets.id, id), eq(tickets.tenantId, request.tenantId)));
+
+      await logAudit(fastify.db, {
+        tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,
+        action: 'ticket.deleted', entityType: 'ticket', entityId: id, ipAddress: request.ip,
+      });
+
+      reply.code(204).send();
     },
   );
 
