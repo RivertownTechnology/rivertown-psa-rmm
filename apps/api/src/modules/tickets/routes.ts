@@ -168,6 +168,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     async (request) => {
       const { id } = request.params as { id: string };
       const body = updateTicketSchema.parse(request.body);
+      const rawBody = request.body as Record<string, unknown>;
 
       const [existing] = await fastify.db
         .select()
@@ -178,6 +179,11 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       if (!existing) throw new NotFoundError('Ticket', id);
 
       const updateData: Record<string, unknown> = { ...body, updatedAt: new Date() };
+
+      // Explicitly handle contactId from raw body in case validator strips it
+      if ('contactId' in rawBody) {
+        updateData.contactId = rawBody.contactId ?? null;
+      }
 
       // Auto-set timestamps based on status changes
       if (body.status === 'resolved' && existing.status !== 'resolved') {
