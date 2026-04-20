@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { eq, and, count, desc, sql } from 'drizzle-orm';
-import { contracts, contractLineItems, pax8Subscriptions, ticketTimeEntries, tickets, serviceCatalogItems, serviceCatalogBundles, serviceCatalogBundleItems, users, tenants } from '@rivertown/db';
+import { contracts, contractLineItems, contractCoveredAssets, contractCoveredContacts, pax8Subscriptions, ticketTimeEntries, tickets, serviceCatalogItems, serviceCatalogBundles, serviceCatalogBundleItems, users, tenants } from '@rivertown/db';
 import { createContractSchema, updateContractSchema, createLineItemSchema, updateLineItemSchema, paginationSchema } from '@rivertown/shared';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError } from '../../common/errors.js';
@@ -215,6 +215,8 @@ export async function contractRoutes(fastify: FastifyInstance) {
         .where(eq(pax8Subscriptions.contractLineItemId, li.id));
     }
     await fastify.db.delete(contractLineItems).where(eq(contractLineItems.contractId, id));
+    await fastify.db.delete(contractCoveredAssets).where(eq(contractCoveredAssets.contractId, id));
+    await fastify.db.delete(contractCoveredContacts).where(eq(contractCoveredContacts.contractId, id));
     await fastify.db.delete(contracts).where(and(eq(contracts.id, id), eq(contracts.tenantId, request.tenantId)));
     await logAudit(fastify.db, {
       tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,
