@@ -15,6 +15,7 @@ import { BusinessProfileCard } from '@/components/business-profile-card';
 import { SecurityPage } from './security';
 import { ProductCatalogPage } from './product-catalog';
 import { TemplatesSettingsPage } from './templates-settings';
+import { NumberStepper } from '@/components/ui/number-stepper';
 
 interface EmailConfig {
   isEnabled: boolean; smtpHost: string; smtpPort: number; smtpUser: string;
@@ -1037,14 +1038,13 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                         </button>
                       </div>
                       {ticketAuto.ticketAutoCloseResolvedEnabled && (
-                        <div className="mt-3 ml-0 flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                        <div className="mt-3 flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                           <span className="text-sm text-muted-foreground">Close after</span>
-                          <div className="relative">
-                            <Input type="number" min={1} max={90}
-                              className="w-20 h-9 text-center font-medium pr-1"
-                              value={ticketAuto.ticketAutoCloseResolvedDays}
-                              onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoCloseResolvedDays: parseInt(e.target.value) || 3 })} />
-                          </div>
+                          <NumberStepper
+                            value={ticketAuto.ticketAutoCloseResolvedDays}
+                            onChange={v => setTicketAuto({ ...ticketAuto, ticketAutoCloseResolvedDays: v })}
+                            min={1} max={90}
+                          />
                           <span className="text-sm text-muted-foreground">days in resolved status</span>
                         </div>
                       )}
@@ -1068,14 +1068,13 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                         </button>
                       </div>
                       {ticketAuto.ticketAutoCloseWaitingEnabled && (
-                        <div className="mt-3 ml-0 flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                        <div className="mt-3 flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                           <span className="text-sm text-muted-foreground">Close after</span>
-                          <div className="relative">
-                            <Input type="number" min={1} max={90}
-                              className="w-20 h-9 text-center font-medium pr-1"
-                              value={ticketAuto.ticketAutoCloseWaitingDays}
-                              onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoCloseWaitingDays: parseInt(e.target.value) || 7 })} />
-                          </div>
+                          <NumberStepper
+                            value={ticketAuto.ticketAutoCloseWaitingDays}
+                            onChange={v => setTicketAuto({ ...ticketAuto, ticketAutoCloseWaitingDays: v })}
+                            min={1} max={90}
+                          />
                           <span className="text-sm text-muted-foreground">days of no activity</span>
                         </div>
                       )}
