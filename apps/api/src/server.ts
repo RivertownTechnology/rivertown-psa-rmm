@@ -226,6 +226,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   const { startQBOSyncScheduler } = await import('./services/qbo-sync.js');
   startQBOSyncScheduler(db);
 
+  // Start ticket auto-close scheduler
+  const { startTicketAutoCloseScheduler } = await import('./services/ticket-auto-close.js');
+  startTicketAutoCloseScheduler(db);
+
   // Start email inbox polling (check all tenant inboxes every 30 seconds)
   const { processInboundEmails } = await import('./services/email-to-ticket.js');
   const { tenants } = await import('@rivertown/db');

@@ -846,6 +846,37 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     return { success: true };
   });
 
+  // ===== TICKET AUTOMATION =====
+
+  fastify.get('/api/v1/settings/ticket-automation', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const [tenant] = await fastify.db.select().from(tenants)
+      .where(eq(tenants.id, request.tenantId)).limit(1);
+    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    return {
+      ticketAutoCloseResolvedEnabled: settings.ticketAutoCloseResolvedEnabled ?? false,
+      ticketAutoCloseResolvedDays: settings.ticketAutoCloseResolvedDays ?? 3,
+      ticketAutoCloseWaitingEnabled: settings.ticketAutoCloseWaitingEnabled ?? false,
+      ticketAutoCloseWaitingDays: settings.ticketAutoCloseWaitingDays ?? 7,
+      ticketAutoReopenOnReply: settings.ticketAutoReopenOnReply ?? true,
+      ticketSlaPauseOnWaiting: settings.ticketSlaPauseOnWaiting ?? true,
+    };
+  });
+
+  fastify.put('/api/v1/settings/ticket-automation', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const body = request.body as Record<string, unknown>;
+    const [tenant] = await fastify.db.select().from(tenants)
+      .where(eq(tenants.id, request.tenantId)).limit(1);
+    const existing = (tenant?.settings ?? {}) as Record<string, unknown>;
+    const updated = { ...existing, ...body };
+    await fastify.db.update(tenants).set({ settings: updated, updatedAt: new Date() })
+      .where(eq(tenants.id, request.tenantId));
+    return { success: true };
+  });
+
   // ===== EMAIL TEMPLATES =====
 
   fastify.get('/api/v1/settings/templates', {
