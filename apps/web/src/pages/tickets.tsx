@@ -188,8 +188,10 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [contracts, setContracts] = useState<Contract[]>([]);
+  const [formContacts, setFormContacts] = useState<Array<{ id: string; firstName: string; lastName: string; email: string }>>([]);
   const [formData, setFormData] = useState({
     customerId: '',
+    contactId: '',
     subject: '',
     description: '',
     priority: 'medium',
@@ -296,14 +298,17 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
   // ---------------------------------------------------------------------------
 
   async function onFormCustomerChange(custId: string) {
-    setFormData((f) => ({ ...f, customerId: custId, contractId: '' }));
+    setFormData((f) => ({ ...f, customerId: custId, contactId: '', contractId: '' }));
     if (custId) {
-      const data = await api<{ data: Contract[] }>(
-        `/contracts?customerId=${custId}&status=active&limit=100`,
-      );
-      setContracts(data.data);
+      const [contractData, contactData] = await Promise.all([
+        api<{ data: Contract[] }>(`/contracts?customerId=${custId}&status=active&limit=100`),
+        api<{ data: Array<{ id: string; firstName: string; lastName: string; email: string }> }>(`/contacts?customerId=${custId}&limit=100`),
+      ]);
+      setContracts(contractData.data);
+      setFormContacts(contactData.data);
     } else {
       setContracts([]);
+      setFormContacts([]);
     }
   }
 
@@ -312,6 +317,7 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
     setSaving(true);
     try {
       const payload: Record<string, unknown> = { ...formData };
+      if (!payload.contactId) delete payload.contactId;
       if (!payload.contractId) delete payload.contractId;
       if (!payload.categoryId) delete payload.categoryId;
       if (!payload.subcategoryId) delete payload.subcategoryId;
@@ -322,6 +328,7 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
       setShowCreate(false);
       setFormData({
         customerId: '',
+        contactId: '',
         subject: '',
         description: '',
         priority: 'medium',
@@ -329,6 +336,7 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
         categoryId: '',
         subcategoryId: '',
       });
+      setFormContacts([]);
       setContracts([]);
       fetchTickets();
     } finally {
@@ -559,6 +567,26 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
                 emptyText="No customers found."
               />
             </div>
+
+            {formContacts.length > 0 && (
+              <div className="space-y-2">
+                <Label>Contact</Label>
+                <Combobox
+                  options={[
+                    { value: '', label: 'No contact' },
+                    ...formContacts.map((c) => ({ value: c.id, label: `${c.firstName} ${c.lastName}${c.email ? ` (${c.email})` : ''}` })),
+                  ]}
+                  value={formData.contactId}
+                  onValueChange={(val) => setFormData({ ...formData, contactId: val })}
+                  placeholder="Select contact..."
+                  searchPlaceholder="Search contacts..."
+                  emptyText="No contacts found."
+                />
+                <p className="text-xs text-muted-foreground">
+                  {formData.contactId ? 'Email replies will go to this contact' : 'Replies will use customer billing email'}
+                </p>
+              </div>
+            )}
 
             {contracts.length > 0 && (
               <div className="space-y-2">

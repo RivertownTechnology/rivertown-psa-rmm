@@ -215,6 +215,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [customerName, setCustomerName] = useState('');
   const [contracts, setContracts] = useState<Contract[]>([]);
+  const [customerContacts, setCustomerContacts] = useState<Array<{ id: string; firstName: string; lastName: string; email: string }>>([]);
   const [techs, setTechs] = useState<Array<{ id: string; displayName: string }>>([]);
   const [categories, setCategories] = useState<TicketCategory[]>([]);
 
@@ -280,6 +281,15 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
     }
   }, []);
 
+  const loadContacts = useCallback(async (customerId: string) => {
+    try {
+      const data = await api<{ data: Array<{ id: string; firstName: string; lastName: string; email: string }> }>(`/contacts?customerId=${customerId}&limit=100`);
+      setCustomerContacts(data.data);
+    } catch {
+      setCustomerContacts([]);
+    }
+  }, []);
+
   const loadCustomerName = useCallback(async (customerId: string) => {
     try {
       const data = await api<Customer>(`/customers/${customerId}`);
@@ -299,6 +309,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
       loadTimeEntries();
       loadCustomerName(t.customerId);
       loadContracts(t.customerId);
+      loadContacts(t.customerId);
       api<Array<{ id: string; displayName: string }>>('/dispatch/techs').then(setTechs).catch(() => {});
       api<TicketCategory[]>('/ticket-categories').then(setCategories).catch(() => {});
       // Auto-open new tickets when a tech views them
@@ -323,7 +334,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
       clearInterval(dataInterval);
       clearInterval(tickInterval);
     };
-  }, [loadTicket, loadComments, loadTimeEntries, loadCustomerName, loadContracts]);
+  }, [loadTicket, loadComments, loadTimeEntries, loadCustomerName, loadContracts, loadContacts]);
 
   // -------------------------------------------------------------------------
   // Ticket field updates
@@ -782,6 +793,24 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                 >
                   {customerName || 'Loading...'}
                 </button>
+              </div>
+
+              {/* Contact */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Contact</Label>
+                <Combobox
+                  options={[
+                    { value: '', label: 'No contact assigned' },
+                    ...customerContacts.map(c => ({ value: c.id, label: `${c.firstName} ${c.lastName}${c.email ? ` (${c.email})` : ''}` })),
+                  ]}
+                  value={ticket.contactId ?? ''}
+                  onValueChange={(v) => updateTicketField('contactId', v || null)}
+                  placeholder="Select contact..."
+                  disabled={savingField === 'contactId'}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {ticket.contactId ? 'Email replies will go to this contact' : 'No contact — replies use customer billing email'}
+                </p>
               </div>
 
               {/* Contract */}
