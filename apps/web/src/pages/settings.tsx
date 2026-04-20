@@ -1016,93 +1016,120 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                 <Card>
                   <CardHeader>
                     <CardTitle>Ticket Automation</CardTitle>
-                    <p className="text-sm text-muted-foreground">Configure automatic ticket lifecycle actions</p>
+                    <p className="text-sm text-muted-foreground">Configure how tickets move through their lifecycle automatically</p>
                   </CardHeader>
-                  <CardContent className="space-y-6">
+                  <CardContent className="space-y-0 divide-y">
                     {/* Auto-close resolved */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div>
+                    <div className="py-5 first:pt-0">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="space-y-0.5">
                           <div className="text-sm font-medium">Auto-close resolved tickets</div>
-                          <div className="text-xs text-muted-foreground">Automatically close tickets that have been in resolved status for a set number of days</div>
+                          <div className="text-sm text-muted-foreground">Automatically close tickets after they've been resolved for a set number of days</div>
                         </div>
-                        <input type="checkbox" checked={ticketAuto.ticketAutoCloseResolvedEnabled}
-                          onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoCloseResolvedEnabled: e.target.checked })}
-                          className="h-4 w-4 rounded" />
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={ticketAuto.ticketAutoCloseResolvedEnabled}
+                          onClick={() => setTicketAuto({ ...ticketAuto, ticketAutoCloseResolvedEnabled: !ticketAuto.ticketAutoCloseResolvedEnabled })}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${ticketAuto.ticketAutoCloseResolvedEnabled ? 'bg-primary' : 'bg-input'}`}
+                        >
+                          <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${ticketAuto.ticketAutoCloseResolvedEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
                       </div>
                       {ticketAuto.ticketAutoCloseResolvedEnabled && (
-                        <div className="flex items-center gap-2 ml-4">
-                          <Label className="text-sm">Close after</Label>
-                          <Input type="number" min={1} max={90} className="w-20 h-8"
-                            value={ticketAuto.ticketAutoCloseResolvedDays}
-                            onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoCloseResolvedDays: parseInt(e.target.value) || 3 })} />
-                          <span className="text-sm text-muted-foreground">days</span>
+                        <div className="mt-3 ml-0 flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                          <span className="text-sm text-muted-foreground">Close after</span>
+                          <div className="relative">
+                            <Input type="number" min={1} max={90}
+                              className="w-20 h-9 text-center font-medium pr-1"
+                              value={ticketAuto.ticketAutoCloseResolvedDays}
+                              onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoCloseResolvedDays: parseInt(e.target.value) || 3 })} />
+                          </div>
+                          <span className="text-sm text-muted-foreground">days in resolved status</span>
                         </div>
                       )}
                     </div>
 
-                    <Separator />
-
                     {/* Auto-close waiting on customer */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div>
+                    <div className="py-5">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="space-y-0.5">
                           <div className="text-sm font-medium">Auto-close waiting on customer</div>
-                          <div className="text-xs text-muted-foreground">Close tickets stuck in "Waiting on Customer" with no activity after a set number of days</div>
+                          <div className="text-sm text-muted-foreground">Close tickets stuck in "Waiting on Customer" with no reply after a set period</div>
                         </div>
-                        <input type="checkbox" checked={ticketAuto.ticketAutoCloseWaitingEnabled}
-                          onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoCloseWaitingEnabled: e.target.checked })}
-                          className="h-4 w-4 rounded" />
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={ticketAuto.ticketAutoCloseWaitingEnabled}
+                          onClick={() => setTicketAuto({ ...ticketAuto, ticketAutoCloseWaitingEnabled: !ticketAuto.ticketAutoCloseWaitingEnabled })}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${ticketAuto.ticketAutoCloseWaitingEnabled ? 'bg-primary' : 'bg-input'}`}
+                        >
+                          <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${ticketAuto.ticketAutoCloseWaitingEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
                       </div>
                       {ticketAuto.ticketAutoCloseWaitingEnabled && (
-                        <div className="flex items-center gap-2 ml-4">
-                          <Label className="text-sm">Close after</Label>
-                          <Input type="number" min={1} max={90} className="w-20 h-8"
-                            value={ticketAuto.ticketAutoCloseWaitingDays}
-                            onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoCloseWaitingDays: parseInt(e.target.value) || 7 })} />
+                        <div className="mt-3 ml-0 flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                          <span className="text-sm text-muted-foreground">Close after</span>
+                          <div className="relative">
+                            <Input type="number" min={1} max={90}
+                              className="w-20 h-9 text-center font-medium pr-1"
+                              value={ticketAuto.ticketAutoCloseWaitingDays}
+                              onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoCloseWaitingDays: parseInt(e.target.value) || 7 })} />
+                          </div>
                           <span className="text-sm text-muted-foreground">days of no activity</span>
                         </div>
                       )}
                     </div>
 
-                    <Separator />
-
                     {/* Auto-reopen on reply */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <div>
+                    <div className="py-5">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="space-y-0.5">
                           <div className="text-sm font-medium">Auto-reopen on customer reply</div>
-                          <div className="text-xs text-muted-foreground">When a customer emails a reply to a resolved ticket, automatically reopen it</div>
+                          <div className="text-sm text-muted-foreground">
+                            Reopen resolved tickets when a customer sends an email reply.
+                            <span className="block mt-1 text-xs italic text-muted-foreground/70">Replies to closed tickets always create a new ticket instead.</span>
+                          </div>
                         </div>
-                        <input type="checkbox" checked={ticketAuto.ticketAutoReopenOnReply}
-                          onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoReopenOnReply: e.target.checked })}
-                          className="h-4 w-4 rounded" />
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={ticketAuto.ticketAutoReopenOnReply}
+                          onClick={() => setTicketAuto({ ...ticketAuto, ticketAutoReopenOnReply: !ticketAuto.ticketAutoReopenOnReply })}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${ticketAuto.ticketAutoReopenOnReply ? 'bg-primary' : 'bg-input'}`}
+                        >
+                          <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${ticketAuto.ticketAutoReopenOnReply ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
                       </div>
-                      <div className="text-xs text-muted-foreground ml-0 italic">Replies to closed tickets always create a new ticket instead of reopening.</div>
                     </div>
-
-                    <Separator />
 
                     {/* SLA pause on waiting */}
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <div>
+                    <div className="py-5 last:pb-0">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="space-y-0.5">
                           <div className="text-sm font-medium">Pause SLA on waiting on customer</div>
-                          <div className="text-xs text-muted-foreground">Pause the SLA resolution clock when a ticket enters "Waiting on Customer" and resume when it leaves</div>
+                          <div className="text-sm text-muted-foreground">Stop the SLA resolution clock while a ticket is in "Waiting on Customer" status and resume when it leaves</div>
                         </div>
-                        <input type="checkbox" checked={ticketAuto.ticketSlaPauseOnWaiting}
-                          onChange={e => setTicketAuto({ ...ticketAuto, ticketSlaPauseOnWaiting: e.target.checked })}
-                          className="h-4 w-4 rounded" />
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={ticketAuto.ticketSlaPauseOnWaiting}
+                          onClick={() => setTicketAuto({ ...ticketAuto, ticketSlaPauseOnWaiting: !ticketAuto.ticketSlaPauseOnWaiting })}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${ticketAuto.ticketSlaPauseOnWaiting ? 'bg-primary' : 'bg-input'}`}
+                        >
+                          <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${ticketAuto.ticketSlaPauseOnWaiting ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
                       </div>
                     </div>
-
-                    <div className="pt-2">
-                      <Button onClick={saveTicketAutomation} disabled={ticketAutoSaving}>
-                        {ticketAutoSaving ? 'Saving...' : 'Save Settings'}
-                      </Button>
-                      {ticketAutoSuccess && <span className="ml-3 text-sm text-green-600">{ticketAutoSuccess}</span>}
-                    </div>
                   </CardContent>
+                  <div className="px-6 py-4 border-t bg-muted/30 rounded-b-lg flex items-center gap-3">
+                    <Button onClick={saveTicketAutomation} disabled={ticketAutoSaving}>
+                      {ticketAutoSaving ? 'Saving...' : 'Save Settings'}
+                    </Button>
+                    {ticketAutoSuccess && (
+                      <span className="text-sm text-green-600 animate-fade-in">{ticketAutoSuccess}</span>
+                    )}
+                  </div>
                 </Card>
               </div>
             </TabsContent>
