@@ -1,7 +1,7 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser, type ParsedMail } from 'mailparser';
 import { eq, and } from 'drizzle-orm';
-import { integrationConfigs, contacts, customers, tickets, ticketComments, emailMessages, tenantSequences } from '@rivertown/db';
+import { integrationConfigs, contacts, customers, tickets, ticketComments, emailMessages, tenantSequences, tenants } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import { stripQuotedReply, sendTicketCreatedEmail } from './email-notifications.js';
 
@@ -431,6 +431,41 @@ async function processEmail(db: Database, tenantId: string, email: {
       });
       ticketId = existingTicket.id;
       isComment = true;
+
+      // Handle auto-reopen/new ticket based on existing ticket status
+      if (existingTicket.status === 'resolved') {
+        // Auto-reopen resolved tickets on customer reply (if setting enabled)
+        const [tenantRow] = await db.select({ settings: tenants.settings })
+          .from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+        const ts = (tenantRow?.settings ?? {}) as Record<string, unknown>;
+        if (ts.ticketAutoReopenOnReply !== false) {
+          await db.update(tickets).set({
+            status: 'open',
+            resolvedAt: null,
+            closedAt: null,
+            updatedAt: new Date(),
+          }).where(eq(tickets.id, existingTicket.id));
+        }
+      } else if (existingTicket.status === 'closed') {
+        // Closed tickets: create a NEW ticket instead of reopening
+        const [seq] = await db.select().from(tenantSequences)
+          .where(and(eq(tenantSequences.tenantId, tenantId), eq(tenantSequences.sequenceName, 'ticket'))).limit(1);
+        const nextNumber = parseInt(seq?.currentValue ?? '0', 10) + 1;
+        await db.update(tenantSequences).set({ currentValue: String(nextNumber) })
+          .where(and(eq(tenantSequences.tenantId, tenantId), eq(tenantSequences.sequenceName, 'ticket')));
+
+        await db.insert(tickets).values({
+          tenantId,
+          ticketNumber: nextNumber,
+          customerId: existingTicket.customerId,
+          contactId: existingTicket.contactId ?? contact?.id ?? null,
+          subject: email.subject?.replace(/\[Ticket #\d+\]\s*/i, '').trim() || `Follow-up: ${existingTicket.subject}`,
+          description: `Follow-up from closed Ticket #${existingTicket.ticketNumber}\n\n${cleanBody}`,
+          status: 'new',
+          priority: 'medium',
+          source: 'email',
+        });
+      }
     }
   }
 

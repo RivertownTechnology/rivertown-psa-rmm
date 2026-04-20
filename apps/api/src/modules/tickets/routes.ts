@@ -7,6 +7,7 @@ import {
   ticketCategories,
   ticketSubcategories,
   tenantSequences,
+  tenants,
   users,
   contacts,
   contracts,
@@ -190,6 +191,27 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         updateData.closedAt = new Date();
       }
 
+      // SLA pause/resume logic when entering/leaving waiting_on_customer
+      if (body.status && body.status !== existing.status) {
+        const [tenant] = await fastify.db.select({ settings: tenants.settings })
+          .from(tenants).where(eq(tenants.id, request.tenantId)).limit(1);
+        const tenantSettings = (tenant?.settings ?? {}) as Record<string, unknown>;
+
+        if (tenantSettings.ticketSlaPauseOnWaiting !== false) {
+          if (body.status === 'waiting_on_customer' && existing.status !== 'waiting_on_customer') {
+            // Entering waiting_on_customer — pause SLA
+            updateData.slaPausedAt = new Date();
+          } else if (existing.status === 'waiting_on_customer' && body.status !== 'waiting_on_customer') {
+            // Leaving waiting_on_customer — accumulate paused time and clear pause
+            const now = new Date();
+            const pausedAt = existing.slaPausedAt ? new Date(existing.slaPausedAt) : null;
+            const additionalPaused = pausedAt ? (now.getTime() - pausedAt.getTime()) : 0;
+            updateData.slaTotalPausedMs = (existing.slaTotalPausedMs ?? 0) + additionalPaused;
+            updateData.slaPausedAt = null;
+          }
+        }
+      }
+
       const [updated] = await fastify.db
         .update(tickets)
         .set(updateData)
@@ -213,7 +235,12 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       // Check SLA breach on resolution + send closed email
       if (body.status === 'resolved' && existing.status !== 'resolved') {
         const now = new Date();
-        const breached = existing.slaResolutionDueAt ? now > new Date(existing.slaResolutionDueAt) : false;
+        const totalPaused = (existing.slaTotalPausedMs ?? 0) +
+          (existing.slaPausedAt ? (now.getTime() - new Date(existing.slaPausedAt).getTime()) : 0);
+        const adjustedDueAt = existing.slaResolutionDueAt
+          ? new Date(new Date(existing.slaResolutionDueAt).getTime() + totalPaused)
+          : null;
+        const breached = adjustedDueAt ? now > adjustedDueAt : false;
         await fastify.db.update(tickets).set({ slaBreached: breached }).where(eq(tickets.id, id));
 
         import('../../services/email-notifications.js').then(({ sendTicketClosedEmail }) => {

@@ -183,6 +183,37 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
   // Notifications
   const [notifs, setNotifs] = useState({ ticketAssignment: true, slaWarning: true, rmmAlerts: true, invoicePayments: true });
 
+  // Ticket Automation
+  const [ticketAuto, setTicketAuto] = useState({
+    ticketAutoCloseResolvedEnabled: false,
+    ticketAutoCloseResolvedDays: 3,
+    ticketAutoCloseWaitingEnabled: false,
+    ticketAutoCloseWaitingDays: 7,
+    ticketAutoReopenOnReply: true,
+    ticketSlaPauseOnWaiting: true,
+  });
+  const [ticketAutoLoaded, setTicketAutoLoaded] = useState(false);
+  const [ticketAutoSaving, setTicketAutoSaving] = useState(false);
+  const [ticketAutoSuccess, setTicketAutoSuccess] = useState('');
+
+  useEffect(() => {
+    if (ticketAutoLoaded) return;
+    api<typeof ticketAuto>('/settings/ticket-automation')
+      .then(data => { setTicketAuto(data); setTicketAutoLoaded(true); })
+      .catch(() => setTicketAutoLoaded(true));
+  }, [ticketAutoLoaded]);
+
+  async function saveTicketAutomation() {
+    setTicketAutoSaving(true);
+    setTicketAutoSuccess('');
+    try {
+      await api('/settings/ticket-automation', { method: 'PUT', body: JSON.stringify(ticketAuto) });
+      setTicketAutoSuccess('Settings saved');
+      setTimeout(() => setTicketAutoSuccess(''), 3000);
+    } catch { /* */ }
+    finally { setTicketAutoSaving(false); }
+  }
+
   // Timezone
   const [timezone, setTimezone] = useState('America/New_York');
 
@@ -898,6 +929,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
           <Tabs defaultValue="sla" className="mt-4">
             <TabsList>
               <TabsTrigger value="sla">SLA</TabsTrigger>
+              <TabsTrigger value="ticket-settings">Ticket Settings</TabsTrigger>
               <TabsTrigger value="templates">Templates</TabsTrigger>
             </TabsList>
             <TabsContent value="templates">
@@ -979,6 +1011,104 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
 
           </div>
             </TabsContent>
+
+            {/* TICKET SETTINGS SUB-TAB */}
+            <TabsContent value="ticket-settings">
+              <div className="space-y-6 mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Ticket Automation</CardTitle>
+                    <p className="text-sm text-muted-foreground">Configure automatic ticket lifecycle actions</p>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {/* Auto-close resolved */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-medium">Auto-close resolved tickets</div>
+                          <div className="text-xs text-muted-foreground">Automatically close tickets that have been in resolved status for a set number of days</div>
+                        </div>
+                        <input type="checkbox" checked={ticketAuto.ticketAutoCloseResolvedEnabled}
+                          onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoCloseResolvedEnabled: e.target.checked })}
+                          className="h-4 w-4 rounded" />
+                      </div>
+                      {ticketAuto.ticketAutoCloseResolvedEnabled && (
+                        <div className="flex items-center gap-2 ml-4">
+                          <Label className="text-sm">Close after</Label>
+                          <Input type="number" min={1} max={90} className="w-20 h-8"
+                            value={ticketAuto.ticketAutoCloseResolvedDays}
+                            onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoCloseResolvedDays: parseInt(e.target.value) || 3 })} />
+                          <span className="text-sm text-muted-foreground">days</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <Separator />
+
+                    {/* Auto-close waiting on customer */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-medium">Auto-close waiting on customer</div>
+                          <div className="text-xs text-muted-foreground">Close tickets stuck in "Waiting on Customer" with no activity after a set number of days</div>
+                        </div>
+                        <input type="checkbox" checked={ticketAuto.ticketAutoCloseWaitingEnabled}
+                          onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoCloseWaitingEnabled: e.target.checked })}
+                          className="h-4 w-4 rounded" />
+                      </div>
+                      {ticketAuto.ticketAutoCloseWaitingEnabled && (
+                        <div className="flex items-center gap-2 ml-4">
+                          <Label className="text-sm">Close after</Label>
+                          <Input type="number" min={1} max={90} className="w-20 h-8"
+                            value={ticketAuto.ticketAutoCloseWaitingDays}
+                            onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoCloseWaitingDays: parseInt(e.target.value) || 7 })} />
+                          <span className="text-sm text-muted-foreground">days of no activity</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <Separator />
+
+                    {/* Auto-reopen on reply */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-medium">Auto-reopen on customer reply</div>
+                          <div className="text-xs text-muted-foreground">When a customer emails a reply to a resolved ticket, automatically reopen it</div>
+                        </div>
+                        <input type="checkbox" checked={ticketAuto.ticketAutoReopenOnReply}
+                          onChange={e => setTicketAuto({ ...ticketAuto, ticketAutoReopenOnReply: e.target.checked })}
+                          className="h-4 w-4 rounded" />
+                      </div>
+                      <div className="text-xs text-muted-foreground ml-0 italic">Replies to closed tickets always create a new ticket instead of reopening.</div>
+                    </div>
+
+                    <Separator />
+
+                    {/* SLA pause on waiting */}
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-medium">Pause SLA on waiting on customer</div>
+                          <div className="text-xs text-muted-foreground">Pause the SLA resolution clock when a ticket enters "Waiting on Customer" and resume when it leaves</div>
+                        </div>
+                        <input type="checkbox" checked={ticketAuto.ticketSlaPauseOnWaiting}
+                          onChange={e => setTicketAuto({ ...ticketAuto, ticketSlaPauseOnWaiting: e.target.checked })}
+                          className="h-4 w-4 rounded" />
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <Button onClick={saveTicketAutomation} disabled={ticketAutoSaving}>
+                        {ticketAutoSaving ? 'Saving...' : 'Save Settings'}
+                      </Button>
+                      {ticketAutoSuccess && <span className="ml-3 text-sm text-green-600">{ticketAutoSuccess}</span>}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
           </Tabs>
         </TabsContent>
 
