@@ -67,10 +67,15 @@ export async function dispatchRoutes(fastify: FastifyInstance) {
       ticketId: string; userId: string; startAt: string; endAt: string;
     };
 
-    // Get the ticket
+    // Validate ticket belongs to tenant
     const [ticket] = await fastify.db.select().from(tickets)
       .where(and(eq(tickets.id, ticketId), eq(tickets.tenantId, request.tenantId))).limit(1);
     if (!ticket) throw new NotFoundError('Ticket', ticketId);
+
+    // Validate user belongs to tenant
+    const [assignee] = await fastify.db.select({ id: users.id }).from(users)
+      .where(and(eq(users.id, userId), eq(users.tenantId, request.tenantId))).limit(1);
+    if (!assignee) throw new NotFoundError('User', userId);
 
     // Get the customer name for the calendar event title
     const { customers } = await import('@rivertown/db');
@@ -115,6 +120,13 @@ export async function dispatchRoutes(fastify: FastifyInstance) {
     const { eventId } = request.params as { eventId: string };
     const { startAt, endAt, userId } = request.body as { startAt?: string; endAt?: string; userId?: string };
 
+    // Validate userId belongs to tenant if provided
+    if (userId) {
+      const [assignee] = await fastify.db.select({ id: users.id }).from(users)
+        .where(and(eq(users.id, userId), eq(users.tenantId, request.tenantId))).limit(1);
+      if (!assignee) throw new NotFoundError('User', userId);
+    }
+
     const update: Record<string, unknown> = { updatedAt: new Date() };
     if (startAt) update.startAt = new Date(startAt);
     if (endAt) update.endAt = new Date(endAt);
@@ -124,13 +136,14 @@ export async function dispatchRoutes(fastify: FastifyInstance) {
       .where(and(eq(calendarEvents.id, eventId), eq(calendarEvents.tenantId, request.tenantId)))
       .returning();
 
-    // Update ticket scheduling too
+    // Update ticket scheduling too (with tenant filter)
     if (event.ticketId) {
       const ticketUpdate: Record<string, unknown> = { updatedAt: new Date() };
       if (startAt) ticketUpdate.scheduledStartAt = new Date(startAt);
       if (endAt) ticketUpdate.scheduledEndAt = new Date(endAt);
       if (userId) ticketUpdate.assignedTo = userId;
-      await fastify.db.update(tickets).set(ticketUpdate).where(eq(tickets.id, event.ticketId));
+      await fastify.db.update(tickets).set(ticketUpdate)
+        .where(and(eq(tickets.id, event.ticketId), eq(tickets.tenantId, request.tenantId)));
     }
 
     return event;
@@ -148,7 +161,7 @@ export async function dispatchRoutes(fastify: FastifyInstance) {
     if (event?.ticketId) {
       await fastify.db.update(tickets).set({
         scheduledStartAt: null, scheduledEndAt: null, status: 'open', updatedAt: new Date(),
-      }).where(eq(tickets.id, event.ticketId));
+      }).where(and(eq(tickets.id, event.ticketId), eq(tickets.tenantId, request.tenantId)));
     }
 
     await fastify.db.delete(calendarEvents)

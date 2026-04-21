@@ -1,16 +1,16 @@
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { users, calendarEvents } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 
 const GOOGLE_CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
-async function getFreshCalendarToken(db: Database, userId: string): Promise<string | null> {
+async function getFreshCalendarToken(db: Database, tenantId: string, userId: string): Promise<string | null> {
   const [user] = await db.select({
     googleCalendarConnected: users.googleCalendarConnected,
     googleCalendarToken: users.googleCalendarToken,
     googleCalendarRefreshToken: users.googleCalendarRefreshToken,
-  }).from(users).where(eq(users.id, userId)).limit(1);
+  }).from(users).where(and(eq(users.id, userId), eq(users.tenantId, tenantId))).limit(1);
 
   if (!user?.googleCalendarConnected || !user.googleCalendarToken) return null;
 
@@ -35,7 +35,7 @@ async function getFreshCalendarToken(db: Database, userId: string): Promise<stri
           await db.update(users).set({
             googleCalendarToken: tokens.access_token,
             updatedAt: new Date(),
-          }).where(eq(users.id, userId));
+          }).where(and(eq(users.id, userId), eq(users.tenantId, tenantId)));
           return tokens.access_token;
         }
       } catch (err) {
@@ -51,7 +51,7 @@ export async function syncEventToGoogleCalendar(
   db: Database, tenantId: string, userId: string,
   event: { id: string; title: string; description: string | null; startAt: Date; endAt: Date; googleEventId: string | null },
 ) {
-  const token = await getFreshCalendarToken(db, userId);
+  const token = await getFreshCalendarToken(db, tenantId, userId);
   if (!token) return;
 
   const calendarEvent = {
@@ -83,8 +83,8 @@ export async function syncEventToGoogleCalendar(
   }
 }
 
-export async function deleteGoogleCalendarEvent(db: Database, userId: string, googleEventId: string) {
-  const token = await getFreshCalendarToken(db, userId);
+export async function deleteGoogleCalendarEvent(db: Database, tenantId: string, userId: string, googleEventId: string) {
+  const token = await getFreshCalendarToken(db, tenantId, userId);
   if (!token) return;
 
   await fetch(`${GOOGLE_CALENDAR_API}/calendars/primary/events/${googleEventId}`, {
