@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, boolean, timestamp, index } from 'drizzle-orm/pg-core';
 import { tenants } from './tenants.js';
 import { customers } from './customers.js';
 import { sites } from './sites.js';
@@ -27,8 +27,10 @@ export const assets = pgTable(
     macAddress: text('mac_address'),
     notes: text('notes'),
     status: text('status').default('active').notNull(),
-    // RMM integration fields (populated by external RMM like N-able or NinjaRMM)
-    externalRmmId: text('external_rmm_id'), // Device ID in external RMM
+    // RMM integration fields
+    externalRmmId: text('external_rmm_id'),
+    screenconnectSessionId: text('screenconnect_session_id'),
+    screenconnectOnline: boolean('screenconnect_online').default(false),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

@@ -189,9 +189,11 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
   const [saving, setSaving] = useState(false);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [formContacts, setFormContacts] = useState<Array<{ id: string; firstName: string; lastName: string; email: string }>>([]);
+  const [formAssets, setFormAssets] = useState<Array<{ id: string; name: string; assetType: string; screenconnectOnline: boolean }>>([]);
   const [formData, setFormData] = useState({
     customerId: '',
     contactId: '',
+    assetId: '',
     subject: '',
     description: '',
     priority: 'medium',
@@ -298,17 +300,20 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
   // ---------------------------------------------------------------------------
 
   async function onFormCustomerChange(custId: string) {
-    setFormData((f) => ({ ...f, customerId: custId, contactId: '', contractId: '' }));
+    setFormData((f) => ({ ...f, customerId: custId, contactId: '', contractId: '', assetId: '' }));
     if (custId) {
-      const [contractData, contactData] = await Promise.all([
+      const [contractData, contactData, assetData] = await Promise.all([
         api<{ data: Contract[] }>(`/contracts?customerId=${custId}&status=active&limit=100`),
         api<{ data: Array<{ id: string; firstName: string; lastName: string; email: string }> }>(`/contacts?customerId=${custId}&limit=100`),
+        api<{ data: Array<{ id: string; name: string; assetType: string; screenconnectOnline: boolean }> }>(`/assets?customerId=${custId}&limit=200`).catch(() => ({ data: [] })),
       ]);
       setContracts(contractData.data);
       setFormContacts(contactData.data);
+      setFormAssets(assetData.data);
     } else {
       setContracts([]);
       setFormContacts([]);
+      setFormAssets([]);
     }
   }
 
@@ -318,6 +323,7 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
     try {
       const payload: Record<string, unknown> = { ...formData };
       if (!payload.contactId) delete payload.contactId;
+      if (!payload.assetId) delete payload.assetId;
       if (!payload.contractId) delete payload.contractId;
       if (!payload.categoryId) delete payload.categoryId;
       if (!payload.subcategoryId) delete payload.subcategoryId;
@@ -329,6 +335,7 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
       setFormData({
         customerId: '',
         contactId: '',
+        assetId: '',
         subject: '',
         description: '',
         priority: 'medium',
@@ -337,6 +344,7 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
         subcategoryId: '',
       });
       setFormContacts([]);
+      setFormAssets([]);
       setContracts([]);
       fetchTickets();
     } finally {
@@ -585,6 +593,26 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
                 <p className="text-xs text-muted-foreground">
                   {formData.contactId ? 'Email replies will go to this contact' : 'Replies will use customer billing email'}
                 </p>
+              </div>
+            )}
+
+            {formAssets.length > 0 && (
+              <div className="space-y-2">
+                <Label>Asset</Label>
+                <Combobox
+                  options={[
+                    { value: '', label: 'No asset' },
+                    ...formAssets.map((a) => ({
+                      value: a.id,
+                      label: `${a.screenconnectOnline ? '\u25CF' : '\u25CB'} ${a.name} (${a.assetType})`,
+                    })),
+                  ]}
+                  value={formData.assetId}
+                  onValueChange={(val) => setFormData({ ...formData, assetId: val })}
+                  placeholder="Select asset..."
+                  searchPlaceholder="Search assets..."
+                  emptyText="No assets found."
+                />
               </div>
             )}
 

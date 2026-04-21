@@ -24,6 +24,7 @@ export const customers = pgTable(
     qboCustomerId: text('qbo_customer_id'),
     stripeCustomerId: text('stripe_customer_id'),
     pax8CompanyId: text('pax8_company_id'),
+    screenconnectCompany: text('screenconnect_company'),
     slaPolicyId: uuid('sla_policy_id'),
     rmmPolicyId: uuid('rmm_policy_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

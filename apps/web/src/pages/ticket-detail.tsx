@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   ArrowLeft, Clock, MessageSquare, Pencil, Check, X, ChevronDown, ChevronUp,
   Eye, EyeOff, Plus, Timer, User, Users, AlertCircle, Send, Trash2, Sparkles,
+  Monitor, ExternalLink,
 } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 
@@ -217,6 +218,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
   const [customerName, setCustomerName] = useState('');
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [customerContacts, setCustomerContacts] = useState<Array<{ id: string; firstName: string; lastName: string; email: string }>>([]);
+  const [customerAssets, setCustomerAssets] = useState<Array<{ id: string; name: string; assetType: string; screenconnectSessionId: string | null; screenconnectOnline: boolean }>>([]);
   const [techs, setTechs] = useState<Array<{ id: string; displayName: string }>>([]);
   const [categories, setCategories] = useState<TicketCategory[]>([]);
 
@@ -292,6 +294,15 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
     }
   }, []);
 
+  const loadAssets = useCallback(async (customerId: string) => {
+    try {
+      const data = await api<{ data: Array<{ id: string; name: string; assetType: string; screenconnectSessionId: string | null; screenconnectOnline: boolean }> }>(`/assets?customerId=${customerId}&limit=200`);
+      setCustomerAssets(data.data);
+    } catch {
+      setCustomerAssets([]);
+    }
+  }, []);
+
   const loadCustomerName = useCallback(async (customerId: string) => {
     try {
       const data = await api<Customer>(`/customers/${customerId}`);
@@ -312,6 +323,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
       loadCustomerName(t.customerId);
       loadContracts(t.customerId);
       loadContacts(t.customerId);
+      loadAssets(t.customerId);
       api<Array<{ id: string; displayName: string }>>('/dispatch/techs').then(setTechs).catch(() => {});
       api<TicketCategory[]>('/ticket-categories').then(setCategories).catch(() => {});
       // Auto-open new tickets when a tech views them
@@ -336,7 +348,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
       clearInterval(dataInterval);
       clearInterval(tickInterval);
     };
-  }, [loadTicket, loadComments, loadTimeEntries, loadCustomerName, loadContracts, loadContacts]);
+  }, [loadTicket, loadComments, loadTimeEntries, loadCustomerName, loadContracts, loadContacts, loadAssets]);
 
   // -------------------------------------------------------------------------
   // Ticket field updates
@@ -817,6 +829,49 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
                 <p className="text-xs text-muted-foreground">
                   {ticket.contactId ? 'Email replies will go to this contact' : 'No contact — replies use customer billing email'}
                 </p>
+              </div>
+
+              {/* Asset */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Asset</Label>
+                <Combobox
+                  options={[
+                    { value: '', label: 'No asset' },
+                    ...customerAssets.map(a => ({
+                      value: a.id,
+                      label: `${a.screenconnectOnline ? '\u25CF' : '\u25CB'} ${a.name} (${a.assetType})`,
+                    })),
+                  ]}
+                  value={ticket.assetId ?? ''}
+                  onValueChange={(v) => updateTicketField('assetId', v || null)}
+                  placeholder="Select asset..."
+                  disabled={savingField === 'assetId'}
+                />
+                {(() => {
+                  const selectedAsset = customerAssets.find(a => a.id === ticket.assetId);
+                  if (!selectedAsset) return null;
+                  return (
+                    <div className="space-y-1.5">
+                      {selectedAsset.screenconnectSessionId && (
+                        <a
+                          href={`https://rivertowntechnology.screenconnect.com/Host#Access/All%20Machines///${selectedAsset.screenconnectSessionId}/Join`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                        >
+                          <Monitor className="h-3.5 w-3.5" />
+                          Remote Connect
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className={`h-1.5 w-1.5 rounded-full ${selectedAsset.screenconnectOnline ? 'bg-green-500' : 'bg-gray-400'}`} />
+                        {selectedAsset.screenconnectOnline ? 'Online' : 'Offline'}
+                        {selectedAsset.assetType && ` · ${selectedAsset.assetType}`}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Contract */}

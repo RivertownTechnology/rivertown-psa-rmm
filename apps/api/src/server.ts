@@ -230,6 +230,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   const { startTicketAutoCloseScheduler } = await import('./services/ticket-auto-close.js');
   startTicketAutoCloseScheduler(db);
 
+  // Start ScreenConnect auto-sync scheduler
+  const { startScreenConnectSyncScheduler } = await import('./services/screenconnect-sync.js');
+  startScreenConnectSyncScheduler(db);
+
   // Start email inbox polling (check all tenant inboxes every 30 seconds)
   const { processInboundEmails } = await import('./services/email-to-ticket.js');
   const { tenants } = await import('@rivertown/db');

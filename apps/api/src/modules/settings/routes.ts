@@ -477,6 +477,105 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== SCREENCONNECT (RMM) =====
+
+  fastify.get(
+    '/api/v1/settings/screenconnect',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials } = await import('../../common/credentials.js');
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'screenconnect')))
+        .limit(1);
+      if (!config) return { isEnabled: false, serverUrl: '', apiToken: '', syncFrequency: '15min', companyProperty: 'CustomProperty1', lastSyncAt: null, syncStatus: 'idle' };
+      const creds = readCredentials(config.credentials) as Record<string, string>;
+      const settings = (config.settings ?? {}) as Record<string, string>;
+      return {
+        isEnabled: config.isEnabled,
+        serverUrl: settings.serverUrl || '',
+        apiToken: creds.apiToken ? '••••••••' + String(creds.apiToken).slice(-4) : '',
+        syncFrequency: settings.syncFrequency || '15min',
+        companyProperty: settings.companyProperty || 'CustomProperty1',
+        lastSyncAt: config.lastSyncAt,
+        syncStatus: config.syncStatus || 'idle',
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/screenconnect',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
+      const body = request.body as { isEnabled: boolean; serverUrl?: string; apiToken?: string; syncFrequency?: string; companyProperty?: string };
+
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'screenconnect')))
+        .limit(1);
+
+      const prevCreds = existing ? (readCredentials(existing.credentials) as Record<string, string>) : {};
+      const prevSettings = (existing?.settings ?? {}) as Record<string, string>;
+
+      const credentials = writeCredentials({
+        apiToken: body.apiToken?.startsWith('••') ? prevCreds.apiToken : (body.apiToken || prevCreds.apiToken || ''),
+      });
+
+      const settings = {
+        serverUrl: body.serverUrl || prevSettings.serverUrl || '',
+        syncFrequency: body.syncFrequency || prevSettings.syncFrequency || '15min',
+        companyProperty: body.companyProperty || prevSettings.companyProperty || 'CustomProperty1',
+      };
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, credentials, settings, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'screenconnect',
+          isEnabled: body.isEnabled, credentials, settings,
+        });
+      }
+      return { success: true };
+    },
+  );
+
+  fastify.post(
+    '/api/v1/settings/screenconnect/test',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials } = await import('../../common/credentials.js');
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'screenconnect')))
+        .limit(1);
+
+      if (!config) throw new ValidationError('ScreenConnect not configured');
+
+      const creds = readCredentials(config.credentials) as Record<string, string>;
+      const settings = (config.settings ?? {}) as Record<string, string>;
+      const serverUrl = settings.serverUrl;
+      const apiToken = creds.apiToken;
+
+      if (!serverUrl || !apiToken) throw new ValidationError('Server URL and API token are required');
+
+      try {
+        const url = `${serverUrl.replace(/\/+$/, '')}/Services/PageService.ashx/GetHostSessionInfo`;
+        const res = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${apiToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const sessions = await res.json() as unknown[];
+        return { success: true, sessionCount: Array.isArray(sessions) ? sessions.length : 0 };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Connection failed';
+        return { success: false, error: message };
+      }
+    },
+  );
+
   // ===== TWILIO (SMS MFA) =====
 
   fastify.get(
