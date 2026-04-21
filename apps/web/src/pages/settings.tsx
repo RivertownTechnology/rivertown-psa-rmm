@@ -2346,7 +2346,9 @@ function ScreenConnectCard() {
   const [scConfig, setScConfig] = useState({
     isEnabled: false,
     serverUrl: 'https://rivertowntechnology.screenconnect.com',
-    apiToken: '',
+    username: '',
+    password: '',
+    totpSecret: '',
     syncFrequency: '15min',
     companyProperty: '1',
   });
@@ -2359,12 +2361,14 @@ function ScreenConnectCard() {
 
   useEffect(() => {
     if (scLoaded) return;
-    api<{ isEnabled: boolean; serverUrl: string; apiToken: string; syncFrequency: string; companyProperty: string; lastSyncAt: string | null }>('/settings/screenconnect')
+    api<{ isEnabled: boolean; serverUrl: string; username: string; password: string; totpSecret: string; syncFrequency: string; companyProperty: string; lastSyncAt: string | null }>('/settings/screenconnect')
       .then(data => {
         setScConfig({
           isEnabled: data.isEnabled,
           serverUrl: data.serverUrl || 'https://rivertowntechnology.screenconnect.com',
-          apiToken: data.apiToken || '',
+          username: data.username || '',
+          password: data.password || '',
+          totpSecret: data.totpSecret || '',
           syncFrequency: data.syncFrequency || '15min',
           companyProperty: data.companyProperty || '1',
         });
@@ -2435,9 +2439,21 @@ function ScreenConnectCard() {
         </div>
 
         <div className="space-y-2">
-          <Label>API Token</Label>
-          <Input type="password" value={scConfig.apiToken} onChange={e => setScConfig({ ...scConfig, apiToken: e.target.value })} placeholder="Your ScreenConnect API token" />
-          <p className="text-xs text-muted-foreground">Generate a personal access token in ScreenConnect: Admin → Security → API Tokens</p>
+          <Label>Username</Label>
+          <Input value={scConfig.username} onChange={e => setScConfig({ ...scConfig, username: e.target.value })} placeholder="API user account" />
+          <p className="text-xs text-muted-foreground">Create a dedicated API user in ScreenConnect: Admin &rarr; Security &rarr; User Table</p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <Label>Password</Label>
+            <Input type="password" value={scConfig.password} onChange={e => setScConfig({ ...scConfig, password: e.target.value })} placeholder="API user password" />
+          </div>
+          <div className="space-y-2">
+            <Label>TOTP Secret</Label>
+            <Input type="password" value={scConfig.totpSecret} onChange={e => setScConfig({ ...scConfig, totpSecret: e.target.value })} placeholder="Base32 MFA secret" />
+            <p className="text-xs text-muted-foreground">The base32 secret from your MFA setup (not the 6-digit code)</p>
+          </div>
         </div>
 
         <div className="space-y-2">

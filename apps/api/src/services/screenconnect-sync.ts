@@ -1,5 +1,6 @@
-import { eq, and, ne } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { integrationConfigs, assets, customers } from '@rivertown/db';
+import { TOTP } from 'otpauth';
 
 interface ScreenConnectSession {
   SessionID: string;
@@ -34,14 +35,63 @@ const SYNC_INTERVALS_MS: Record<string, number> = {
 
 // ── ScreenConnect API helper ─────────────────────────────────────────
 
+function generateTOTP(secret: string): string {
+  const totp = new TOTP({ secret, digits: 6, period: 30 });
+  return totp.generate();
+}
+
+async function getScreenConnectAuthCookie(
+  serverUrl: string,
+  username: string,
+  password: string,
+  totpSecret: string,
+): Promise<string> {
+  const base = serverUrl.replace(/\/+$/, '');
+
+  // Step 1: Login with username + password + TOTP
+  const otp = generateTOTP(totpSecret);
+  const loginRes = await fetch(`${base}/Services/AuthenticationService.ashx/TryLogin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify([username, password, otp]),
+    redirect: 'manual',
+  });
+
+  // Extract session cookies from response
+  const cookies = loginRes.headers.getSetCookie?.() ?? [];
+  const sessionCookie = cookies.find(c => c.startsWith('.DVLAUTHSC=') || c.startsWith('.DVLAUTH=') || c.startsWith('ASP.NET_SessionId='));
+
+  if (!sessionCookie && loginRes.status !== 200) {
+    // Try alternative login endpoint format
+    const altRes = await fetch(`${base}/Login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ UserName: username, Password: password, OTP: otp }),
+      redirect: 'manual',
+    });
+    const altCookies = altRes.headers.getSetCookie?.() ?? [];
+    const altSession = altCookies.join('; ');
+    if (altSession) return altSession;
+    throw new Error(`ScreenConnect login failed (${altRes.status})`);
+  }
+
+  // Collect all relevant cookies
+  return cookies.map(c => c.split(';')[0]).join('; ');
+}
+
 async function fetchScreenConnectSessions(
   serverUrl: string,
-  apiToken: string,
+  username: string,
+  password: string,
+  totpSecret: string,
 ): Promise<ScreenConnectSession[]> {
-  const url = `${serverUrl.replace(/\/+$/, '')}/Services/PageService.ashx/GetHostSessionInfo`;
+  const base = serverUrl.replace(/\/+$/, '');
+  const cookie = await getScreenConnectAuthCookie(base, username, password, totpSecret);
+
+  const url = `${base}/Services/PageService.ashx/GetHostSessionInfo`;
   const res = await fetch(url, {
     headers: {
-      Authorization: `Bearer ${apiToken}`,
+      Cookie: cookie,
       'Content-Type': 'application/json',
     },
   });
@@ -64,8 +114,10 @@ export async function runScreenConnectSync(db: any, tenantId: string): Promise<{
   const settings = (config.settings ?? {}) as Record<string, string>;
 
   const serverUrl = settings.serverUrl;
-  const apiToken = creds.apiToken;
-  if (!serverUrl || !apiToken) return { synced: 0, created: 0 };
+  const username = creds.username;
+  const password = creds.password;
+  const totpSecret = creds.totpSecret;
+  if (!serverUrl || !username || !password || !totpSecret) return { synced: 0, created: 0 };
 
   const companyProperty = settings.companyProperty || 'CustomProperty1';
 
@@ -75,7 +127,7 @@ export async function runScreenConnectSync(db: any, tenantId: string): Promise<{
   }).where(eq(integrationConfigs.id, config.id));
 
   try {
-    const sessions = await fetchScreenConnectSessions(serverUrl, apiToken);
+    const sessions = await fetchScreenConnectSessions(serverUrl, username, password, totpSecret);
 
     // Pre-fetch all customers for this tenant for name matching
     const allCustomers = await db

@@ -100,7 +100,14 @@
       "Bash(git checkout *)",
       "Bash(ls packages/db/drizzle/)",
       "Bash(find packages/db -name \"drizzle*\" -type d)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(PGPASSWORD=rivertown psql *)",
+      "Bash(DATABASE_URL=\"postgresql://rivertown:rivertown@localhost:5432/rivertown\" npx drizzle-kit migrate)",
+      "WebSearch",
+      "WebFetch(domain:www.ninjaone.com)",
+      "WebFetch(domain:docs.connectwise.com)",
+      "WebFetch(domain:screenconnect.product.connectwise.com)",
+      "WebFetch(domain:docs.rewst.help)"
     ]
   }
 }

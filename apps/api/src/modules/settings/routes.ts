@@ -487,13 +487,15 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       const [config] = await fastify.db.select().from(integrationConfigs)
         .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'screenconnect')))
         .limit(1);
-      if (!config) return { isEnabled: false, serverUrl: '', apiToken: '', syncFrequency: '15min', companyProperty: 'CustomProperty1', lastSyncAt: null, syncStatus: 'idle' };
+      if (!config) return { isEnabled: false, serverUrl: '', username: '', password: '', totpSecret: '', syncFrequency: '15min', companyProperty: 'CustomProperty1', lastSyncAt: null, syncStatus: 'idle' };
       const creds = readCredentials(config.credentials) as Record<string, string>;
       const settings = (config.settings ?? {}) as Record<string, string>;
       return {
         isEnabled: config.isEnabled,
         serverUrl: settings.serverUrl || '',
-        apiToken: creds.apiToken ? '••••••••' + String(creds.apiToken).slice(-4) : '',
+        username: creds.username || '',
+        password: creds.password ? '••••••••' : '',
+        totpSecret: creds.totpSecret ? '••••••••' : '',
         syncFrequency: settings.syncFrequency || '15min',
         companyProperty: settings.companyProperty || 'CustomProperty1',
         lastSyncAt: config.lastSyncAt,
@@ -507,7 +509,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     { preHandler: [fastify.authenticate, requirePermission('*')] },
     async (request) => {
       const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
-      const body = request.body as { isEnabled: boolean; serverUrl?: string; apiToken?: string; syncFrequency?: string; companyProperty?: string };
+      const body = request.body as { isEnabled: boolean; serverUrl?: string; username?: string; password?: string; totpSecret?: string; syncFrequency?: string; companyProperty?: string };
 
       const [existing] = await fastify.db.select().from(integrationConfigs)
         .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'screenconnect')))
@@ -517,7 +519,9 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       const prevSettings = (existing?.settings ?? {}) as Record<string, string>;
 
       const credentials = writeCredentials({
-        apiToken: body.apiToken?.startsWith('••') ? prevCreds.apiToken : (body.apiToken || prevCreds.apiToken || ''),
+        username: body.username || prevCreds.username || '',
+        password: body.password?.startsWith('••') ? prevCreds.password : (body.password || prevCreds.password || ''),
+        totpSecret: body.totpSecret?.startsWith('••') ? prevCreds.totpSecret : (body.totpSecret || prevCreds.totpSecret || ''),
       });
 
       const settings = {
@@ -554,20 +558,35 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       const creds = readCredentials(config.credentials) as Record<string, string>;
       const settings = (config.settings ?? {}) as Record<string, string>;
       const serverUrl = settings.serverUrl;
-      const apiToken = creds.apiToken;
+      const { username, password, totpSecret } = creds;
 
-      if (!serverUrl || !apiToken) throw new ValidationError('Server URL and API token are required');
+      if (!serverUrl || !username || !password || !totpSecret) {
+        throw new ValidationError('Server URL, username, password, and TOTP secret are all required');
+      }
 
       try {
-        const url = `${serverUrl.replace(/\/+$/, '')}/Services/PageService.ashx/GetHostSessionInfo`;
-        const res = await fetch(url, {
-          headers: {
-            Authorization: `Bearer ${apiToken}`,
-            'Content-Type': 'application/json',
-          },
+        const { runScreenConnectSync } = await import('../../services/screenconnect-sync.js');
+        // Just test the connection by fetching sessions
+        const { TOTP } = await import('otpauth');
+        const totp = new TOTP({ secret: totpSecret, digits: 6, period: 30 });
+        const otp = totp.generate();
+
+        const base = serverUrl.replace(/\/+$/, '');
+        const loginRes = await fetch(`${base}/Services/AuthenticationService.ashx/TryLogin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify([username, password, otp]),
+          redirect: 'manual',
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const sessions = await res.json() as unknown[];
+        const cookies = loginRes.headers.getSetCookie?.() ?? [];
+        const cookie = cookies.map((c: string) => c.split(';')[0]).join('; ');
+        if (!cookie && loginRes.status !== 200) throw new Error(`Login failed (${loginRes.status})`);
+
+        const sessionsRes = await fetch(`${base}/Services/PageService.ashx/GetHostSessionInfo`, {
+          headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        });
+        if (!sessionsRes.ok) throw new Error(`Session fetch failed (${sessionsRes.status})`);
+        const sessions = await sessionsRes.json() as unknown[];
         return { success: true, sessionCount: Array.isArray(sessions) ? sessions.length : 0 };
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Connection failed';
