@@ -575,6 +575,98 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== N-CENTRAL (RMM) =====
+
+  fastify.get(
+    '/api/v1/settings/ncentral',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials } = await import('../../common/credentials.js');
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'ncentral')))
+        .limit(1);
+      if (!config) return { isEnabled: false, serverUrl: '', jwtToken: '', syncFrequency: 'hourly', lastSyncAt: null, syncStatus: 'idle' };
+      const creds = readCredentials(config.credentials) as Record<string, string>;
+      const settings = (config.settings ?? {}) as Record<string, string>;
+      return {
+        isEnabled: config.isEnabled,
+        serverUrl: settings.serverUrl || '',
+        jwtToken: creds.jwtToken ? '••••••••' + String(creds.jwtToken).slice(-4) : '',
+        syncFrequency: settings.syncFrequency || 'hourly',
+        lastSyncAt: config.lastSyncAt,
+        syncStatus: config.syncStatus || 'idle',
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/ncentral',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
+      const body = request.body as { isEnabled: boolean; serverUrl?: string; jwtToken?: string; syncFrequency?: string };
+
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'ncentral')))
+        .limit(1);
+
+      const prevCreds = existing ? (readCredentials(existing.credentials) as Record<string, string>) : {};
+      const prevSettings = (existing?.settings ?? {}) as Record<string, string>;
+
+      const credentials = writeCredentials({
+        jwtToken: body.jwtToken?.startsWith('••') ? prevCreds.jwtToken : (body.jwtToken || prevCreds.jwtToken || ''),
+      });
+
+      const settings = {
+        serverUrl: body.serverUrl || prevSettings.serverUrl || '',
+        syncFrequency: body.syncFrequency || prevSettings.syncFrequency || 'hourly',
+      };
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, credentials, settings, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'ncentral',
+          isEnabled: body.isEnabled, credentials, settings,
+        });
+      }
+      return { success: true };
+    },
+  );
+
+  fastify.post(
+    '/api/v1/settings/ncentral/test',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials } = await import('../../common/credentials.js');
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'ncentral')))
+        .limit(1);
+
+      if (!config) throw new ValidationError('N-central not configured');
+
+      const creds = readCredentials(config.credentials) as Record<string, string>;
+      const settings = (config.settings ?? {}) as Record<string, string>;
+      const serverUrl = settings.serverUrl;
+      const jwtToken = creds.jwtToken;
+
+      if (!serverUrl || !jwtToken) {
+        throw new ValidationError('Server URL and JWT token are required');
+      }
+
+      try {
+        const { fetchNCentralDevicesForTest } = await import('../../services/ncentral-sync.js');
+        const devices = await fetchNCentralDevicesForTest(serverUrl, jwtToken);
+        return { success: true, deviceCount: devices.length };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Connection failed';
+        return { success: false, error: message };
+      }
+    },
+  );
+
   // ===== TWILIO (SMS MFA) =====
 
   fastify.get(

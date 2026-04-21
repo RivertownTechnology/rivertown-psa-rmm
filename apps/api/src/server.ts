@@ -234,6 +234,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   const { startScreenConnectSyncScheduler } = await import('./services/screenconnect-sync.js');
   startScreenConnectSyncScheduler(db);
 
+  // Start N-central auto-sync scheduler
+  const { startNCentralSyncScheduler } = await import('./services/ncentral-sync.js');
+  startNCentralSyncScheduler(db);
+
   // Start email inbox polling (check all tenant inboxes every 30 seconds)
   const { processInboundEmails } = await import('./services/email-to-ticket.js');
   const { tenants } = await import('@rivertown/db');
