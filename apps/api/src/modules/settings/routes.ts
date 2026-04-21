@@ -667,6 +667,80 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== STORAGE (Cloudflare R2) =====
+
+  fastify.get(
+    '/api/v1/settings/storage',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials } = await import('../../common/credentials.js');
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'storage')))
+        .limit(1);
+      if (!config) return { isEnabled: false, accountId: '', accessKeyId: '', secretAccessKey: '', bucketName: 'rivertown-psa' };
+      const creds = readCredentials(config.credentials) as Record<string, string>;
+      const settings = (config.settings ?? {}) as Record<string, string>;
+      return {
+        isEnabled: config.isEnabled,
+        accountId: settings.accountId || '',
+        accessKeyId: creds.accessKeyId ? '••••••••' + String(creds.accessKeyId).slice(-4) : '',
+        secretAccessKey: creds.secretAccessKey ? '••••••••' : '',
+        bucketName: settings.bucketName || 'rivertown-psa',
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/storage',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
+      const body = request.body as { isEnabled: boolean; accountId?: string; accessKeyId?: string; secretAccessKey?: string; bucketName?: string };
+
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'storage')))
+        .limit(1);
+
+      const prevCreds = existing ? (readCredentials(existing.credentials) as Record<string, string>) : {};
+      const prevSettings = (existing?.settings ?? {}) as Record<string, string>;
+
+      const credentials = writeCredentials({
+        accessKeyId: body.accessKeyId?.startsWith('••') ? prevCreds.accessKeyId : (body.accessKeyId || prevCreds.accessKeyId || ''),
+        secretAccessKey: body.secretAccessKey?.startsWith('••') ? prevCreds.secretAccessKey : (body.secretAccessKey || prevCreds.secretAccessKey || ''),
+      });
+
+      const settings = {
+        accountId: body.accountId || prevSettings.accountId || '',
+        bucketName: body.bucketName || prevSettings.bucketName || 'rivertown-psa',
+      };
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, credentials, settings, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'storage',
+          isEnabled: body.isEnabled, credentials, settings,
+        });
+      }
+      return { success: true };
+    },
+  );
+
+  fastify.post(
+    '/api/v1/settings/storage/test',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { testR2Connection } = await import('../../services/r2-storage.js');
+      const result = await testR2Connection(fastify.db, request.tenantId);
+      if (!result.success) {
+        return { success: false, error: result.error || 'Connection failed' };
+      }
+      return { success: true };
+    },
+  );
+
   // ===== TWILIO (SMS MFA) =====
 
   fastify.get(

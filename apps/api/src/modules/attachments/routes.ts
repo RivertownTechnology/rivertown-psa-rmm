@@ -29,8 +29,8 @@ export async function attachmentRoutes(fastify: FastifyInstance) {
     const fileSize = buffer.length;
     const storageKey = `${request.tenantId}/${entityType}/${randomUUID()}-${fileName}`;
 
-    if (isR2Configured()) {
-      await uploadFile(storageKey, buffer, mimeType);
+    if (await isR2Configured(fastify.db, request.tenantId)) {
+      await uploadFile(fastify.db, request.tenantId, storageKey, buffer, mimeType);
     }
 
     const [attachment] = await fastify.db.insert(attachments).values({
@@ -58,12 +58,12 @@ export async function attachmentRoutes(fastify: FastifyInstance) {
 
     if (!attachment) throw new NotFoundError('Attachment', id);
 
-    if (!isR2Configured()) {
+    if (!await isR2Configured(fastify.db, request.tenantId)) {
       reply.code(503);
       return { error: 'Storage not configured' };
     }
 
-    const url = await getFileUrl(attachment.storageKey);
+    const url = await getFileUrl(fastify.db, request.tenantId, attachment.storageKey);
     reply.redirect(url);
   });
 
@@ -93,8 +93,8 @@ export async function attachmentRoutes(fastify: FastifyInstance) {
 
     if (!attachment) throw new NotFoundError('Attachment', id);
 
-    if (isR2Configured()) {
-      await deleteFile(attachment.storageKey);
+    if (await isR2Configured(fastify.db, request.tenantId)) {
+      await deleteFile(fastify.db, request.tenantId, attachment.storageKey);
     }
 
     await fastify.db.delete(attachments)

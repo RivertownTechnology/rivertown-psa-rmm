@@ -780,6 +780,60 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                     {submittingComment && commentInternal ? 'Saving...' : 'Internal Note'}
                   </Button>
                   <div className="flex-1" />
+                  {/* Canned Responses */}
+                  <div className="relative">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (!showCannedResponses) {
+                          fetchCannedResponses();
+                        }
+                        setShowCannedResponses(!showCannedResponses);
+                        setCannedSearch('');
+                      }}
+                      className="gap-1"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      Canned
+                    </Button>
+                    {showCannedResponses && (
+                      <div className="absolute bottom-full mb-1 right-0 w-72 bg-card border rounded-lg shadow-lg z-50 p-2">
+                        <div className="relative mb-2">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                          <Input
+                            placeholder="Search responses..."
+                            value={cannedSearch}
+                            onChange={e => setCannedSearch(e.target.value)}
+                            className="pl-7 h-7 text-xs"
+                            autoFocus
+                          />
+                        </div>
+                        <div className="max-h-48 overflow-y-auto space-y-0.5">
+                          {cannedLoading ? (
+                            <div className="text-xs text-muted-foreground text-center py-3">Loading...</div>
+                          ) : cannedResponses.filter(cr =>
+                            !cannedSearch || cr.name.toLowerCase().includes(cannedSearch.toLowerCase()) || cr.body.toLowerCase().includes(cannedSearch.toLowerCase())
+                          ).length === 0 ? (
+                            <div className="text-xs text-muted-foreground text-center py-3">No canned responses found</div>
+                          ) : (
+                            cannedResponses.filter(cr =>
+                              !cannedSearch || cr.name.toLowerCase().includes(cannedSearch.toLowerCase()) || cr.body.toLowerCase().includes(cannedSearch.toLowerCase())
+                            ).map(cr => (
+                              <button
+                                key={cr.id}
+                                onClick={() => insertCannedResponse(cr.body)}
+                                className="w-full text-left p-2 rounded hover:bg-muted transition-colors"
+                              >
+                                <div className="text-xs font-medium">{cr.name}</div>
+                                <div className="text-[10px] text-muted-foreground truncate">{cr.body}</div>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <Button
                     size="sm"
                     variant="outline"
@@ -1261,6 +1315,62 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
           onBack();
         }}
       />
+
+      {/* Merge Ticket Dialog */}
+      <Dialog open={showMergeDialog} onOpenChange={setShowMergeDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Merge Ticket #{ticket.ticketNumber}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Search for a target ticket to merge this ticket into. Comments, time entries, and attachments will be moved to the target ticket.
+            </p>
+            <div className="space-y-2">
+              <Label>Search for target ticket</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by ticket # or subject..."
+                  value={mergeSearch}
+                  onChange={e => searchTicketsForMerge(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            {mergeResults.length > 0 && (
+              <div className="border rounded-md max-h-48 overflow-y-auto">
+                {mergeResults.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setMergeTargetId(t.id)}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors border-b last:border-0 ${
+                      mergeTargetId === t.id ? 'bg-primary/10 font-medium' : ''
+                    }`}
+                  >
+                    <span className="text-muted-foreground font-mono">#{t.ticketNumber}</span>{' '}
+                    {t.subject}
+                  </button>
+                ))}
+              </div>
+            )}
+            {mergeTargetId && (
+              <div className="p-2 bg-muted rounded-md text-sm">
+                Merging into: <span className="font-medium">
+                  #{mergeResults.find(t => t.id === mergeTargetId)?.ticketNumber} - {mergeResults.find(t => t.id === mergeTargetId)?.subject}
+                </span>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowMergeDialog(false)}>Cancel</Button>
+              <Button onClick={handleMerge} disabled={merging || !mergeTargetId}>
+                <GitMerge className="h-3.5 w-3.5 mr-1" />
+                {merging ? 'Merging...' : 'Merge Ticket'}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
