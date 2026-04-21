@@ -929,8 +929,8 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
           <Tabs defaultValue="sla" className="mt-4">
             <TabsList>
               <TabsTrigger value="sla">SLA</TabsTrigger>
-              <TabsTrigger value="ticket-settings">Ticket Settings</TabsTrigger>
               <TabsTrigger value="templates">Templates</TabsTrigger>
+              <TabsTrigger value="ticket-settings">Ticket Settings</TabsTrigger>
             </TabsList>
             <TabsContent value="templates">
               <div className="mt-4">
@@ -1228,15 +1228,15 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
         <TabsContent value="integrations">
           <Tabs value={integrationsSubTab} onValueChange={changeIntegrationsSub} className="mt-4">
             <TabsList className="flex-wrap h-auto">
-              <TabsTrigger value="email">Email & Inbox</TabsTrigger>
-              <TabsTrigger value="billing-email">Billing Email</TabsTrigger>
-              <TabsTrigger value="payments">Payments</TabsTrigger>
               <TabsTrigger value="accounting">Accounting</TabsTrigger>
-              <TabsTrigger value="vendors">Vendors</TabsTrigger>
-              <TabsTrigger value="rmm">RMM</TabsTrigger>
-              <TabsTrigger value="csat">CSAT</TabsTrigger>
-              <TabsTrigger value="sms">SMS</TabsTrigger>
               <TabsTrigger value="ai">AI</TabsTrigger>
+              <TabsTrigger value="billing-email">Billing Email</TabsTrigger>
+              <TabsTrigger value="csat">CSAT</TabsTrigger>
+              <TabsTrigger value="email">Email & Inbox</TabsTrigger>
+              <TabsTrigger value="payments">Payments</TabsTrigger>
+              <TabsTrigger value="rmm">RMM</TabsTrigger>
+              <TabsTrigger value="sms">SMS</TabsTrigger>
+              <TabsTrigger value="vendors">Vendors</TabsTrigger>
             </TabsList>
 
             {/* CSAT SUB-TAB (CrewHu) */}
@@ -1952,14 +1952,32 @@ function QuickBooksCard() {
 // ===== AI ASSISTANT SETTINGS =====
 
 function AISettingsTab() {
-  const [config, setConfig] = useState({ isEnabled: false, apiKey: '', model: 'claude-sonnet-4-20250514' });
+  const [config, setConfig] = useState({ isEnabled: false, provider: 'anthropic' as 'anthropic' | 'openai', apiKey: '', model: 'claude-sonnet-4-20250514', personality: '' });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState('');
 
+  const anthropicModels = [
+    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (Recommended)' },
+    { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (Faster, cheaper)' },
+    { value: 'claude-opus-4-20250115', label: 'Claude Opus 4 (Most capable)' },
+  ];
+  const openaiModels = [
+    { value: 'gpt-4o', label: 'GPT-4o (Recommended)' },
+    { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Faster, cheaper)' },
+    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo (High capability)' },
+    { value: 'o3-mini', label: 'o3-mini (Reasoning)' },
+  ];
+  const models = config.provider === 'anthropic' ? anthropicModels : openaiModels;
+
   useEffect(() => {
     api<typeof config>('/settings/ai').then(setConfig).catch(() => {});
   }, []);
+
+  function changeProvider(provider: 'anthropic' | 'openai') {
+    const defaultModel = provider === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o';
+    setConfig(c => ({ ...c, provider, model: defaultModel }));
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setMessage('');
@@ -1986,32 +2004,57 @@ function AISettingsTab() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5" />AI Assistant</CardTitle>
-          <CardDescription>Configure AI-powered features for ticket management. Uses Claude (Anthropic) for ticket summaries and reply improvement.</CardDescription>
+          <CardDescription>Configure AI-powered features for ticket management. Choose your preferred provider for ticket summaries and reply improvement.</CardDescription>
         </CardHeader>
         <CardContent>
           {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
           <form onSubmit={handleSave} className="space-y-4">
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-                <input type="checkbox" checked={config.isEnabled} onChange={e => setConfig(c => ({ ...c, isEnabled: e.target.checked }))} className="rounded" />
-                Enable AI features
-              </label>
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">Enable AI features</label>
+              <button type="button" role="switch" aria-checked={config.isEnabled}
+                onClick={() => setConfig(c => ({...c, isEnabled: !c.isEnabled}))}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${config.isEnabled ? 'bg-green-500' : 'bg-input'}`}>
+                <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${config.isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+              </button>
             </div>
 
             <div>
-              <Label>Anthropic API Key</Label>
-              <Input type="password" value={config.apiKey} onChange={e => setConfig(c => ({ ...c, apiKey: e.target.value }))} placeholder="sk-ant-api03-..." />
-              <p className="text-xs text-muted-foreground mt-1">Get your key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="text-primary underline">console.anthropic.com</a></p>
+              <Label>Provider</Label>
+              <select value={config.provider} onChange={e => changeProvider(e.target.value as 'anthropic' | 'openai')}
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="openai">OpenAI (ChatGPT)</option>
+              </select>
             </div>
 
             <div>
               <Label>Model</Label>
               <select value={config.model} onChange={e => setConfig(c => ({ ...c, model: e.target.value }))}
                 className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                <option value="claude-sonnet-4-20250514">Claude Sonnet 4 (Recommended)</option>
-                <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (Faster, cheaper)</option>
-                <option value="claude-opus-4-20250115">Claude Opus 4 (Most capable)</option>
+                {models.map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
               </select>
+            </div>
+
+            <div>
+              <Label>AI Personality & Tone</Label>
+              <textarea value={config.personality} onChange={e => setConfig(c => ({ ...c, personality: e.target.value }))}
+                placeholder="Professional and friendly. Address the customer by first name. Keep responses concise but helpful."
+                className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-y" />
+              <p className="text-xs text-muted-foreground mt-1">Instructions that guide how the AI writes replies and summaries for your MSP</p>
+            </div>
+
+            <div>
+              <Label>{config.provider === 'anthropic' ? 'Anthropic API Key' : 'OpenAI API Key'}</Label>
+              <Input type="password" value={config.apiKey} onChange={e => setConfig(c => ({ ...c, apiKey: e.target.value }))}
+                placeholder={config.provider === 'anthropic' ? 'sk-ant-api03-...' : 'sk-...'} />
+              <p className="text-xs text-muted-foreground mt-1">
+                {config.provider === 'anthropic'
+                  ? <>Get your key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="text-primary underline">console.anthropic.com</a></>
+                  : <>Get your key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary underline">platform.openai.com/api-keys</a></>
+                }
+              </p>
             </div>
 
             <Separator />
