@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/theme';
+import { api } from '@/lib/api';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -9,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LogOut, User, Sun, Moon, Menu, Settings as SettingsIcon } from 'lucide-react';
+import { LogOut, User, Sun, Moon, Menu, Settings as SettingsIcon, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface HeaderProps {
@@ -21,6 +23,17 @@ interface HeaderProps {
 export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
   const { user, logout } = useAuth();
   const { mode, setMode } = useTheme();
+
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationList, setNotificationList] = useState<Array<{id: string; type: string; title: string; body: string; entityType: string; entityId: string; isRead: boolean; createdAt: string}>>([]);
+
+  useEffect(() => {
+    api<{count: number}>('/notifications/unread-count').then(d => setUnreadCount(d.count)).catch(() => {});
+    const interval = setInterval(() => {
+      api<{count: number}>('/notifications/unread-count').then(d => setUnreadCount(d.count)).catch(() => {});
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const initials = user?.displayName
     .split(' ')
@@ -50,6 +63,53 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
         >
           Search... <kbd className="ml-2 text-xs opacity-60">{'\u2318'}K</kbd>
         </button>
+
+        {/* Notification bell */}
+        <DropdownMenu onOpenChange={(open) => {
+          if (open) {
+            api<Array<{id: string; type: string; title: string; body: string; entityType: string; entityId: string; isRead: boolean; createdAt: string}> | {data: Array<{id: string; type: string; title: string; body: string; entityType: string; entityId: string; isRead: boolean; createdAt: string}>}>('/notifications?limit=10')
+              .then(d => setNotificationList(Array.isArray(d) ? d : (d as any).data || []))
+              .catch(() => {});
+          }
+        }}>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8 relative">
+              <Bell className="h-4 w-4" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-80">
+            <DropdownMenuLabel className="flex items-center justify-between">
+              Notifications
+              {unreadCount > 0 && (
+                <button className="text-xs text-primary hover:underline" onClick={async () => {
+                  await api('/notifications/read-all', { method: 'POST' });
+                  setUnreadCount(0);
+                  setNotificationList(prev => prev.map(n => ({...n, isRead: true})));
+                }}>Mark all read</button>
+              )}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {notificationList.length === 0 ? (
+              <div className="p-4 text-center text-sm text-muted-foreground">No notifications</div>
+            ) : (
+              notificationList.slice(0, 10).map(n => (
+                <DropdownMenuItem key={n.id} className={`flex flex-col items-start gap-0.5 p-3 ${!n.isRead ? 'bg-primary/5' : ''}`}
+                  onClick={() => {
+                    api(`/notifications/${n.id}/read`, { method: 'PATCH' }).catch(() => {});
+                    if (n.entityType === 'ticket' && n.entityId) onNavigate(`/tickets/${n.entityId}`);
+                  }}>
+                  <span className="text-sm font-medium">{n.title}</span>
+                  {n.body && <span className="text-xs text-muted-foreground">{n.body}</span>}
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {/* Dark/Light toggle */}
         <Button

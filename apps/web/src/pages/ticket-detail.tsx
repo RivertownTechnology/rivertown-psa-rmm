@@ -13,8 +13,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   ArrowLeft, Clock, MessageSquare, Pencil, Check, X, ChevronDown, ChevronUp,
   Eye, EyeOff, Plus, Timer, User, Users, AlertCircle, Send, Trash2, Sparkles,
-  Monitor, ExternalLink,
+  Monitor, ExternalLink, FileText, GitMerge, Search,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 
 // ---------------------------------------------------------------------------
@@ -206,10 +213,11 @@ function TicketDetailSkeleton() {
 // Component
 // ---------------------------------------------------------------------------
 
-export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
+export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNavigate }: {
   ticketId: string;
   onBack: () => void;
   onNavigateToCustomer: (id: string) => void;
+  onNavigate?: (path: string) => void;
 }) {
   // Core data
   const [ticket, setTicket] = useState<Ticket | null>(null);
@@ -249,6 +257,19 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
   // Time entry editing
   const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
   const [editTimeForm, setEditTimeForm] = useState({ durationMinutes: '', notes: '', isBillable: true });
+
+  // Canned responses
+  const [showCannedResponses, setShowCannedResponses] = useState(false);
+  const [cannedResponses, setCannedResponses] = useState<Array<{ id: string; name: string; body: string }>>([]);
+  const [cannedSearch, setCannedSearch] = useState('');
+  const [cannedLoading, setCannedLoading] = useState(false);
+
+  // Merge ticket
+  const [showMergeDialog, setShowMergeDialog] = useState(false);
+  const [mergeSearch, setMergeSearch] = useState('');
+  const [mergeResults, setMergeResults] = useState<Array<{ id: string; ticketNumber: number; subject: string }>>([]);
+  const [mergeTargetId, setMergeTargetId] = useState('');
+  const [merging, setMerging] = useState(false);
 
   // Saving states
   const [savingField, setSavingField] = useState<string | null>(null);
@@ -456,6 +477,57 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
   }
 
   // -------------------------------------------------------------------------
+  // Canned responses
+  // -------------------------------------------------------------------------
+
+  async function fetchCannedResponses() {
+    setCannedLoading(true);
+    try {
+      const data = await api<Array<{ id: string; name: string; body: string }>>('/canned-responses');
+      setCannedResponses(Array.isArray(data) ? data : []);
+    } catch {
+      setCannedResponses([]);
+    } finally {
+      setCannedLoading(false);
+    }
+  }
+
+  function insertCannedResponse(body: string) {
+    setCommentBody(prev => prev ? prev + '\n' + body : body);
+    setShowCannedResponses(false);
+    setCannedSearch('');
+  }
+
+  // -------------------------------------------------------------------------
+  // Merge ticket
+  // -------------------------------------------------------------------------
+
+  async function searchTicketsForMerge(query: string) {
+    setMergeSearch(query);
+    if (!query.trim()) { setMergeResults([]); return; }
+    try {
+      const res = await api<{ data: Array<{ id: string; ticketNumber: number; subject: string }> }>(`/tickets?search=${encodeURIComponent(query)}&limit=10`);
+      setMergeResults((res.data || []).filter(t => t.id !== ticketId));
+    } catch {
+      setMergeResults([]);
+    }
+  }
+
+  async function handleMerge() {
+    if (!mergeTargetId) return;
+    setMerging(true);
+    try {
+      await api(`/tickets/${ticketId}/merge`, {
+        method: 'POST',
+        body: JSON.stringify({ targetTicketId: mergeTargetId }),
+      });
+      onNavigate?.(`/tickets/${mergeTargetId}`);
+    } finally {
+      setMerging(false);
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Derived values
   // -------------------------------------------------------------------------
 
@@ -522,6 +594,9 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer }: {
           </span>
         )}
         <div className="flex-1" />
+        <Button variant="ghost" size="sm" onClick={() => { setShowMergeDialog(true); setMergeSearch(''); setMergeResults([]); setMergeTargetId(''); }}>
+          <GitMerge className="h-3.5 w-3.5 mr-1" /> Merge
+        </Button>
         <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setShowDeleteConfirm(true)}>
           <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
         </Button>

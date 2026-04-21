@@ -12,6 +12,8 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  BarChart3,
+  BookOpen,
 } from 'lucide-react';
 
 interface NavItem {
@@ -33,7 +35,9 @@ const navGroups: NavGroup[] = [
       { label: 'Dashboard', icon: LayoutDashboard, href: '/' },
       { label: 'Tickets', icon: Ticket, href: '/tickets', badgeKey: 'tickets' },
       { label: 'Dispatch', icon: Calendar, href: '/dispatch' },
+      { label: 'Reports', icon: BarChart3, href: '/reports' },
       { label: 'Customers', icon: Building2, href: '/customers' },
+      { label: 'Knowledge Base', icon: BookOpen, href: '/knowledge-base' },
     ],
   },
   {

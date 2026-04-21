@@ -19,3 +19,8 @@ export * from './audit-log.js';
 export * from './tax-rates.js';
 export * from './passkeys.js';
 export * from './portal-mfa.js';
+export * from './attachments.js';
+export * from './kb-articles.js';
+export * from './canned-responses.js';
+export * from './notifications.js';
+export * from './custom-fields.js';

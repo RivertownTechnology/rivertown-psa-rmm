@@ -19,6 +19,10 @@ import { AccountPage } from '@/pages/account';
 import { ProductCatalogPage } from '@/pages/product-catalog';
 import { Pax8Page } from '@/pages/pax8';
 import { DispatchPage } from '@/pages/dispatch';
+import { ReportsPage } from '@/pages/reports';
+import { KnowledgeBasePage } from '@/pages/knowledge-base';
+import { KBArticlePage } from '@/pages/kb-article';
+import { TicketKanbanPage } from '@/pages/ticket-kanban';
 import { SearchResultsPage } from '@/pages/search';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { CommandPalette } from '@/components/command-palette';
@@ -97,6 +101,7 @@ function AppRouter() {
   const ticketMatch = pathname.match(/^\/tickets\/([a-f0-9-]+)$/);
   const invoiceMatch = pathname.match(/^\/billing\/invoices\/([a-f0-9-]+)$/);
   const quoteMatch = pathname.match(/^\/billing\/quotes\/([a-f0-9-]+)$/);
+  const kbArticleMatch = pathname.match(/^\/knowledge-base\/(.+)$/);
   let title = 'Dashboard';
   let currentNav = pathname;
   let content: React.ReactNode;
@@ -107,15 +112,30 @@ function AppRouter() {
   } else if (pathname === '/customers') {
     title = 'Customers';
     content = <CustomersPage onSelectCustomer={navigateToCustomer} />;
+  } else if (pathname === '/tickets/board') {
+    title = 'Ticket Board'; currentNav = '/tickets';
+    content = <TicketKanbanPage />;
   } else if (ticketMatch) {
     title = 'Ticket'; currentNav = '/tickets';
-    content = <TicketDetailPage ticketId={ticketMatch[1]} onBack={() => navigate('/tickets')} onNavigateToCustomer={navigateToCustomer} />;
+    content = <TicketDetailPage ticketId={ticketMatch[1]} onBack={() => navigate('/tickets')} onNavigateToCustomer={navigateToCustomer} onNavigate={navigate} />;
   } else if (pathname === '/tickets') {
     title = 'Tickets';
-    content = <TicketsPage onSelectTicket={navigateToTicket} />;
+    content = <TicketsPage onSelectTicket={navigateToTicket} onNavigate={navigate} />;
   } else if (pathname === '/dispatch') {
     title = 'Dispatch';
     content = <DispatchPage />;
+  } else if (pathname === '/reports') {
+    title = 'Reports';
+    content = <ReportsPage />;
+  } else if (pathname === '/knowledge-base/new') {
+    title = 'New Article'; currentNav = '/knowledge-base';
+    content = <KBArticlePage onNavigate={navigate} />;
+  } else if (kbArticleMatch && kbArticleMatch[1] !== 'new') {
+    title = 'Article'; currentNav = '/knowledge-base';
+    content = <KBArticlePage slug={kbArticleMatch[1]} onNavigate={navigate} />;
+  } else if (pathname === '/knowledge-base') {
+    title = 'Knowledge Base';
+    content = <KnowledgeBasePage onNavigate={navigate} />;
   } else if (contractMatch) {
     title = 'Contract Detail'; currentNav = '/billing/contracts';
     content = <ContractDetailPage contractId={contractMatch[1]} onBack={() => navigate('/billing/contracts')} onNavigateToCustomer={navigateToCustomer} />;

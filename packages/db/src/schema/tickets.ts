@@ -41,6 +41,7 @@ export const tickets = pgTable(
     closedAt: timestamp('closed_at', { withTimezone: true }),
     slaPausedAt: timestamp('sla_paused_at', { withTimezone: true }),
     slaTotalPausedMs: integer('sla_total_paused_ms').default(0),
+    mergedIntoId: uuid('merged_into_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

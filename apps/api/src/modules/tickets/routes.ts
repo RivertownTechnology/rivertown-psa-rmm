@@ -502,4 +502,63 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       return entries;
     },
   );
+
+  // Bulk update tickets
+  fastify.post('/api/v1/tickets/bulk-update', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')]
+  }, async (request) => {
+    const { ids, update } = request.body as { ids: string[]; update: Record<string, unknown> };
+    const updateData: Record<string, unknown> = { ...update, updatedAt: new Date() };
+    for (const id of ids) {
+      await fastify.db.update(tickets).set(updateData)
+        .where(and(eq(tickets.id, id), eq(tickets.tenantId, request.tenantId)));
+    }
+    return { updated: ids.length };
+  });
+
+  // Bulk delete tickets
+  fastify.post('/api/v1/tickets/bulk-delete', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')]
+  }, async (request, reply) => {
+    const { ids } = request.body as { ids: string[] };
+    for (const id of ids) {
+      await fastify.db.delete(ticketTimeEntries).where(eq(ticketTimeEntries.ticketId, id));
+      await fastify.db.delete(ticketComments).where(eq(ticketComments.ticketId, id));
+      await fastify.db.update(calendarEvents).set({ ticketId: null }).where(eq(calendarEvents.ticketId, id));
+      await fastify.db.update(emailMessages).set({ ticketId: null }).where(eq(emailMessages.ticketId, id));
+      await fastify.db.delete(tickets).where(and(eq(tickets.id, id), eq(tickets.tenantId, request.tenantId)));
+    }
+    return { deleted: ids.length };
+  });
+
+  // Merge ticket into another
+  fastify.post('/api/v1/tickets/:id/merge', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const { targetTicketId } = request.body as { targetTicketId: string };
+
+    // Verify both tickets exist and belong to tenant
+    const [source] = await fastify.db.select().from(tickets).where(and(eq(tickets.id, id), eq(tickets.tenantId, request.tenantId))).limit(1);
+    const [target] = await fastify.db.select().from(tickets).where(and(eq(tickets.id, targetTicketId), eq(tickets.tenantId, request.tenantId))).limit(1);
+    if (!source || !target) throw new NotFoundError('Ticket', !source ? id : targetTicketId);
+
+    // Move comments from source to target
+    await fastify.db.update(ticketComments).set({ ticketId: targetTicketId }).where(eq(ticketComments.ticketId, id));
+    // Move time entries from source to target
+    await fastify.db.update(ticketTimeEntries).set({ ticketId: targetTicketId }).where(eq(ticketTimeEntries.ticketId, id));
+    // Add system comment to target
+    await fastify.db.insert(ticketComments).values({
+      tenantId: request.tenantId, ticketId: targetTicketId,
+      authorType: 'system', authorId: request.user.sub,
+      body: `Ticket #${source.ticketNumber} "${source.subject}" was merged into this ticket.`,
+      isInternal: true,
+    });
+    // Close source ticket
+    await fastify.db.update(tickets).set({
+      status: 'closed', closedAt: new Date(), mergedIntoId: targetTicketId, updatedAt: new Date(),
+    }).where(eq(tickets.id, id));
+
+    return { success: true, sourceTicketId: id, targetTicketId };
+  });
 }

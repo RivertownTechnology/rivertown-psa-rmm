@@ -204,6 +204,13 @@
       "when": 1745193700000,
       "tag": "0028_screenconnect_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1745193800000,
+      "tag": "0029_major_features",
+      "breakpoints": true
     }
   ]
 }

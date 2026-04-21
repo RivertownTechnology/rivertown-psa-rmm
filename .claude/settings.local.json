@@ -107,7 +107,12 @@
       "WebFetch(domain:www.ninjaone.com)",
       "WebFetch(domain:docs.connectwise.com)",
       "WebFetch(domain:screenconnect.product.connectwise.com)",
-      "WebFetch(domain:docs.rewst.help)"
+      "WebFetch(domain:docs.rewst.help)",
+      "WebFetch(domain:developer.n-able.com)",
+      "WebFetch(domain:documentation.n-able.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:help.lifecyclemanager.com)"
     ]
   }
 }

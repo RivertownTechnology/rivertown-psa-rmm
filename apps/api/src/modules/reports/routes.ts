@@ -1,0 +1,202 @@
+import { FastifyInstance } from 'fastify';
+import { eq, and, sql, count, gte, lte, desc } from 'drizzle-orm';
+import { tickets, ticketTimeEntries, users, customers, contracts, contractLineItems, invoices } from '@rivertown/db';
+import { requirePermission } from '../../auth/rbac.js';
+
+export async function reportRoutes(fastify: FastifyInstance) {
+  // Ticket volume over time
+  fastify.get('/api/v1/reports/ticket-volume', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')]
+  }, async (request) => {
+    const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+    const conditions: any[] = [eq(tickets.tenantId, request.tenantId)];
+    if (startDate) conditions.push(gte(tickets.createdAt, new Date(startDate)));
+    if (endDate) conditions.push(lte(tickets.createdAt, new Date(endDate)));
+
+    const rows = await fastify.db.execute(sql`
+      SELECT date_trunc('day', ${tickets.createdAt}) as day, count(*)::int as count
+      FROM ${tickets}
+      WHERE ${and(...conditions)}
+      GROUP BY day
+      ORDER BY day
+    `);
+
+    return Array.isArray(rows) ? rows : [];
+  });
+
+  // SLA compliance
+  fastify.get('/api/v1/reports/sla-compliance', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')]
+  }, async (request) => {
+    const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+    const conditions: any[] = [
+      eq(tickets.tenantId, request.tenantId),
+      sql`${tickets.status} IN ('resolved', 'closed')`,
+    ];
+    if (startDate) conditions.push(gte(tickets.createdAt, new Date(startDate)));
+    if (endDate) conditions.push(lte(tickets.createdAt, new Date(endDate)));
+
+    const where = and(...conditions);
+
+    const [metRows] = await fastify.db.select({ count: count() }).from(tickets)
+      .where(and(where!, eq(tickets.slaBreached, false)));
+    const [breachedRows] = await fastify.db.select({ count: count() }).from(tickets)
+      .where(and(where!, eq(tickets.slaBreached, true)));
+
+    const met = metRows?.count ?? 0;
+    const breached = breachedRows?.count ?? 0;
+    const total = met + breached;
+
+    return {
+      met,
+      breached,
+      total,
+      compliancePercent: total > 0 ? Math.round((met / total) * 1000) / 10 : 100,
+    };
+  });
+
+  // Tech utilization
+  fastify.get('/api/v1/reports/tech-utilization', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')]
+  }, async (request) => {
+    const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+    const conditions: any[] = [eq(ticketTimeEntries.tenantId, request.tenantId)];
+    if (startDate) conditions.push(gte(ticketTimeEntries.startedAt, new Date(startDate)));
+    if (endDate) conditions.push(lte(ticketTimeEntries.startedAt, new Date(endDate)));
+
+    const rows = await fastify.db
+      .select({
+        userId: ticketTimeEntries.userId,
+        displayName: users.displayName,
+        totalMinutes: sql<number>`COALESCE(SUM(${ticketTimeEntries.durationMinutes}), 0)::int`,
+        entryCount: count(),
+      })
+      .from(ticketTimeEntries)
+      .innerJoin(users, eq(ticketTimeEntries.userId, users.id))
+      .where(and(...conditions))
+      .groupBy(ticketTimeEntries.userId, users.displayName)
+      .orderBy(desc(sql`SUM(${ticketTimeEntries.durationMinutes})`));
+
+    return rows.map(r => ({
+      ...r,
+      totalHours: Math.round((r.totalMinutes / 60) * 10) / 10,
+    }));
+  });
+
+  // Revenue by customer
+  fastify.get('/api/v1/reports/revenue-by-customer', {
+    preHandler: [fastify.authenticate, requirePermission('invoices:read')]
+  }, async (request) => {
+    const rows = await fastify.db
+      .select({
+        customerId: contracts.customerId,
+        customerName: customers.name,
+        totalRevenueCents: sql<number>`COALESCE(SUM(${contractLineItems.unitPriceCents} * COALESCE(${contractLineItems.quantity}::numeric, 1)), 0)::int`,
+        totalCostCents: sql<number>`COALESCE(SUM(COALESCE(${contractLineItems.unitCostCents}, 0) * COALESCE(${contractLineItems.quantity}::numeric, 1)), 0)::int`,
+      })
+      .from(contractLineItems)
+      .innerJoin(contracts, eq(contractLineItems.contractId, contracts.id))
+      .innerJoin(customers, eq(contracts.customerId, customers.id))
+      .where(and(eq(contracts.tenantId, request.tenantId), eq(contracts.status, 'active')))
+      .groupBy(contracts.customerId, customers.name)
+      .orderBy(desc(sql`SUM(${contractLineItems.unitPriceCents} * COALESCE(${contractLineItems.quantity}::numeric, 1))`));
+
+    return rows.map(r => ({
+      ...r,
+      marginCents: r.totalRevenueCents - r.totalCostCents,
+      marginPercent: r.totalRevenueCents > 0
+        ? Math.round(((r.totalRevenueCents - r.totalCostCents) / r.totalRevenueCents) * 1000) / 10
+        : 0,
+    }));
+  });
+
+  // Time summary
+  fastify.get('/api/v1/reports/time-summary', {
+    preHandler: [fastify.authenticate, requirePermission('time-entries:write')]
+  }, async (request) => {
+    const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+    const conditions: any[] = [eq(ticketTimeEntries.tenantId, request.tenantId)];
+    if (startDate) conditions.push(gte(ticketTimeEntries.startedAt, new Date(startDate)));
+    if (endDate) conditions.push(lte(ticketTimeEntries.startedAt, new Date(endDate)));
+
+    const rows = await fastify.db
+      .select({
+        day: sql<string>`date_trunc('day', ${ticketTimeEntries.startedAt})`,
+        userId: ticketTimeEntries.userId,
+        displayName: users.displayName,
+        customerId: tickets.customerId,
+        customerName: customers.name,
+        totalMinutes: sql<number>`COALESCE(SUM(${ticketTimeEntries.durationMinutes}), 0)::int`,
+        billableMinutes: sql<number>`COALESCE(SUM(CASE WHEN ${ticketTimeEntries.isBillable} THEN ${ticketTimeEntries.durationMinutes} ELSE 0 END), 0)::int`,
+      })
+      .from(ticketTimeEntries)
+      .innerJoin(users, eq(ticketTimeEntries.userId, users.id))
+      .innerJoin(tickets, eq(ticketTimeEntries.ticketId, tickets.id))
+      .innerJoin(customers, eq(tickets.customerId, customers.id))
+      .where(and(...conditions))
+      .groupBy(
+        sql`date_trunc('day', ${ticketTimeEntries.startedAt})`,
+        ticketTimeEntries.userId,
+        users.displayName,
+        tickets.customerId,
+        customers.name,
+      )
+      .orderBy(desc(sql`date_trunc('day', ${ticketTimeEntries.startedAt})`));
+
+    return rows;
+  });
+
+  // Invoice aging
+  fastify.get('/api/v1/reports/invoice-aging', {
+    preHandler: [fastify.authenticate, requirePermission('invoices:read')]
+  }, async (request) => {
+    const openInvoices = await fastify.db
+      .select({
+        id: invoices.id,
+        invoiceNumber: invoices.invoiceNumber,
+        customerId: invoices.customerId,
+        customerName: customers.name,
+        totalCents: invoices.totalCents,
+        amountPaidCents: invoices.amountPaidCents,
+        dueDate: invoices.dueDate,
+        status: invoices.status,
+      })
+      .from(invoices)
+      .innerJoin(customers, eq(invoices.customerId, customers.id))
+      .where(and(
+        eq(invoices.tenantId, request.tenantId),
+        sql`${invoices.status} IN ('sent', 'partial', 'overdue')`,
+      ))
+      .orderBy(invoices.dueDate);
+
+    const now = new Date();
+    const buckets = { current: [] as any[], '1_30': [] as any[], '31_60': [] as any[], '61_90': [] as any[], '90_plus': [] as any[] };
+
+    for (const inv of openInvoices) {
+      const due = new Date(inv.dueDate);
+      const daysOverdue = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+      const outstandingCents = inv.totalCents - inv.amountPaidCents;
+      const item = { ...inv, daysOverdue, outstandingCents };
+
+      if (daysOverdue <= 0) buckets.current.push(item);
+      else if (daysOverdue <= 30) buckets['1_30'].push(item);
+      else if (daysOverdue <= 60) buckets['31_60'].push(item);
+      else if (daysOverdue <= 90) buckets['61_90'].push(item);
+      else buckets['90_plus'].push(item);
+    }
+
+    const sumBucket = (items: any[]) => items.reduce((s, i) => s + i.outstandingCents, 0);
+
+    return {
+      buckets,
+      summary: {
+        currentCents: sumBucket(buckets.current),
+        '1_30_cents': sumBucket(buckets['1_30']),
+        '31_60_cents': sumBucket(buckets['31_60']),
+        '61_90_cents': sumBucket(buckets['61_90']),
+        '90_plus_cents': sumBucket(buckets['90_plus']),
+        totalOutstandingCents: sumBucket(openInvoices.map(i => ({ outstandingCents: i.totalCents - i.amountPaidCents }))),
+      },
+    };
+  });
+}

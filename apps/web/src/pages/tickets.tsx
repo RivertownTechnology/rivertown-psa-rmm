@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Plus, Search, Ticket } from 'lucide-react';
+import { Plus, Search, Ticket, LayoutList, Kanban, X, Trash2, UserPlus, ArrowRight } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -168,7 +168,7 @@ const PRIORITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2
 // Component
 // ---------------------------------------------------------------------------
 
-export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) => void }) {
+export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (id: string) => void; onNavigate?: (path: string) => void }) {
   // Data state
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -183,6 +183,15 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sort, setSort] = useState('newest');
+
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkAssign, setShowBulkAssign] = useState(false);
+  const [bulkAssignTo, setBulkAssignTo] = useState('');
+  const [bulkStatus, setBulkStatus] = useState('');
+  const [showBulkStatus, setShowBulkStatus] = useState(false);
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   // Create dialog state
   const [showCreate, setShowCreate] = useState(false);
@@ -353,6 +362,91 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
   }
 
   // ---------------------------------------------------------------------------
+  // Bulk action handlers
+  // ---------------------------------------------------------------------------
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === sortedTickets.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(sortedTickets.map(t => t.id)));
+    }
+  }
+
+  async function bulkAssign() {
+    if (!bulkAssignTo || selectedIds.size === 0) return;
+    setBulkLoading(true);
+    try {
+      await api('/tickets/bulk-update', {
+        method: 'POST',
+        body: JSON.stringify({ ticketIds: [...selectedIds], assignedTo: bulkAssignTo }),
+      });
+      setSelectedIds(new Set());
+      setShowBulkAssign(false);
+      setBulkAssignTo('');
+      fetchTickets();
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function bulkChangeStatus() {
+    if (!bulkStatus || selectedIds.size === 0) return;
+    setBulkLoading(true);
+    try {
+      await api('/tickets/bulk-update', {
+        method: 'POST',
+        body: JSON.stringify({ ticketIds: [...selectedIds], status: bulkStatus }),
+      });
+      setSelectedIds(new Set());
+      setShowBulkStatus(false);
+      setBulkStatus('');
+      fetchTickets();
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function bulkClose() {
+    if (selectedIds.size === 0) return;
+    setBulkLoading(true);
+    try {
+      await api('/tickets/bulk-update', {
+        method: 'POST',
+        body: JSON.stringify({ ticketIds: [...selectedIds], status: 'closed' }),
+      });
+      setSelectedIds(new Set());
+      fetchTickets();
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function bulkDelete() {
+    if (selectedIds.size === 0) return;
+    setBulkLoading(true);
+    try {
+      await api('/tickets/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ticketIds: [...selectedIds] }),
+      });
+      setSelectedIds(new Set());
+      setShowBulkDelete(false);
+      fetchTickets();
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Combobox options for create dialog
   // ---------------------------------------------------------------------------
 
@@ -421,10 +515,21 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
           />
         </div>
 
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          New Ticket
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* View toggle */}
+          <div className="flex items-center border rounded-md">
+            <Button variant="ghost" size="sm" className="h-8 rounded-r-none bg-accent">
+              <LayoutList className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" className="h-8 rounded-l-none" onClick={() => onNavigate?.('/tickets/board')}>
+              <Kanban className="h-4 w-4" />
+            </Button>
+          </div>
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Ticket
+          </Button>
+        </div>
       </div>
 
       {/* Ticket count */}
@@ -475,9 +580,18 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
             return (
               <div
                 key={t.id}
-                onClick={() => onSelectTicket?.(t.id)}
-                className="rounded-lg border bg-card px-4 py-3 cursor-pointer transition-colors hover:bg-muted/50"
+                className="rounded-lg border bg-card px-4 py-3 cursor-pointer transition-colors hover:bg-muted/50 flex items-start gap-3"
               >
+                {/* Checkbox for bulk selection */}
+                <div className="pt-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(t.id)}
+                    onChange={() => toggleSelect(t.id)}
+                    className="rounded border-gray-300 h-4 w-4 cursor-pointer"
+                  />
+                </div>
+                <div className="flex-1 min-w-0" onClick={() => onSelectTicket?.(t.id)}>
                 {/* Line 1: number + subject + relative time */}
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0">
@@ -526,6 +640,7 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
                     </Badge>
                   )}
                 </div>
+                </div>
               </div>
             );
           })}
@@ -556,6 +671,98 @@ export function TicketsPage({ onSelectTicket }: { onSelectTicket?: (id: string) 
           </Button>
         </div>
       )}
+
+      {/* Floating bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-card border rounded-lg shadow-lg px-4 py-3 flex items-center gap-3 z-50">
+          <span className="text-sm font-medium">{selectedIds.size} selected</span>
+          <Button size="sm" variant="outline" onClick={() => setShowBulkAssign(true)}>
+            <UserPlus className="h-3.5 w-3.5 mr-1" />Assign
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setShowBulkStatus(true)}>
+            <ArrowRight className="h-3.5 w-3.5 mr-1" />Change Status
+          </Button>
+          <Button size="sm" variant="outline" onClick={bulkClose}>
+            Close
+          </Button>
+          <Button size="sm" variant="destructive" onClick={() => setShowBulkDelete(true)}>
+            <Trash2 className="h-3.5 w-3.5 mr-1" />Delete
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+
+      {/* Bulk Assign Dialog */}
+      <Dialog open={showBulkAssign} onOpenChange={setShowBulkAssign}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign {selectedIds.size} Ticket{selectedIds.size !== 1 ? 's' : ''}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Assign to</Label>
+              <Combobox
+                options={techs.map(t => ({ value: t.id, label: t.displayName }))}
+                value={bulkAssignTo}
+                onValueChange={setBulkAssignTo}
+                placeholder="Select technician..."
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowBulkAssign(false)}>Cancel</Button>
+              <Button onClick={bulkAssign} disabled={bulkLoading || !bulkAssignTo}>
+                {bulkLoading ? 'Assigning...' : 'Assign'}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Status Dialog */}
+      <Dialog open={showBulkStatus} onOpenChange={setShowBulkStatus}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Status of {selectedIds.size} Ticket{selectedIds.size !== 1 ? 's' : ''}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>New Status</Label>
+              <Combobox
+                options={STATUS_OPTIONS}
+                value={bulkStatus}
+                onValueChange={setBulkStatus}
+                placeholder="Select status..."
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowBulkStatus(false)}>Cancel</Button>
+              <Button onClick={bulkChangeStatus} disabled={bulkLoading || !bulkStatus}>
+                {bulkLoading ? 'Updating...' : 'Update Status'}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Dialog */}
+      <Dialog open={showBulkDelete} onOpenChange={setShowBulkDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedIds.size} Ticket{selectedIds.size !== 1 ? 's' : ''}?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete the selected tickets and all associated data. This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkDelete(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={bulkDelete} disabled={bulkLoading}>
+              {bulkLoading ? 'Deleting...' : 'Delete Tickets'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create Ticket Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

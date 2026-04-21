@@ -33,6 +33,11 @@ import ticketsModule from './modules/tickets/index.js';
 import dispatchModule from './modules/dispatch/index.js';
 import portalModule from './modules/portal/index.js';
 import publicApiModule from './modules/public-api/index.js';
+import reportsModule from './modules/reports/index.js';
+import attachmentsModule from './modules/attachments/index.js';
+import kbModule from './modules/knowledge-base/index.js';
+import cannedResponsesModule from './modules/canned-responses/index.js';
+import notificationsModule from './modules/notifications/index.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -216,7 +221,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   await fastify.register(aiRoutes);
 
   // Load feature modules
-  await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, portalModule, publicApiModule]);
+  await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, portalModule, publicApiModule, reportsModule, attachmentsModule, kbModule, cannedResponsesModule, notificationsModule]);
 
   // Start Pax8 auto-sync scheduler
   const { startPax8SyncScheduler } = await import('./services/pax8-sync.js');
