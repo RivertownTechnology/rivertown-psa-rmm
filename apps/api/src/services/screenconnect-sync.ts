@@ -47,36 +47,44 @@ async function getScreenConnectAuthCookie(
   totpSecret: string,
 ): Promise<string> {
   const base = serverUrl.replace(/\/+$/, '');
-
-  // Step 1: Login with username + password + TOTP
   const otp = generateTOTP(totpSecret);
+
+  // Try the standard login endpoint
   const loginRes = await fetch(`${base}/Services/AuthenticationService.ashx/TryLogin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify([username, password, otp]),
-    redirect: 'manual',
   });
 
-  // Extract session cookies from response
-  const cookies = loginRes.headers.getSetCookie?.() ?? [];
-  const sessionCookie = cookies.find(c => c.startsWith('.DVLAUTHSC=') || c.startsWith('.DVLAUTH=') || c.startsWith('ASP.NET_SessionId='));
+  // Check if login returned success
+  let loginData: unknown;
+  try { loginData = await loginRes.json(); } catch { loginData = null; }
+  console.log(`[SC-AUTH] TryLogin status=${loginRes.status} response=`, JSON.stringify(loginData));
 
-  if (!sessionCookie && loginRes.status !== 200) {
-    // Try alternative login endpoint format
-    const altRes = await fetch(`${base}/Login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ UserName: username, Password: password, OTP: otp }),
-      redirect: 'manual',
-    });
-    const altCookies = altRes.headers.getSetCookie?.() ?? [];
-    const altSession = altCookies.join('; ');
-    if (altSession) return altSession;
-    throw new Error(`ScreenConnect login failed (${altRes.status})`);
+  // Extract cookies
+  const cookies = loginRes.headers.getSetCookie?.() ?? [];
+  console.log(`[SC-AUTH] Cookies received: ${cookies.length}`, cookies.map(c => c.split(';')[0]));
+
+  if (cookies.length > 0) {
+    return cookies.map(c => c.split(';')[0]).join('; ');
   }
 
-  // Collect all relevant cookies
-  return cookies.map(c => c.split(';')[0]).join('; ');
+  // If no cookies from JSON endpoint, try form-based login
+  const formRes = await fetch(`${base}/Login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ UserName: username, Password: password, OTP: otp }),
+    redirect: 'manual',
+  });
+  const formCookies = formRes.headers.getSetCookie?.() ?? [];
+  console.log(`[SC-AUTH] Form login status=${formRes.status}, cookies=${formCookies.length}`);
+
+  if (formCookies.length > 0) {
+    return formCookies.map(c => c.split(';')[0]).join('; ');
+  }
+
+  // Try basic auth as last resort (some cloud versions support it)
+  throw new Error(`Login failed: no session cookies returned (status=${loginRes.status}, formStatus=${formRes.status})`);
 }
 
 async function fetchScreenConnectSessions(
@@ -86,17 +94,60 @@ async function fetchScreenConnectSessions(
   totpSecret: string,
 ): Promise<ScreenConnectSession[]> {
   const base = serverUrl.replace(/\/+$/, '');
-  const cookie = await getScreenConnectAuthCookie(base, username, password, totpSecret);
 
-  const url = `${base}/Services/PageService.ashx/GetHostSessionInfo`;
-  const res = await fetch(url, {
-    headers: {
-      Cookie: cookie,
-      'Content-Type': 'application/json',
-    },
-  });
-  if (!res.ok) throw new Error(`ScreenConnect API error (${res.status})`);
-  return res.json() as Promise<ScreenConnectSession[]>;
+  // First try: use cookie-based auth
+  let cookie: string;
+  try {
+    cookie = await getScreenConnectAuthCookie(base, username, password, totpSecret);
+  } catch (loginErr) {
+    // If cookie auth fails, try Basic auth (some instances support this)
+    const basicAuth = Buffer.from(`${username}:${password}`).toString('base64');
+    const basicRes = await fetch(`${base}/Services/PageService.ashx/GetHostSessionInfo`, {
+      headers: {
+        Authorization: `Basic ${basicAuth}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (basicRes.ok) {
+      return basicRes.json() as Promise<ScreenConnectSession[]>;
+    }
+    throw loginErr;
+  }
+
+  // Try multiple known endpoints
+  const endpoints = [
+    '/Services/PageService.ashx/GetHostSessionInfo',
+    '/Services/SessionManagerService.ashx/GetSessions',
+    '/Report.json?ReportType=Access&SelectFields=SessionID,Name,GuestOperatingSystemName,GuestMachineSerialNumber,GuestMachineManufacturerName,GuestMachineModel,GuestNetworkAddress,GuestLoggedOnUserName,GuestLastActivityTime,ConnectionCount,CustomProperty1,CustomProperty2,CustomProperty3,CustomProperty4,CustomProperty5,CustomProperty6,CustomProperty7,CustomProperty8',
+  ];
+
+  for (const endpoint of endpoints) {
+    const res = await fetch(`${base}${endpoint}`, {
+      headers: {
+        Cookie: cookie,
+        'Content-Type': 'application/json',
+      },
+    });
+    console.log(`[SC-SYNC] Trying ${endpoint} → ${res.status}`);
+    if (res.ok) {
+      const data = await res.json() as any;
+      // Handle different response formats
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.Sessions)) return data.Sessions;
+      if (data && Array.isArray(data.Items)) return data.Items;
+      console.log(`[SC-SYNC] Unexpected response shape from ${endpoint}:`, Object.keys(data || {}));
+      continue;
+    }
+  }
+
+  throw new Error(`All ScreenConnect API endpoints failed with authenticated session`);
+}
+
+// Exported for the test endpoint
+export async function fetchScreenConnectSessionsForTest(
+  serverUrl: string, username: string, password: string, totpSecret: string,
+): Promise<ScreenConnectSession[]> {
+  return fetchScreenConnectSessions(serverUrl, username, password, totpSecret);
 }
 
 // ── Sync runner ──────────────────────────────────────────────────────

@@ -565,29 +565,9 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       }
 
       try {
-        const { runScreenConnectSync } = await import('../../services/screenconnect-sync.js');
-        // Just test the connection by fetching sessions
-        const { TOTP } = await import('otpauth');
-        const totp = new TOTP({ secret: totpSecret, digits: 6, period: 30 });
-        const otp = totp.generate();
-
-        const base = serverUrl.replace(/\/+$/, '');
-        const loginRes = await fetch(`${base}/Services/AuthenticationService.ashx/TryLogin`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify([username, password, otp]),
-          redirect: 'manual',
-        });
-        const cookies = loginRes.headers.getSetCookie?.() ?? [];
-        const cookie = cookies.map((c: string) => c.split(';')[0]).join('; ');
-        if (!cookie && loginRes.status !== 200) throw new Error(`Login failed (${loginRes.status})`);
-
-        const sessionsRes = await fetch(`${base}/Services/PageService.ashx/GetHostSessionInfo`, {
-          headers: { Cookie: cookie, 'Content-Type': 'application/json' },
-        });
-        if (!sessionsRes.ok) throw new Error(`Session fetch failed (${sessionsRes.status})`);
-        const sessions = await sessionsRes.json() as unknown[];
-        return { success: true, sessionCount: Array.isArray(sessions) ? sessions.length : 0 };
+        const { fetchScreenConnectSessionsForTest } = await import('../../services/screenconnect-sync.js');
+        const sessions = await fetchScreenConnectSessionsForTest(serverUrl, username, password, totpSecret);
+        return { success: true, sessionCount: sessions.length };
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Connection failed';
         return { success: false, error: message };
