@@ -652,7 +652,15 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                     <div className="text-sm font-medium">Enable SMTP</div>
                     <div className="text-xs text-muted-foreground">Use manual SMTP settings instead of Google email</div>
                   </div>
-                  <input type="checkbox" className="h-4 w-4" checked={emailForm.isEnabled} onChange={e => setEmailForm({ ...emailForm, isEnabled: e.target.checked })} />
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={emailForm.isEnabled}
+                    onClick={() => setEmailForm({ ...emailForm, isEnabled: !emailForm.isEnabled })}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${emailForm.isEnabled ? 'bg-green-500' : 'bg-input'}`}
+                  >
+                    <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${emailForm.isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
                 </div>
                 <Separator />
 
@@ -690,8 +698,16 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" id="useTls" checked={emailForm.useTls} onChange={e => setEmailForm({ ...emailForm, useTls: e.target.checked })} />
-                  <Label htmlFor="useTls">Use TLS/STARTTLS</Label>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={emailForm.useTls}
+                    onClick={() => setEmailForm({ ...emailForm, useTls: !emailForm.useTls })}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${emailForm.useTls ? 'bg-green-500' : 'bg-input'}`}
+                  >
+                    <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${emailForm.useTls ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                  <Label>Use TLS/STARTTLS</Label>
                 </div>
 
                 <Separator />
@@ -821,7 +837,15 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                         <div className="text-sm font-medium">{item.label}</div>
                         <div className="text-xs text-muted-foreground">{item.desc}</div>
                       </div>
-                      <input type="checkbox" checked={notifs[item.key]} onChange={e => setNotifs({ ...notifs, [item.key]: e.target.checked })} className="h-4 w-4" />
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={notifs[item.key]}
+                        onClick={() => setNotifs({ ...notifs, [item.key]: !notifs[item.key] })}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${notifs[item.key] ? 'bg-green-500' : 'bg-input'}`}
+                      >
+                        <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${notifs[item.key] ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -997,7 +1021,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                     <label className="flex items-center gap-2 cursor-pointer">
                       <button type="button" role="switch" aria-checked={slaForm.isDefault}
                         onClick={() => setSlaForm({...slaForm, isDefault: !slaForm.isDefault})}
-                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${slaForm.isDefault ? 'bg-primary' : 'bg-input'}`}>
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${slaForm.isDefault ? 'bg-green-500' : 'bg-input'}`}>
                         <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${slaForm.isDefault ? 'translate-x-4' : 'translate-x-0'}`} />
                       </button>
                       <span className="text-sm">Default policy for new customers</span>
@@ -1120,7 +1144,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                           role="switch"
                           aria-checked={ticketAuto.ticketAutoCloseResolvedEnabled}
                           onClick={() => setTicketAuto({ ...ticketAuto, ticketAutoCloseResolvedEnabled: !ticketAuto.ticketAutoCloseResolvedEnabled })}
-                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${ticketAuto.ticketAutoCloseResolvedEnabled ? 'bg-primary' : 'bg-input'}`}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${ticketAuto.ticketAutoCloseResolvedEnabled ? 'bg-green-500' : 'bg-input'}`}
                         >
                           <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${ticketAuto.ticketAutoCloseResolvedEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
                         </button>
@@ -1150,7 +1174,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                           role="switch"
                           aria-checked={ticketAuto.ticketAutoCloseWaitingEnabled}
                           onClick={() => setTicketAuto({ ...ticketAuto, ticketAutoCloseWaitingEnabled: !ticketAuto.ticketAutoCloseWaitingEnabled })}
-                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${ticketAuto.ticketAutoCloseWaitingEnabled ? 'bg-primary' : 'bg-input'}`}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${ticketAuto.ticketAutoCloseWaitingEnabled ? 'bg-green-500' : 'bg-input'}`}
                         >
                           <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${ticketAuto.ticketAutoCloseWaitingEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
                         </button>
@@ -1183,7 +1207,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                           role="switch"
                           aria-checked={ticketAuto.ticketAutoReopenOnReply}
                           onClick={() => setTicketAuto({ ...ticketAuto, ticketAutoReopenOnReply: !ticketAuto.ticketAutoReopenOnReply })}
-                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${ticketAuto.ticketAutoReopenOnReply ? 'bg-primary' : 'bg-input'}`}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${ticketAuto.ticketAutoReopenOnReply ? 'bg-green-500' : 'bg-input'}`}
                         >
                           <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${ticketAuto.ticketAutoReopenOnReply ? 'translate-x-5' : 'translate-x-0'}`} />
                         </button>
@@ -1202,7 +1226,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                           role="switch"
                           aria-checked={ticketAuto.ticketSlaPauseOnWaiting}
                           onClick={() => setTicketAuto({ ...ticketAuto, ticketSlaPauseOnWaiting: !ticketAuto.ticketSlaPauseOnWaiting })}
-                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${ticketAuto.ticketSlaPauseOnWaiting ? 'bg-primary' : 'bg-input'}`}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${ticketAuto.ticketSlaPauseOnWaiting ? 'bg-green-500' : 'bg-input'}`}
                         >
                           <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${ticketAuto.ticketSlaPauseOnWaiting ? 'translate-x-5' : 'translate-x-0'}`} />
                         </button>
@@ -1287,7 +1311,15 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div><div className="text-sm font-medium">Enable Stripe</div><div className="text-xs text-muted-foreground">Add "Pay Now" buttons to invoice emails</div></div>
-                  <input type="checkbox" className="h-4 w-4" checked={stripeForm.isEnabled} onChange={e => setStripeForm(f => ({ ...f, isEnabled: e.target.checked }))} />
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={stripeForm.isEnabled}
+                    onClick={() => setStripeForm(f => ({ ...f, isEnabled: !f.isEnabled }))}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${stripeForm.isEnabled ? 'bg-green-500' : 'bg-input'}`}
+                  >
+                    <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${stripeForm.isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
                 </div>
                 <Separator />
                 <div className="space-y-2">
@@ -1336,8 +1368,16 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" checked={pax8Form.isEnabled} onChange={e => setPax8Form({ ...pax8Form, isEnabled: e.target.checked })} id="pax8Enabled" />
-                  <Label htmlFor="pax8Enabled">Enable Pax8 Integration</Label>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={pax8Form.isEnabled}
+                    onClick={() => setPax8Form({ ...pax8Form, isEnabled: !pax8Form.isEnabled })}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${pax8Form.isEnabled ? 'bg-green-500' : 'bg-input'}`}
+                  >
+                    <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${pax8Form.isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                  <Label>Enable Pax8 Integration</Label>
                 </div>
                 <div className="space-y-2">
                   <Label>Client ID</Label>
@@ -1712,12 +1752,28 @@ function BillingSettingsTab() {
             </div>
             <div className="flex gap-6">
               <div className="flex items-center gap-2">
-                <input type="checkbox" id="taxProducts" checked={form.appliesToProducts} onChange={e => setForm(f => ({ ...f, appliesToProducts: e.target.checked }))} className="h-4 w-4" />
-                <Label htmlFor="taxProducts">Applies to Products</Label>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.appliesToProducts}
+                  onClick={() => setForm(f => ({ ...f, appliesToProducts: !f.appliesToProducts }))}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${form.appliesToProducts ? 'bg-green-500' : 'bg-input'}`}
+                >
+                  <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${form.appliesToProducts ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+                <Label>Applies to Products</Label>
               </div>
               <div className="flex items-center gap-2">
-                <input type="checkbox" id="taxServices" checked={form.appliesToServices} onChange={e => setForm(f => ({ ...f, appliesToServices: e.target.checked }))} className="h-4 w-4" />
-                <Label htmlFor="taxServices">Applies to Services</Label>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.appliesToServices}
+                  onClick={() => setForm(f => ({ ...f, appliesToServices: !f.appliesToServices }))}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${form.appliesToServices ? 'bg-green-500' : 'bg-input'}`}
+                >
+                  <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${form.appliesToServices ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+                <Label>Applies to Services</Label>
               </div>
             </div>
             <DialogFooter>
@@ -1779,10 +1835,16 @@ function BillingEmailCard() {
         {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
         <form onSubmit={handleSave} className="space-y-4">
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-              <input type="checkbox" checked={config.isEnabled} onChange={e => setConfig(c => ({ ...c, isEnabled: e.target.checked }))} className="rounded" />
-              Enable billing email
-            </label>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={config.isEnabled}
+              onClick={() => setConfig(c => ({ ...c, isEnabled: !c.isEnabled }))}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${config.isEnabled ? 'bg-green-500' : 'bg-input'}`}
+            >
+              <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${config.isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+            <span className="text-sm font-medium">Enable billing email</span>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -2131,10 +2193,16 @@ function TwilioCard() {
         {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
         <form onSubmit={handleSave} className="space-y-4">
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-              <input type="checkbox" checked={config.isEnabled} onChange={e => setConfig(c => ({ ...c, isEnabled: e.target.checked }))} className="rounded" />
-              Enable Twilio SMS
-            </label>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={config.isEnabled}
+              onClick={() => setConfig(c => ({ ...c, isEnabled: !c.isEnabled }))}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${config.isEnabled ? 'bg-green-500' : 'bg-input'}`}
+            >
+              <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${config.isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+            <span className="text-sm font-medium">Enable Twilio SMS</span>
           </div>
           <div>
             <Label>Account SID</Label>
@@ -2197,10 +2265,16 @@ function ConnectBoosterCard() {
         {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
         <form onSubmit={handleSave} className="space-y-4">
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-              <input type="checkbox" checked={config.isEnabled} onChange={e => setConfig(c => ({ ...c, isEnabled: e.target.checked }))} className="rounded" />
-              Enable ConnectBooster
-            </label>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={config.isEnabled}
+              onClick={() => setConfig(c => ({ ...c, isEnabled: !c.isEnabled }))}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${config.isEnabled ? 'bg-green-500' : 'bg-input'}`}
+            >
+              <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${config.isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+            <span className="text-sm font-medium">Enable ConnectBooster</span>
           </div>
           <div>
             <Label>Merchant ID</Label>
@@ -2258,10 +2332,17 @@ function QBOPaymentsCard() {
         ) : (
           <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-                <input type="checkbox" checked={status.isEnabled} onChange={e => toggleEnabled(e.target.checked)} disabled={saving} className="rounded" />
-                Enable QuickBooks Payments
-              </label>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={status.isEnabled}
+                onClick={() => toggleEnabled(!status.isEnabled)}
+                disabled={saving}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${status.isEnabled ? 'bg-green-500' : 'bg-input'}`}
+              >
+                <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${status.isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+              </button>
+              <span className="text-sm font-medium">Enable QuickBooks Payments</span>
             </div>
             <p className="text-xs text-muted-foreground">
               Ensure QuickBooks Payments is active in your QuickBooks Online account. Once enabled, invoices synced to QBO will include a "Pay Online" link powered by QB Payments.
@@ -2306,10 +2387,16 @@ function NinjaOneCard() {
         {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
         <form onSubmit={handleSave} className="space-y-4">
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-              <input type="checkbox" checked={config.isEnabled} onChange={e => setConfig(c => ({ ...c, isEnabled: e.target.checked }))} className="rounded" />
-              Enable NinjaOne Integration
-            </label>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={config.isEnabled}
+              onClick={() => setConfig(c => ({ ...c, isEnabled: !c.isEnabled }))}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${config.isEnabled ? 'bg-green-500' : 'bg-input'}`}
+            >
+              <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${config.isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+            <span className="text-sm font-medium">Enable NinjaOne Integration</span>
           </div>
           <div>
             <Label>Region</Label>
@@ -2371,10 +2458,16 @@ function CrewHuCard() {
         {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{message}</div>}
         <form onSubmit={handleSave} className="space-y-4">
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-              <input type="checkbox" checked={config.isEnabled} onChange={e => setConfig(c => ({ ...c, isEnabled: e.target.checked }))} className="rounded" />
-              Enable CrewHu CSAT
-            </label>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={config.isEnabled}
+              onClick={() => setConfig(c => ({ ...c, isEnabled: !c.isEnabled }))}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${config.isEnabled ? 'bg-green-500' : 'bg-input'}`}
+            >
+              <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${config.isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+            <span className="text-sm font-medium">Enable CrewHu CSAT</span>
           </div>
           <div>
             <Label>API Key</Label>
@@ -2473,7 +2566,7 @@ function ScreenConnectCard() {
             role="switch"
             aria-checked={scConfig.isEnabled}
             onClick={() => setScConfig({ ...scConfig, isEnabled: !scConfig.isEnabled })}
-            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${scConfig.isEnabled ? 'bg-primary' : 'bg-input'}`}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${scConfig.isEnabled ? 'bg-green-500' : 'bg-input'}`}
           >
             <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${scConfig.isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
           </button>
