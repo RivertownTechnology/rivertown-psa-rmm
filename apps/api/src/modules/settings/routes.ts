@@ -267,7 +267,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     { preHandler: [fastify.authenticate, requirePermission('*')] },
     async (request) => {
       const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
-      const body = request.body as { isEnabled: boolean; apiKey?: string; model?: string };
+      const body = request.body as { isEnabled: boolean; apiKey?: string; model?: string; provider?: string; personality?: string; name?: string };
 
       const [existing] = await fastify.db.select().from(integrationConfigs)
         .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'ai')))
@@ -280,7 +280,13 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         apiKey: body.apiKey?.startsWith('••') ? prevCreds.apiKey : (body.apiKey || prevCreds.apiKey || ''),
       });
 
-      const settings = { ...prevSettings, model: body.model || prevSettings.model || 'claude-sonnet-4-20250514' };
+      const settings = {
+        ...prevSettings,
+        model: body.model || prevSettings.model || 'claude-sonnet-4-20250514',
+        provider: body.provider || prevSettings.provider || 'anthropic',
+        personality: body.personality ?? prevSettings.personality ?? '',
+        name: body.name || prevSettings.name || 'Atlas',
+      };
 
       if (existing) {
         await fastify.db.update(integrationConfigs).set({

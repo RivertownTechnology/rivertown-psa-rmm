@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Plus, Search, Ticket, LayoutList, Kanban, X, Trash2, UserPlus, ArrowRight } from 'lucide-react';
+import { Plus, Search, Ticket, LayoutList, Kanban, X, Trash2, UserPlus, ArrowRight, GitMerge } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -219,6 +219,9 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
   const [showBulkStatus, setShowBulkStatus] = useState(false);
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [showBulkMerge, setShowBulkMerge] = useState(false);
+  const [mergeTargetId, setMergeTargetId] = useState('');
+  const [merging, setMerging] = useState(false);
 
   // Ticket templates
   const [ticketTemplates, setTicketTemplates] = useState<Array<{ id: string; name: string; subject: string; body: string; priority: string; category: string }>>([]);
@@ -646,14 +649,19 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
                 key={t.id}
                 className="rounded-lg border bg-card px-4 py-3 cursor-pointer transition-colors hover:bg-muted/50 flex items-start gap-3"
               >
-                {/* Checkbox for bulk selection */}
-                <div className="pt-0.5 shrink-0" onClick={e => e.stopPropagation()}>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(t.id)}
-                    onChange={() => toggleSelect(t.id)}
-                    className="rounded border-gray-300 h-4 w-4 cursor-pointer"
-                  />
+                {/* Selection indicator */}
+                <div className="pt-0.5 shrink-0" onClick={e => { e.stopPropagation(); toggleSelect(t.id); }}>
+                  <div className={`h-5 w-5 rounded-md border-2 flex items-center justify-center cursor-pointer transition-all duration-150 ${
+                    selectedIds.has(t.id)
+                      ? 'bg-primary border-primary text-primary-foreground'
+                      : 'border-muted-foreground/30 hover:border-muted-foreground/50'
+                  }`}>
+                    {selectedIds.has(t.id) && (
+                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
                 </div>
                 <div className="flex-1 min-w-0" onClick={() => onSelectTicket?.(t.id)}>
                 {/* Line 1: number + subject + relative time */}
@@ -749,6 +757,9 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
           <Button size="sm" variant="outline" onClick={bulkClose}>
             Close
           </Button>
+          <Button size="sm" variant="outline" onClick={() => setShowBulkMerge(true)} disabled={selectedIds.size < 2}>
+            <GitMerge className="h-3.5 w-3.5 mr-1" />Merge
+          </Button>
           <Button size="sm" variant="destructive" onClick={() => setShowBulkDelete(true)}>
             <Trash2 className="h-3.5 w-3.5 mr-1" />Delete
           </Button>
@@ -823,6 +834,42 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
             <Button variant="outline" onClick={() => setShowBulkDelete(false)}>Cancel</Button>
             <Button variant="destructive" onClick={bulkDelete} disabled={bulkLoading}>
               {bulkLoading ? 'Deleting...' : 'Delete Tickets'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Merge Dialog */}
+      <Dialog open={showBulkMerge} onOpenChange={setShowBulkMerge}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Merge {selectedIds.size} Tickets</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">Select the ticket to keep. All other selected tickets will be merged into it (comments and time entries moved, source tickets closed).</p>
+          <Combobox
+            options={[...selectedIds].map(id => {
+              const t = tickets.find(t => t.id === id);
+              return { value: id, label: t ? `#${t.ticketNumber} — ${t.subject}` : id };
+            })}
+            value={mergeTargetId}
+            onValueChange={setMergeTargetId}
+            placeholder="Select target ticket..."
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkMerge(false)}>Cancel</Button>
+            <Button disabled={!mergeTargetId || merging} onClick={async () => {
+              setMerging(true);
+              const sources = [...selectedIds].filter(id => id !== mergeTargetId);
+              for (const sourceId of sources) {
+                await api(`/tickets/${sourceId}/merge`, { method: 'POST', body: JSON.stringify({ targetTicketId: mergeTargetId }) }).catch(() => {});
+              }
+              setMerging(false);
+              setShowBulkMerge(false);
+              setSelectedIds(new Set());
+              setMergeTargetId('');
+              fetchTickets();
+            }}>
+              {merging ? 'Merging...' : 'Merge into selected'}
             </Button>
           </DialogFooter>
         </DialogContent>
