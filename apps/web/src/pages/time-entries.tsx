@@ -19,7 +19,7 @@ interface TimeEntry {
 }
 
 interface Customer { id: string; name: string; }
-interface Ticket { id: string; number: number; subject: string; customerId: string; }
+interface Ticket { id: string; ticketNumber: number; subject: string; customerId: string; }
 interface TicketsResponse { data: Ticket[]; pagination: { total: number; page: number; totalPages: number }; }
 
 type DateFilter = 'today' | 'week' | 'month' | 'all';
@@ -100,7 +100,7 @@ export function TimeEntriesPage() {
 
   const ticketOptions = tickets.map(t => ({
     value: t.id,
-    label: `#${t.number} — ${t.subject}`,
+    label: `#${t.ticketNumber} — ${t.subject}`,
   }));
 
   // Filtering
