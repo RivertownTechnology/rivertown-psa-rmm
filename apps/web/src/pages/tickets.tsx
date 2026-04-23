@@ -34,6 +34,8 @@ interface TicketRow {
   slaResponseDueAt: string | null;
   slaResolutionDueAt: string | null;
   slaBreached: boolean | null;
+  slaPausedAt: string | null;
+  slaTotalPausedMs: number | null;
 }
 
 interface Customer {
@@ -88,16 +90,33 @@ function slaCountdown(ticket: TicketRow): { text: string; className: string } | 
   if (['resolved', 'closed'].includes(ticket.status)) {
     return { text: 'SLA: Met', className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' };
   }
+
   const now = Date.now();
   const due = new Date(ticket.slaResolutionDueAt).getTime();
-  const remaining = due - now;
-  if (remaining <= 0) {
+  const isPaused = ticket.status === 'waiting_on_customer' && !!ticket.slaPausedAt;
+
+  // Account for paused time
+  const totalPaused = (ticket.slaTotalPausedMs ?? 0) +
+    (ticket.slaPausedAt ? (now - new Date(ticket.slaPausedAt).getTime()) : 0);
+  const adjustedDue = due + totalPaused;
+  const remaining = adjustedDue - now;
+
+  if (remaining <= 0 && !isPaused) {
     return { text: 'SLA: Breached', className: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' };
   }
+
+  if (isPaused) {
+    const totalMin = Math.floor(remaining / 60000);
+    const hours = Math.floor(totalMin / 60);
+    const mins = totalMin % 60;
+    const label = hours > 0 ? `SLA: Paused (${hours}h ${mins}m)` : `SLA: Paused (${mins}m)`;
+    return { text: label, className: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' };
+  }
+
   const totalMin = Math.floor(remaining / 60000);
   const hours = Math.floor(totalMin / 60);
   const mins = totalMin % 60;
-  const total = due - new Date(ticket.createdAt).getTime();
+  const total = adjustedDue - new Date(ticket.createdAt).getTime();
   const atRisk = remaining < total * 0.25;
   const label = hours > 0 ? `SLA: ${hours}h ${mins}m` : `SLA: ${mins}m`;
   return {

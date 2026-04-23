@@ -39,6 +39,7 @@ interface Ticket {
   slaResponseDueAt: string | null; slaResolutionDueAt: string | null;
   slaResponseMet: boolean | null; slaBreached: boolean | null;
   slaPolicyId: string | null;
+  slaPausedAt: string | null; slaTotalPausedMs: number | null;
 }
 
 interface TicketCategory {
@@ -1164,16 +1165,28 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                     {!['resolved', 'closed'].includes(ticket.status) && (() => {
                       const now = Date.now();
                       const due = new Date(ticket.slaResolutionDueAt).getTime();
-                      const remaining = due - now;
-                      if (remaining <= 0) return <Badge variant="destructive">SLA Breached</Badge>;
-                      const hours = Math.floor(remaining / 3600000);
-                      const mins = Math.floor((remaining % 3600000) / 60000);
-                      const total = due - new Date(ticket.createdAt).getTime();
+                      // Account for paused time: shift the due date forward by total paused milliseconds
+                      const totalPaused = (ticket.slaTotalPausedMs ?? 0) +
+                        (ticket.slaPausedAt ? (now - new Date(ticket.slaPausedAt).getTime()) : 0);
+                      const adjustedDue = due + totalPaused;
+                      const remaining = adjustedDue - now;
+                      const isPaused = ticket.status === 'waiting_on_customer' && !!ticket.slaPausedAt;
+
+                      if (remaining <= 0 && !isPaused) return <Badge variant="destructive">SLA Breached</Badge>;
+                      const hours = Math.floor(Math.abs(remaining) / 3600000);
+                      const mins = Math.floor((Math.abs(remaining) % 3600000) / 60000);
+                      const total = adjustedDue - new Date(ticket.createdAt).getTime();
                       const pct = Math.max(0, Math.min(100, ((total - remaining) / total) * 100));
-                      const color = remaining < total * 0.25 ? 'bg-yellow-500' : 'bg-green-500';
+                      const color = isPaused ? 'bg-purple-500' : remaining < total * 0.25 ? 'bg-yellow-500' : 'bg-green-500';
                       return (
                         <div>
-                          <div className="text-xs text-muted-foreground mb-1">{hours}h {mins}m remaining</div>
+                          <div className="text-xs text-muted-foreground mb-1">
+                            {isPaused ? (
+                              <span className="text-purple-600 dark:text-purple-400 font-medium">SLA Paused — {hours}h {mins}m remaining when resumed</span>
+                            ) : (
+                              <>{hours}h {mins}m remaining</>
+                            )}
+                          </div>
                           <div className="w-full bg-muted rounded-full h-2">
                             <div className={`h-2 rounded-full ${color}`} style={{ width: `${pct}%` }} />
                           </div>
