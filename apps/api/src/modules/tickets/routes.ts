@@ -6,6 +6,8 @@ import {
   ticketTimeEntries,
   ticketCategories,
   ticketSubcategories,
+  ticketTags,
+  ticketTagAssignments,
   tenantSequences,
   tenants,
   users,
@@ -154,6 +156,11 @@ export async function ticketRoutes(fastify: FastifyInstance) {
 
       moduleEvents.emit('ticket.created', ticket);
 
+      // Evaluate workflow rules for new ticket
+      import('../../services/workflow-engine.js').then(({ evaluateWorkflowRules }) => {
+        evaluateWorkflowRules(fastify.db, request.tenantId, 'ticket_created', ticket).catch(e => console.error('Workflow error:', e));
+      });
+
       // Send ticket created email notification (fire and forget)
       import('../../services/email-notifications.js').then(({ sendTicketCreatedEmail }) => {
         sendTicketCreatedEmail(fastify.db, request.tenantId, ticket.id).catch(e => console.error('Ticket created email failed:', e));
@@ -287,6 +294,19 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       }
 
       moduleEvents.emit('ticket.updated', updated, body);
+
+      // Evaluate workflow rules for updated ticket
+      import('../../services/workflow-engine.js').then(({ evaluateWorkflowRules }) => {
+        evaluateWorkflowRules(fastify.db, request.tenantId, 'ticket_updated', updated, body as Record<string, unknown>).catch(e => console.error('Workflow error:', e));
+      });
+
+      // Trigger status-specific workflow rules
+      if (body.status && body.status !== existing.status) {
+        import('../../services/workflow-engine.js').then(({ evaluateWorkflowRules }) => {
+          evaluateWorkflowRules(fastify.db, request.tenantId, 'ticket_status_changed', updated, body as Record<string, unknown>).catch(e => console.error('Workflow error:', e));
+        });
+      }
+
       return updated;
     },
   );
@@ -302,6 +322,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       if (!existing) throw new NotFoundError('Ticket', id);
 
       // Delete all child records that reference this ticket
+      await fastify.db.delete(ticketTagAssignments).where(eq(ticketTagAssignments.ticketId, id));
       await fastify.db.delete(ticketTimeEntries).where(eq(ticketTimeEntries.ticketId, id));
       await fastify.db.delete(ticketComments).where(eq(ticketComments.ticketId, id));
       await fastify.db.update(calendarEvents).set({ ticketId: null }).where(eq(calendarEvents.ticketId, id));
@@ -548,6 +569,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     const { ids } = request.body as { ids: string[] };
     for (const id of ids) {
+      await fastify.db.delete(ticketTagAssignments).where(eq(ticketTagAssignments.ticketId, id));
       await fastify.db.delete(ticketTimeEntries).where(eq(ticketTimeEntries.ticketId, id));
       await fastify.db.delete(ticketComments).where(eq(ticketComments.ticketId, id));
       await fastify.db.update(calendarEvents).set({ ticketId: null }).where(eq(calendarEvents.ticketId, id));
@@ -587,4 +609,55 @@ export async function ticketRoutes(fastify: FastifyInstance) {
 
     return { success: true, sourceTicketId: id, targetTicketId };
   });
+
+  // ===== TICKET TAG ASSIGNMENTS =====
+
+  // List tags on a ticket
+  fastify.get(
+    '/api/v1/tickets/:id/tags',
+    { preHandler: [fastify.authenticate, requirePermission('tickets:read')] },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const assignments = await fastify.db
+        .select({
+          id: ticketTagAssignments.id,
+          tagId: ticketTagAssignments.tagId,
+          name: ticketTags.name,
+          color: ticketTags.color,
+          createdAt: ticketTagAssignments.createdAt,
+        })
+        .from(ticketTagAssignments)
+        .innerJoin(ticketTags, eq(ticketTagAssignments.tagId, ticketTags.id))
+        .where(eq(ticketTagAssignments.ticketId, id));
+      return assignments;
+    },
+  );
+
+  // Add tag to a ticket
+  fastify.post(
+    '/api/v1/tickets/:id/tags',
+    { preHandler: [fastify.authenticate, requirePermission('tickets:write')] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const { tagId } = request.body as { tagId: string };
+      const [assignment] = await fastify.db.insert(ticketTagAssignments).values({
+        ticketId: id,
+        tagId,
+      }).returning();
+      reply.code(201);
+      return assignment;
+    },
+  );
+
+  // Remove tag from a ticket
+  fastify.delete(
+    '/api/v1/tickets/:id/tags/:tagId',
+    { preHandler: [fastify.authenticate, requirePermission('tickets:write')] },
+    async (request, reply) => {
+      const { id, tagId } = request.params as { id: string; tagId: string };
+      await fastify.db.delete(ticketTagAssignments)
+        .where(and(eq(ticketTagAssignments.ticketId, id), eq(ticketTagAssignments.tagId, tagId)));
+      reply.code(204).send();
+    },
+  );
 }

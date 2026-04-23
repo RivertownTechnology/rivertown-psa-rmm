@@ -34,6 +34,7 @@ interface Ticket {
   customerId: string; contactId: string | null; assetId: string | null;
   contractId: string | null; assignedTo: string | null;
   categoryId: string | null; subcategoryId: string | null;
+  queueId: string | null;
   slaDueAt: string | null; resolvedAt: string | null; closedAt: string | null;
   createdAt: string; updatedAt: string;
   slaResponseDueAt: string | null; slaResolutionDueAt: string | null;
@@ -231,6 +232,17 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
   const [techs, setTechs] = useState<Array<{ id: string; displayName: string }>>([]);
   const [categories, setCategories] = useState<TicketCategory[]>([]);
 
+  // Queue + Tags
+  const [queues, setQueues] = useState<Array<{id: string; name: string}>>([]);
+  const [ticketTags, setTicketTags] = useState<Array<{id: string; name: string; color: string}>>([]);
+  const [allTags, setAllTags] = useState<Array<{id: string; name: string; color: string}>>([]);
+  const [showAddTag, setShowAddTag] = useState(false);
+
+  // Timer / Stopwatch
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [timerStart, setTimerStart] = useState<number | null>(null);
+  const [timerDisplay, setTimerDisplay] = useState('00:00:00');
+
   // UI state
   const [editingSubject, setEditingSubject] = useState(false);
   const [subjectDraft, setSubjectDraft] = useState('');
@@ -346,6 +358,19 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
     }
   }, []);
 
+  // Timer effect
+  useEffect(() => {
+    if (!timerRunning || !timerStart) return;
+    const interval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - timerStart) / 1000);
+      const h = Math.floor(elapsed / 3600);
+      const m = Math.floor((elapsed % 3600) / 60);
+      const s = elapsed % 60;
+      setTimerDisplay(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [timerRunning, timerStart]);
+
   // Live tick counter for SLA countdown
   const [, setTick] = useState(0);
 
@@ -361,6 +386,9 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
       loadAssets(t.customerId);
       api<Array<{ id: string; displayName: string }>>('/dispatch/techs').then(setTechs).catch(() => {});
       api<TicketCategory[]>('/ticket-categories').then(setCategories).catch(() => {});
+      api<Array<{id: string; name: string}>>('/settings/ticket-queues').then(setQueues).catch(() => {});
+      api<Array<{id: string; name: string; color: string}>>('/settings/ticket-tags').then(setAllTags).catch(() => {});
+      api<Array<{id: string; name: string; color: string}>>(`/tickets/${ticketId}/tags`).then(setTicketTags).catch(() => {});
       // Auto-open new tickets when a tech views them
       if (t.status === 'new') {
         await api(`/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify({ status: 'open' }) });
@@ -560,6 +588,45 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
     } finally {
       setMerging(false);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Tags
+  // -------------------------------------------------------------------------
+
+  async function addTag(tagId: string) {
+    try {
+      await api(`/tickets/${ticketId}/tags`, { method: 'POST', body: JSON.stringify({ tagId }) });
+      const data = await api<Array<{id: string; name: string; color: string}>>(`/tickets/${ticketId}/tags`);
+      setTicketTags(data);
+      setShowAddTag(false);
+    } catch { /* */ }
+  }
+
+  async function removeTag(tagId: string) {
+    try {
+      await api(`/tickets/${ticketId}/tags/${tagId}`, { method: 'DELETE' });
+      setTicketTags(prev => prev.filter(t => t.id !== tagId));
+    } catch { /* */ }
+  }
+
+  // -------------------------------------------------------------------------
+  // Timer / Stopwatch
+  // -------------------------------------------------------------------------
+
+  async function stopTimer() {
+    if (!timerStart) return;
+    const elapsed = Math.floor((Date.now() - timerStart) / 1000);
+    const durationMinutes = Math.max(1, Math.ceil(elapsed / 60));
+    setTimerRunning(false);
+    setTimerStart(null);
+    setTimerDisplay('00:00:00');
+    const now = new Date().toISOString();
+    await api(`/tickets/${ticketId}/time-entries`, {
+      method: 'POST',
+      body: JSON.stringify({ ticketId, startedAt: now, endedAt: now, durationMinutes, isBillable: true, notes: 'Timer entry' }),
+    });
+    loadTimeEntries();
   }
 
   // -------------------------------------------------------------------------
@@ -985,6 +1052,17 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                 />
               </div>
 
+              {/* Queue */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Queue</Label>
+                <Combobox
+                  options={[{ value: '', label: 'No queue' }, ...queues.map(q => ({ value: q.id, label: q.name }))]}
+                  value={ticket.queueId ?? ''}
+                  onValueChange={(v) => updateTicketField('queueId', v || null)}
+                  placeholder="Select queue..."
+                />
+              </div>
+
               <Separator />
 
               {/* Customer */}
@@ -1119,6 +1197,34 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                   </div>
                 );
               })()}
+
+              {/* Tags */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Tags</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {ticketTags.map(t => (
+                    <span key={t.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-white" style={{backgroundColor: t.color}}>
+                      {t.name}
+                      <button onClick={() => removeTag(t.id)} className="hover:opacity-70"><X className="h-3 w-3" /></button>
+                    </span>
+                  ))}
+                  {showAddTag ? (
+                    <div className="w-full mt-1">
+                      <Combobox
+                        options={allTags.filter(at => !ticketTags.some(tt => tt.id === at.id)).map(t => ({ value: t.id, label: t.name }))}
+                        value=""
+                        onValueChange={(v) => { if (v) addTag(v); }}
+                        placeholder="Select tag..."
+                      />
+                      <Button variant="ghost" size="sm" className="h-6 text-xs mt-1" onClick={() => setShowAddTag(false)}>Cancel</Button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setShowAddTag(true)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-dashed hover:bg-muted">
+                      <Plus className="h-3 w-3" /> Add
+                    </button>
+                  )}
+                </div>
+              </div>
 
               {/* Source & Type */}
               <div className="grid grid-cols-2 gap-3">
@@ -1355,6 +1461,18 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                     <span className="font-medium text-green-600">{formatDuration(billableMinutes)}</span>
                   </div>
                 </div>
+              )}
+
+              {/* Timer / Stopwatch */}
+              {timerRunning ? (
+                <div className="flex items-center gap-2 p-2 bg-red-50 dark:bg-red-950/20 rounded-lg border border-red-200 dark:border-red-800">
+                  <div className="text-lg font-mono font-bold text-red-600">{timerDisplay}</div>
+                  <Button size="sm" variant="destructive" onClick={stopTimer}>Stop</Button>
+                </div>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => { setTimerRunning(true); setTimerStart(Date.now()); }} className="gap-1.5">
+                  <Timer className="h-3.5 w-3.5" /> Start Timer
+                </Button>
               )}
 
               {/* Inline time entry form */}

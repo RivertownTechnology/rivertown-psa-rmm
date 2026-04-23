@@ -24,3 +24,7 @@ export * from './kb-articles.js';
 export * from './canned-responses.js';
 export * from './notifications.js';
 export * from './custom-fields.js';
+export * from './ticket-queues.js';
+export * from './ticket-tags.js';
+export * from './recurring-tickets.js';
+export * from './workflow-rules.js';

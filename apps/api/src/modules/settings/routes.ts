@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { eq, and, sql, desc, count } from 'drizzle-orm';
-import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues } from '@rivertown/db';
+import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues, ticketQueues, ticketTags, ticketTagAssignments, ticketCategories, ticketSubcategories, recurringTicketRules, workflowRules } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
 
@@ -1731,4 +1731,333 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     await fastify.db.update(tenants).set({ settings, updatedAt: new Date() }).where(eq(tenants.id, request.tenantId));
     return { success: true };
   });
+
+  // ===== TICKET QUEUES =====
+
+  fastify.get('/api/v1/settings/ticket-queues', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    return fastify.db.select().from(ticketQueues)
+      .where(eq(ticketQueues.tenantId, request.tenantId))
+      .orderBy(ticketQueues.sortOrder);
+  });
+
+  fastify.post('/api/v1/settings/ticket-queues', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const body = request.body as { name: string; description?: string; color?: string; isDefault?: boolean; sortOrder?: number };
+    const [queue] = await fastify.db.insert(ticketQueues).values({
+      tenantId: request.tenantId,
+      name: body.name,
+      description: body.description,
+      color: body.color,
+      isDefault: body.isDefault ?? false,
+      sortOrder: body.sortOrder ?? 0,
+    }).returning();
+    reply.code(201);
+    return queue;
+  });
+
+  fastify.patch('/api/v1/settings/ticket-queues/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as Partial<{ name: string; description: string; color: string; isDefault: boolean; sortOrder: number }>;
+    const [updated] = await fastify.db.update(ticketQueues)
+      .set(body)
+      .where(and(eq(ticketQueues.id, id), eq(ticketQueues.tenantId, request.tenantId)))
+      .returning();
+    return updated;
+  });
+
+  fastify.delete('/api/v1/settings/ticket-queues/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    // Unlink tickets from this queue first
+    await fastify.db.update(tickets).set({ queueId: null, updatedAt: new Date() })
+      .where(and(eq(tickets.queueId, id), eq(tickets.tenantId, request.tenantId)));
+    await fastify.db.delete(ticketQueues)
+      .where(and(eq(ticketQueues.id, id), eq(ticketQueues.tenantId, request.tenantId)));
+    reply.code(204).send();
+  });
+
+  // ===== TICKET TAGS =====
+
+  fastify.get('/api/v1/settings/ticket-tags', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    return fastify.db.select().from(ticketTags)
+      .where(eq(ticketTags.tenantId, request.tenantId))
+      .orderBy(ticketTags.name);
+  });
+
+  fastify.post('/api/v1/settings/ticket-tags', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const body = request.body as { name: string; color?: string };
+    const [tag] = await fastify.db.insert(ticketTags).values({
+      tenantId: request.tenantId,
+      name: body.name,
+      color: body.color,
+    }).returning();
+    reply.code(201);
+    return tag;
+  });
+
+  fastify.patch('/api/v1/settings/ticket-tags/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as Partial<{ name: string; color: string }>;
+    const [updated] = await fastify.db.update(ticketTags)
+      .set(body)
+      .where(and(eq(ticketTags.id, id), eq(ticketTags.tenantId, request.tenantId)))
+      .returning();
+    return updated;
+  });
+
+  fastify.delete('/api/v1/settings/ticket-tags/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    // Delete tag assignments first
+    await fastify.db.delete(ticketTagAssignments).where(eq(ticketTagAssignments.tagId, id));
+    await fastify.db.delete(ticketTags)
+      .where(and(eq(ticketTags.id, id), eq(ticketTags.tenantId, request.tenantId)));
+    reply.code(204).send();
+  });
+
+  // ===== TICKET CATEGORIES =====
+
+  fastify.post('/api/v1/settings/ticket-categories', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const body = request.body as { name: string; description?: string; sortOrder?: number };
+    const slug = body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const [category] = await fastify.db.insert(ticketCategories).values({
+      tenantId: request.tenantId,
+      name: body.name,
+      slug,
+      description: body.description,
+      sortOrder: body.sortOrder ?? 0,
+    }).returning();
+    reply.code(201);
+    return category;
+  });
+
+  fastify.patch('/api/v1/settings/ticket-categories/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as Partial<{ name: string; description: string; sortOrder: number; isActive: boolean }>;
+    const update: Record<string, unknown> = { ...body };
+    if (body.name) {
+      update.slug = body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    }
+    const [updated] = await fastify.db.update(ticketCategories)
+      .set(update)
+      .where(and(eq(ticketCategories.id, id), eq(ticketCategories.tenantId, request.tenantId)))
+      .returning();
+    return updated;
+  });
+
+  fastify.delete('/api/v1/settings/ticket-categories/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    // Unlink tickets from this category
+    await fastify.db.update(tickets).set({ categoryId: null, subcategoryId: null, updatedAt: new Date() })
+      .where(and(eq(tickets.categoryId, id), eq(tickets.tenantId, request.tenantId)));
+    // Delete subcategories under this category
+    await fastify.db.delete(ticketSubcategories)
+      .where(and(eq(ticketSubcategories.categoryId, id), eq(ticketSubcategories.tenantId, request.tenantId)));
+    await fastify.db.delete(ticketCategories)
+      .where(and(eq(ticketCategories.id, id), eq(ticketCategories.tenantId, request.tenantId)));
+    reply.code(204).send();
+  });
+
+  // ===== TICKET SUBCATEGORIES =====
+
+  fastify.post('/api/v1/settings/ticket-categories/:id/subcategories', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { name: string; description?: string; sortOrder?: number };
+    const slug = body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const [subcategory] = await fastify.db.insert(ticketSubcategories).values({
+      tenantId: request.tenantId,
+      categoryId: id,
+      name: body.name,
+      slug,
+      description: body.description,
+      sortOrder: body.sortOrder ?? 0,
+    }).returning();
+    reply.code(201);
+    return subcategory;
+  });
+
+  fastify.patch('/api/v1/settings/ticket-subcategories/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as Partial<{ name: string; description: string; sortOrder: number; isActive: boolean }>;
+    const update: Record<string, unknown> = { ...body };
+    if (body.name) {
+      update.slug = body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    }
+    const [updated] = await fastify.db.update(ticketSubcategories)
+      .set(update)
+      .where(and(eq(ticketSubcategories.id, id), eq(ticketSubcategories.tenantId, request.tenantId)))
+      .returning();
+    return updated;
+  });
+
+  fastify.delete('/api/v1/settings/ticket-subcategories/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    // Unlink tickets from this subcategory
+    await fastify.db.update(tickets).set({ subcategoryId: null, updatedAt: new Date() })
+      .where(and(eq(tickets.subcategoryId, id), eq(tickets.tenantId, request.tenantId)));
+    await fastify.db.delete(ticketSubcategories)
+      .where(and(eq(ticketSubcategories.id, id), eq(ticketSubcategories.tenantId, request.tenantId)));
+    reply.code(204).send();
+  });
+
+  // ===== RECURRING TICKETS =====
+
+  fastify.get('/api/v1/settings/recurring-tickets', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    return fastify.db.select().from(recurringTicketRules)
+      .where(eq(recurringTicketRules.tenantId, request.tenantId))
+      .orderBy(recurringTicketRules.name);
+  });
+
+  fastify.post('/api/v1/settings/recurring-tickets', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const body = request.body as any;
+    // Calculate initial nextRunAt
+    const nextRunAt = calculateNextRun(body.frequency, body.dayOfWeek, body.dayOfMonth);
+    const [rule] = await fastify.db.insert(recurringTicketRules).values({
+      tenantId: request.tenantId,
+      ...body,
+      nextRunAt,
+    }).returning();
+    reply.code(201);
+    return rule;
+  });
+
+  fastify.patch('/api/v1/settings/recurring-tickets/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as any;
+    const update: Record<string, unknown> = { ...body, updatedAt: new Date() };
+    // Recalculate nextRunAt if schedule changed
+    if (body.frequency || body.dayOfWeek !== undefined || body.dayOfMonth !== undefined) {
+      const [existing] = await fastify.db.select().from(recurringTicketRules)
+        .where(and(eq(recurringTicketRules.id, id), eq(recurringTicketRules.tenantId, request.tenantId))).limit(1);
+      if (existing) {
+        const freq = body.frequency || existing.frequency;
+        const dow = body.dayOfWeek ?? existing.dayOfWeek;
+        const dom = body.dayOfMonth ?? existing.dayOfMonth;
+        update.nextRunAt = calculateNextRun(freq, dow, dom);
+      }
+    }
+    const [updated] = await fastify.db.update(recurringTicketRules)
+      .set(update)
+      .where(and(eq(recurringTicketRules.id, id), eq(recurringTicketRules.tenantId, request.tenantId)))
+      .returning();
+    return updated;
+  });
+
+  fastify.delete('/api/v1/settings/recurring-tickets/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.delete(recurringTicketRules)
+      .where(and(eq(recurringTicketRules.id, id), eq(recurringTicketRules.tenantId, request.tenantId)));
+    reply.code(204).send();
+  });
+
+  // ===== WORKFLOW RULES =====
+
+  fastify.get('/api/v1/settings/workflow-rules', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    return fastify.db.select().from(workflowRules)
+      .where(eq(workflowRules.tenantId, request.tenantId))
+      .orderBy(workflowRules.sortOrder);
+  });
+
+  fastify.post('/api/v1/settings/workflow-rules', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const body = request.body as any;
+    const [rule] = await fastify.db.insert(workflowRules).values({
+      tenantId: request.tenantId, ...body,
+    }).returning();
+    reply.code(201);
+    return rule;
+  });
+
+  fastify.patch('/api/v1/settings/workflow-rules/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as any;
+    const [updated] = await fastify.db.update(workflowRules)
+      .set({ ...body, updatedAt: new Date() })
+      .where(and(eq(workflowRules.id, id), eq(workflowRules.tenantId, request.tenantId)))
+      .returning();
+    return updated;
+  });
+
+  fastify.delete('/api/v1/settings/workflow-rules/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.delete(workflowRules)
+      .where(and(eq(workflowRules.id, id), eq(workflowRules.tenantId, request.tenantId)));
+    reply.code(204).send();
+  });
+}
+
+function calculateNextRun(frequency: string, dayOfWeek?: number, dayOfMonth?: number): Date {
+  const now = new Date();
+  switch (frequency) {
+    case 'daily': {
+      const next = new Date(now);
+      next.setDate(next.getDate() + 1);
+      next.setHours(8, 0, 0, 0);
+      return next;
+    }
+    case 'weekly': {
+      const next = new Date(now);
+      const targetDay = dayOfWeek ?? 1; // Default Monday
+      const currentDay = next.getDay();
+      let daysUntil = targetDay - currentDay;
+      if (daysUntil <= 0) daysUntil += 7;
+      next.setDate(next.getDate() + daysUntil);
+      next.setHours(8, 0, 0, 0);
+      return next;
+    }
+    case 'monthly': {
+      const next = new Date(now);
+      const targetDay = dayOfMonth ?? 1;
+      next.setMonth(next.getMonth() + 1);
+      next.setDate(Math.min(targetDay, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
+      next.setHours(8, 0, 0, 0);
+      return next;
+    }
+    default: {
+      const next = new Date(now);
+      next.setDate(next.getDate() + 1);
+      next.setHours(8, 0, 0, 0);
+      return next;
+    }
+  }
 }

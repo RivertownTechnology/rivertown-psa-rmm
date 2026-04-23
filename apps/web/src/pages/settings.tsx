@@ -34,7 +34,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
   // Parse hash: "#topTab" or "#topTab/subTab" or "#topTab/subTab/subSubTab"
   const hashRaw = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
   const hashParts = hashRaw.split('/');
-  const validTabs = ['account', 'company', 'operations', 'catalog', 'integrations', 'audit'];
+  const validTabs = ['account', 'company', 'operations', 'tickets', 'catalog', 'integrations', 'audit'];
   const legacyMap: Record<string, string> = {
     account: 'company', // My Account moved to /account route; settings defaults to Company
     general: 'company',
@@ -731,6 +731,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
           <TabsList>
             <TabsTrigger value="company">Company</TabsTrigger>
             <TabsTrigger value="operations">Operations</TabsTrigger>
+            <TabsTrigger value="tickets">Tickets</TabsTrigger>
             <TabsTrigger value="catalog">Product Catalog</TabsTrigger>
             <TabsTrigger value="integrations">Integrations</TabsTrigger>
             <TabsTrigger value="audit">Audit Log</TabsTrigger>
@@ -956,10 +957,6 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
             <TabsList className="flex-wrap h-auto">
               <TabsTrigger value="sla">SLA</TabsTrigger>
               <TabsTrigger value="templates">Templates</TabsTrigger>
-              <TabsTrigger value="canned-responses">Canned Responses</TabsTrigger>
-              <TabsTrigger value="ticket-settings">Ticket Settings</TabsTrigger>
-              <TabsTrigger value="custom-fields">Custom Fields</TabsTrigger>
-              <TabsTrigger value="ticket-templates">Ticket Templates</TabsTrigger>
             </TabsList>
             <TabsContent value="templates">
               <div className="mt-4">
@@ -1128,8 +1125,27 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
           </div>
             </TabsContent>
 
-            {/* TICKET SETTINGS SUB-TAB */}
-            <TabsContent value="ticket-settings">
+
+          </Tabs>
+        </TabsContent>
+
+        {/* TICKETS TAB */}
+        <TabsContent value="tickets">
+          <Tabs defaultValue="automation" className="mt-4">
+            <TabsList className="flex-wrap h-auto">
+              <TabsTrigger value="automation">Automation</TabsTrigger>
+              <TabsTrigger value="categories">Categories</TabsTrigger>
+              <TabsTrigger value="canned-responses">Canned Responses</TabsTrigger>
+              <TabsTrigger value="custom-fields">Custom Fields</TabsTrigger>
+              <TabsTrigger value="queues">Queues</TabsTrigger>
+              <TabsTrigger value="recurring">Recurring</TabsTrigger>
+              <TabsTrigger value="tags">Tags</TabsTrigger>
+              <TabsTrigger value="ticket-templates">Templates</TabsTrigger>
+              <TabsTrigger value="workflows">Workflows</TabsTrigger>
+            </TabsList>
+
+            {/* AUTOMATION SUB-TAB */}
+            <TabsContent value="automation">
               <div className="space-y-6 mt-4">
                 <Card>
                   <CardHeader>
@@ -1250,6 +1266,11 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
               </div>
             </TabsContent>
 
+            {/* CATEGORIES SUB-TAB */}
+            <TabsContent value="categories">
+              <CategoriesTab />
+            </TabsContent>
+
             {/* CANNED RESPONSES SUB-TAB */}
             <TabsContent value="canned-responses">
               <CannedResponsesTab />
@@ -1260,9 +1281,29 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
               <CustomFieldsTab />
             </TabsContent>
 
+            {/* QUEUES SUB-TAB */}
+            <TabsContent value="queues">
+              <QueuesTab />
+            </TabsContent>
+
+            {/* RECURRING SUB-TAB */}
+            <TabsContent value="recurring">
+              <RecurringTicketsTab />
+            </TabsContent>
+
+            {/* TAGS SUB-TAB */}
+            <TabsContent value="tags">
+              <TagsTab />
+            </TabsContent>
+
             {/* TICKET TEMPLATES SUB-TAB */}
             <TabsContent value="ticket-templates">
               <TicketTemplatesTab />
+            </TabsContent>
+
+            {/* WORKFLOWS SUB-TAB */}
+            <TabsContent value="workflows">
+              <WorkflowRulesTab />
             </TabsContent>
 
           </Tabs>
@@ -3681,6 +3722,867 @@ function AuditLogTab() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ===== CATEGORIES TAB =====
+function CategoriesTab() {
+  interface Category { id: string; name: string; sortOrder: number; subcategories: Array<{ id: string; name: string; sortOrder: number }>; }
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [showDialog, setShowDialog] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: '' });
+  const [saving, setSaving] = useState(false);
+  const [showSubDialog, setShowSubDialog] = useState(false);
+  const [subParentId, setSubParentId] = useState<string | null>(null);
+  const [editSubId, setEditSubId] = useState<string | null>(null);
+  const [subForm, setSubForm] = useState({ name: '' });
+  const [subSaving, setSubSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteSubId, setDeleteSubId] = useState<{ catId: string; subId: string } | null>(null);
+
+  useEffect(() => { loadCategories(); }, []);
+
+  async function loadCategories() {
+    try {
+      const data = await api<Category[]>('/ticket-categories');
+      setCategories(data);
+    } catch { setCategories([]); }
+  }
+
+  function openAdd() { setEditId(null); setForm({ name: '' }); setShowDialog(true); }
+  function openEdit(cat: Category) { setEditId(cat.id); setForm({ name: cat.name }); setShowDialog(true); }
+  function openAddSub(catId: string) { setSubParentId(catId); setEditSubId(null); setSubForm({ name: '' }); setShowSubDialog(true); }
+  function openEditSub(catId: string, sub: { id: string; name: string }) { setSubParentId(catId); setEditSubId(sub.id); setSubForm({ name: sub.name }); setShowSubDialog(true); }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true);
+    try {
+      if (editId) {
+        await api(`/settings/ticket-categories/${editId}`, { method: 'PATCH', body: JSON.stringify(form) });
+      } else {
+        await api('/settings/ticket-categories', { method: 'POST', body: JSON.stringify(form) });
+      }
+      setShowDialog(false); loadCategories();
+    } finally { setSaving(false); }
+  }
+
+  async function handleSubSave(e: React.FormEvent) {
+    e.preventDefault(); setSubSaving(true);
+    try {
+      if (editSubId && subParentId) {
+        await api(`/settings/ticket-categories/${subParentId}/subcategories/${editSubId}`, { method: 'PATCH', body: JSON.stringify(subForm) });
+      } else if (subParentId) {
+        await api(`/settings/ticket-categories/${subParentId}/subcategories`, { method: 'POST', body: JSON.stringify(subForm) });
+      }
+      setShowSubDialog(false); loadCategories();
+    } finally { setSubSaving(false); }
+  }
+
+  async function handleDelete() {
+    if (!deleteId) return;
+    await api(`/settings/ticket-categories/${deleteId}`, { method: 'DELETE' });
+    setDeleteId(null); loadCategories();
+  }
+
+  async function handleDeleteSub() {
+    if (!deleteSubId) return;
+    await api(`/settings/ticket-categories/${deleteSubId.catId}/subcategories/${deleteSubId.subId}`, { method: 'DELETE' });
+    setDeleteSubId(null); loadCategories();
+  }
+
+  return (
+    <div className="space-y-6 mt-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Ticket Categories</CardTitle>
+              <CardDescription>Organize tickets into categories and subcategories</CardDescription>
+            </div>
+            <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4 mr-1" />Add Category</Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {categories.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">No categories yet. Click "Add Category" to create one.</div>
+          ) : (
+            <div className="space-y-3">
+              {categories.map(cat => (
+                <div key={cat.id} className="border rounded-lg">
+                  <div className="flex items-center justify-between p-3 bg-muted/30">
+                    <span className="font-medium text-sm">{cat.name}</span>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => openAddSub(cat.id)}><Plus className="h-3 w-3 mr-1" />Sub</Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(cat)}><Pencil className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(cat.id)}><Trash2 className="h-3 w-3" /></Button>
+                    </div>
+                  </div>
+                  {cat.subcategories.length > 0 && (
+                    <div className="divide-y">
+                      {cat.subcategories.map(sub => (
+                        <div key={sub.id} className="flex items-center justify-between px-3 py-2 pl-8">
+                          <span className="text-sm text-muted-foreground">{sub.name}</span>
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditSub(cat.id, sub)}><Pencil className="h-3 w-3" /></Button>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => setDeleteSubId({ catId: cat.id, subId: sub.id })}><Trash2 className="h-3 w-3" /></Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editId ? 'Edit Category' : 'Add Category'}</DialogTitle></DialogHeader>
+          <form onSubmit={handleSave} className="space-y-4">
+            <div className="space-y-2"><Label>Name</Label><Input required value={form.name} onChange={e => setForm({ name: e.target.value })} placeholder="Category name" /></div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
+              <Button type="submit" disabled={saving}>{saving ? 'Saving...' : editId ? 'Save' : 'Create'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showSubDialog} onOpenChange={setShowSubDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editSubId ? 'Edit Subcategory' : 'Add Subcategory'}</DialogTitle></DialogHeader>
+          <form onSubmit={handleSubSave} className="space-y-4">
+            <div className="space-y-2"><Label>Name</Label><Input required value={subForm.name} onChange={e => setSubForm({ name: e.target.value })} placeholder="Subcategory name" /></div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowSubDialog(false)}>Cancel</Button>
+              <Button type="submit" disabled={subSaving}>{subSaving ? 'Saving...' : editSubId ? 'Save' : 'Create'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)} title="Delete Category" description="This will delete the category and all its subcategories. This cannot be undone." confirmLabel="Delete" variant="destructive" onConfirm={handleDelete} />
+      <ConfirmDialog open={!!deleteSubId} onOpenChange={() => setDeleteSubId(null)} title="Delete Subcategory" description="This will delete the subcategory. This cannot be undone." confirmLabel="Delete" variant="destructive" onConfirm={handleDeleteSub} />
+    </div>
+  );
+}
+
+// ===== QUEUES TAB =====
+function QueuesTab() {
+  interface Queue { id: string; name: string; description: string | null; color: string; isDefault: boolean; }
+  const PRESET_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#6b7280', '#f97316', '#ec4899', '#06b6d4', '#14b8a6'];
+  const [queues, setQueues] = useState<Queue[]>([]);
+  const [showDialog, setShowDialog] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: '', description: '', color: '#3b82f6', isDefault: false });
+  const [saving, setSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  useEffect(() => { loadQueues(); }, []);
+
+  async function loadQueues() {
+    try {
+      const data = await api<Queue[]>('/settings/ticket-queues');
+      setQueues(data);
+    } catch { setQueues([]); }
+  }
+
+  function openAdd() { setEditId(null); setForm({ name: '', description: '', color: '#3b82f6', isDefault: false }); setShowDialog(true); }
+  function openEdit(q: Queue) { setEditId(q.id); setForm({ name: q.name, description: q.description ?? '', color: q.color, isDefault: q.isDefault }); setShowDialog(true); }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true);
+    try {
+      if (editId) {
+        await api(`/settings/ticket-queues/${editId}`, { method: 'PATCH', body: JSON.stringify(form) });
+      } else {
+        await api('/settings/ticket-queues', { method: 'POST', body: JSON.stringify(form) });
+      }
+      setShowDialog(false); loadQueues();
+    } finally { setSaving(false); }
+  }
+
+  async function handleDelete() {
+    if (!deleteId) return;
+    await api(`/settings/ticket-queues/${deleteId}`, { method: 'DELETE' });
+    setDeleteId(null); loadQueues();
+  }
+
+  return (
+    <div className="space-y-6 mt-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Service Queues</CardTitle>
+              <CardDescription>Organize tickets into queues for team routing</CardDescription>
+            </div>
+            <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4 mr-1" />Add Queue</Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {queues.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">No queues yet. Click "Add Queue" to create one.</div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {queues.map(q => (
+                <div key={q.id} className="border rounded-lg p-4 flex items-start gap-3">
+                  <div className="h-3 w-3 rounded-full mt-1 shrink-0" style={{ backgroundColor: q.color }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{q.name}</span>
+                      {q.isDefault && <Badge variant="outline" className="text-xs">Default</Badge>}
+                    </div>
+                    {q.description && <p className="text-xs text-muted-foreground mt-0.5">{q.description}</p>}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(q)}><Pencil className="h-3 w-3" /></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(q.id)}><Trash2 className="h-3 w-3" /></Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editId ? 'Edit Queue' : 'Add Queue'}</DialogTitle></DialogHeader>
+          <form onSubmit={handleSave} className="space-y-4">
+            <div className="space-y-2"><Label>Name</Label><Input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Queue name" /></div>
+            <div className="space-y-2"><Label>Description</Label><Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Optional description" /></div>
+            <div className="space-y-2">
+              <Label>Color</Label>
+              <div className="flex gap-2 flex-wrap">
+                {PRESET_COLORS.map(c => (
+                  <button key={c} type="button" className={`h-7 w-7 rounded-full border-2 transition-all ${form.color === c ? 'border-foreground scale-110' : 'border-transparent'}`} style={{ backgroundColor: c }} onClick={() => setForm({ ...form, color: c })} />
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" role="switch" aria-checked={form.isDefault} onClick={() => setForm({ ...form, isDefault: !form.isDefault })}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${form.isDefault ? 'bg-green-500' : 'bg-input'}`}>
+                <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${form.isDefault ? 'translate-x-4' : 'translate-x-0'}`} />
+              </button>
+              <Label>Default queue</Label>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
+              <Button type="submit" disabled={saving}>{saving ? 'Saving...' : editId ? 'Save' : 'Create'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)} title="Delete Queue" description="This will remove the queue. Tickets in this queue will become unqueued." confirmLabel="Delete" variant="destructive" onConfirm={handleDelete} />
+    </div>
+  );
+}
+
+// ===== TAGS TAB =====
+function TagsTab() {
+  interface Tag { id: string; name: string; color: string; }
+  const PRESET_COLORS = [
+    { name: 'Red', value: '#ef4444' }, { name: 'Blue', value: '#3b82f6' }, { name: 'Green', value: '#22c55e' },
+    { name: 'Yellow', value: '#eab308' }, { name: 'Purple', value: '#8b5cf6' }, { name: 'Gray', value: '#6b7280' },
+    { name: 'Orange', value: '#f97316' }, { name: 'Pink', value: '#ec4899' },
+  ];
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [showDialog, setShowDialog] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: '', color: '#3b82f6' });
+  const [saving, setSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  useEffect(() => { loadTags(); }, []);
+
+  async function loadTags() {
+    try {
+      const data = await api<Tag[]>('/settings/ticket-tags');
+      setTags(data);
+    } catch { setTags([]); }
+  }
+
+  function openAdd() { setEditId(null); setForm({ name: '', color: '#3b82f6' }); setShowDialog(true); }
+  function openEdit(t: Tag) { setEditId(t.id); setForm({ name: t.name, color: t.color }); setShowDialog(true); }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true);
+    try {
+      if (editId) {
+        await api(`/settings/ticket-tags/${editId}`, { method: 'PATCH', body: JSON.stringify(form) });
+      } else {
+        await api('/settings/ticket-tags', { method: 'POST', body: JSON.stringify(form) });
+      }
+      setShowDialog(false); loadTags();
+    } finally { setSaving(false); }
+  }
+
+  async function handleDelete() {
+    if (!deleteId) return;
+    await api(`/settings/ticket-tags/${deleteId}`, { method: 'DELETE' });
+    setDeleteId(null); loadTags();
+  }
+
+  return (
+    <div className="space-y-6 mt-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Ticket Tags</CardTitle>
+              <CardDescription>Create color-coded tags for organizing and filtering tickets</CardDescription>
+            </div>
+            <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4 mr-1" />Add Tag</Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {tags.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">No tags yet. Click "Add Tag" to create one.</div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {tags.map(t => (
+                <div key={t.id} className="inline-flex items-center gap-1.5 group">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-white cursor-pointer hover:opacity-80" style={{ backgroundColor: t.color }} onClick={() => openEdit(t)}>
+                    {t.name}
+                  </span>
+                  <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(t.id)}><X className="h-3 w-3" /></Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editId ? 'Edit Tag' : 'Add Tag'}</DialogTitle></DialogHeader>
+          <form onSubmit={handleSave} className="space-y-4">
+            <div className="space-y-2"><Label>Name</Label><Input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Tag name" /></div>
+            <div className="space-y-2">
+              <Label>Color</Label>
+              <div className="flex gap-2 flex-wrap">
+                {PRESET_COLORS.map(c => (
+                  <button key={c.value} type="button" className={`h-8 w-8 rounded-full border-2 transition-all flex items-center justify-center ${form.color === c.value ? 'border-foreground scale-110' : 'border-transparent'}`} style={{ backgroundColor: c.value }} onClick={() => setForm({ ...form, color: c.value })} title={c.name}>
+                    {form.color === c.value && <span className="text-white text-xs font-bold">&#10003;</span>}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-white" style={{ backgroundColor: form.color }}>
+                  {form.name || 'Preview'}
+                </span>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
+              <Button type="submit" disabled={saving}>{saving ? 'Saving...' : editId ? 'Save' : 'Create'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)} title="Delete Tag" description="This will remove the tag from all tickets. This cannot be undone." confirmLabel="Delete" variant="destructive" onConfirm={handleDelete} />
+    </div>
+  );
+}
+
+// ===== RECURRING TICKETS TAB =====
+function RecurringTicketsTab() {
+  interface RecurringRule {
+    id: string; name: string; frequency: string; dayOfWeek: number | null; dayOfMonth: number | null;
+    customerId: string | null; customerName?: string; subject: string; description: string | null;
+    priority: string; categoryId: string | null; assignedTo: string | null; queueId: string | null;
+    isActive: boolean; lastRunAt: string | null; nextRunAt: string | null;
+  }
+  const [rules, setRules] = useState<RecurringRule[]>([]);
+  const [showDialog, setShowDialog] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    name: '', frequency: 'weekly', dayOfWeek: 1, dayOfMonth: 1,
+    customerId: '', subject: '', description: '', priority: 'medium',
+    categoryId: '', assignedTo: '', queueId: '', isActive: true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
+  const [techs, setTechs] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
+  const [queuesOpts, setQueuesOpts] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    loadRules();
+    api<{ data: Array<{ id: string; name: string }> }>('/customers?limit=200').then(d => setCustomers(d.data)).catch(() => {});
+    api<Array<{ id: string; displayName: string }>>('/dispatch/techs').then(setTechs).catch(() => {});
+    api<Array<{ id: string; name: string }>>('/ticket-categories').then(setCategories).catch(() => {});
+    api<Array<{ id: string; name: string }>>('/settings/ticket-queues').then(setQueuesOpts).catch(() => {});
+  }, []);
+
+  async function loadRules() {
+    try { const data = await api<RecurringRule[]>('/settings/recurring-tickets'); setRules(data); }
+    catch { setRules([]); }
+  }
+
+  function openAdd() {
+    setEditId(null);
+    setForm({ name: '', frequency: 'weekly', dayOfWeek: 1, dayOfMonth: 1, customerId: '', subject: '', description: '', priority: 'medium', categoryId: '', assignedTo: '', queueId: '', isActive: true });
+    setShowDialog(true);
+  }
+  function openEdit(r: RecurringRule) {
+    setEditId(r.id);
+    setForm({
+      name: r.name, frequency: r.frequency, dayOfWeek: r.dayOfWeek ?? 1, dayOfMonth: r.dayOfMonth ?? 1,
+      customerId: r.customerId ?? '', subject: r.subject, description: r.description ?? '',
+      priority: r.priority, categoryId: r.categoryId ?? '', assignedTo: r.assignedTo ?? '',
+      queueId: r.queueId ?? '', isActive: r.isActive,
+    });
+    setShowDialog(true);
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true);
+    try {
+      const payload: Record<string, unknown> = { ...form };
+      if (!payload.customerId) payload.customerId = null;
+      if (!payload.categoryId) payload.categoryId = null;
+      if (!payload.assignedTo) payload.assignedTo = null;
+      if (!payload.queueId) payload.queueId = null;
+      if (payload.frequency !== 'weekly') delete payload.dayOfWeek;
+      if (payload.frequency !== 'monthly') delete payload.dayOfMonth;
+      if (editId) {
+        await api(`/settings/recurring-tickets/${editId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      } else {
+        await api('/settings/recurring-tickets', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      setShowDialog(false); loadRules();
+    } finally { setSaving(false); }
+  }
+
+  async function toggleActive(id: string, isActive: boolean) {
+    await api(`/settings/recurring-tickets/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive }) });
+    loadRules();
+  }
+
+  async function handleDelete() {
+    if (!deleteId) return;
+    await api(`/settings/recurring-tickets/${deleteId}`, { method: 'DELETE' });
+    setDeleteId(null); loadRules();
+  }
+
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  return (
+    <div className="space-y-6 mt-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Recurring Tickets</CardTitle>
+              <CardDescription>Automatically create tickets on a schedule</CardDescription>
+            </div>
+            <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4 mr-1" />Add Rule</Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {rules.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8 px-4">No recurring ticket rules yet.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead><tr className="border-b bg-muted/50">
+                <th className="text-left p-3 font-medium">Name</th>
+                <th className="text-left p-3 font-medium">Frequency</th>
+                <th className="text-left p-3 font-medium">Customer</th>
+                <th className="text-left p-3 font-medium">Subject</th>
+                <th className="text-center p-3 font-medium">Status</th>
+                <th className="text-left p-3 font-medium">Last Run</th>
+                <th className="text-left p-3 font-medium">Next Run</th>
+                <th className="w-20"></th>
+              </tr></thead>
+              <tbody>
+                {rules.map(r => (
+                  <tr key={r.id} className="border-b hover:bg-muted/30">
+                    <td className="p-3 font-medium">{r.name}</td>
+                    <td className="p-3 capitalize">{r.frequency}{r.frequency === 'weekly' && r.dayOfWeek !== null ? ` (${DAYS[r.dayOfWeek]})` : r.frequency === 'monthly' && r.dayOfMonth ? ` (${r.dayOfMonth}${['st','nd','rd'][r.dayOfMonth-1] || 'th'})` : ''}</td>
+                    <td className="p-3 text-muted-foreground">{r.customerName || '-'}</td>
+                    <td className="p-3 truncate max-w-[200px]">{r.subject}</td>
+                    <td className="p-3 text-center">
+                      <button onClick={() => toggleActive(r.id, !r.isActive)}>
+                        <Badge variant={r.isActive ? 'default' : 'secondary'} className={r.isActive ? 'bg-green-600' : ''}>{r.isActive ? 'Active' : 'Paused'}</Badge>
+                      </button>
+                    </td>
+                    <td className="p-3 text-xs text-muted-foreground">{r.lastRunAt ? new Date(r.lastRunAt).toLocaleDateString() : '-'}</td>
+                    <td className="p-3 text-xs text-muted-foreground">{r.nextRunAt ? new Date(r.nextRunAt).toLocaleDateString() : '-'}</td>
+                    <td className="p-3">
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(r)}><Pencil className="h-3 w-3" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(r.id)}><Trash2 className="h-3 w-3" /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>{editId ? 'Edit Recurring Rule' : 'Add Recurring Rule'}</DialogTitle></DialogHeader>
+          <form onSubmit={handleSave} className="space-y-4">
+            <div className="space-y-2"><Label>Name</Label><Input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Monthly server maintenance" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Frequency</Label>
+                <select className="w-full px-3 py-2 border rounded-md text-sm bg-background" value={form.frequency} onChange={e => setForm({ ...form, frequency: e.target.value })}>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </div>
+              {form.frequency === 'weekly' && (
+                <div className="space-y-2">
+                  <Label>Day of Week</Label>
+                  <select className="w-full px-3 py-2 border rounded-md text-sm bg-background" value={form.dayOfWeek} onChange={e => setForm({ ...form, dayOfWeek: parseInt(e.target.value) })}>
+                    {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                  </select>
+                </div>
+              )}
+              {form.frequency === 'monthly' && (
+                <div className="space-y-2">
+                  <Label>Day of Month</Label>
+                  <Input type="number" min="1" max="28" value={form.dayOfMonth} onChange={e => setForm({ ...form, dayOfMonth: parseInt(e.target.value) || 1 })} />
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Customer</Label>
+              <select className="w-full px-3 py-2 border rounded-md text-sm bg-background" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })}>
+                <option value="">No customer</option>
+                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2"><Label>Subject</Label><Input required value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder="Ticket subject" /></div>
+            <div className="space-y-2"><Label>Description</Label><textarea rows={3} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none" placeholder="Ticket description" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Priority</Label>
+                <select className="w-full px-3 py-2 border rounded-md text-sm bg-background" value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>
+                  <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <select className="w-full px-3 py-2 border rounded-md text-sm bg-background" value={form.categoryId} onChange={e => setForm({ ...form, categoryId: e.target.value })}>
+                  <option value="">None</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Assigned To</Label>
+                <select className="w-full px-3 py-2 border rounded-md text-sm bg-background" value={form.assignedTo} onChange={e => setForm({ ...form, assignedTo: e.target.value })}>
+                  <option value="">Unassigned</option>
+                  {techs.map(t => <option key={t.id} value={t.id}>{t.displayName}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>Queue</Label>
+                <select className="w-full px-3 py-2 border rounded-md text-sm bg-background" value={form.queueId} onChange={e => setForm({ ...form, queueId: e.target.value })}>
+                  <option value="">No queue</option>
+                  {queuesOpts.map(q => <option key={q.id} value={q.id}>{q.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" role="switch" aria-checked={form.isActive} onClick={() => setForm({ ...form, isActive: !form.isActive })}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${form.isActive ? 'bg-green-500' : 'bg-input'}`}>
+                <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${form.isActive ? 'translate-x-4' : 'translate-x-0'}`} />
+              </button>
+              <Label>Active</Label>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
+              <Button type="submit" disabled={saving}>{saving ? 'Saving...' : editId ? 'Save' : 'Create'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)} title="Delete Rule" description="This will delete the recurring ticket rule. Existing tickets created by this rule will not be affected." confirmLabel="Delete" variant="destructive" onConfirm={handleDelete} />
+    </div>
+  );
+}
+
+// ===== WORKFLOW RULES TAB =====
+function WorkflowRulesTab() {
+  interface WorkflowCondition { field: string; operator: string; value: string; }
+  interface WorkflowAction { type: string; params: Record<string, string>; }
+  interface WorkflowRule {
+    id: string; name: string; description: string | null; trigger: string;
+    conditions: WorkflowCondition[]; actions: WorkflowAction[];
+    isActive: boolean; executionCount: number;
+  }
+  const TRIGGERS = [
+    { value: 'ticket_created', label: 'Ticket Created' },
+    { value: 'ticket_updated', label: 'Ticket Updated' },
+    { value: 'ticket_status_changed', label: 'Status Changed' },
+    { value: 'customer_reply', label: 'Customer Reply' },
+    { value: 'sla_warning', label: 'SLA Warning' },
+  ];
+  const CONDITION_FIELDS = [
+    { value: 'priority', label: 'Priority' },
+    { value: 'status', label: 'Status' },
+    { value: 'source', label: 'Source' },
+    { value: 'queueId', label: 'Queue' },
+    { value: 'customerId', label: 'Customer' },
+  ];
+  const CONDITION_OPERATORS = [
+    { value: 'equals', label: 'Equals' },
+    { value: 'not_equals', label: 'Not Equals' },
+    { value: 'contains', label: 'Contains' },
+    { value: 'in', label: 'In' },
+  ];
+  const ACTION_TYPES = [
+    { value: 'assign_to', label: 'Assign To' },
+    { value: 'set_priority', label: 'Set Priority' },
+    { value: 'set_status', label: 'Set Status' },
+    { value: 'set_queue', label: 'Set Queue' },
+    { value: 'send_notification', label: 'Send Notification' },
+  ];
+
+  const [rules, setRules] = useState<WorkflowRule[]>([]);
+  const [showDialog, setShowDialog] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    name: '', description: '', trigger: 'ticket_created',
+    conditions: [] as WorkflowCondition[], actions: [] as WorkflowAction[], isActive: true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [techs, setTechs] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [queuesOpts, setQueuesOpts] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    loadRules();
+    api<Array<{ id: string; displayName: string }>>('/dispatch/techs').then(setTechs).catch(() => {});
+    api<Array<{ id: string; name: string }>>('/settings/ticket-queues').then(setQueuesOpts).catch(() => {});
+  }, []);
+
+  async function loadRules() {
+    try { const data = await api<WorkflowRule[]>('/settings/workflow-rules'); setRules(data); }
+    catch { setRules([]); }
+  }
+
+  function openAdd() {
+    setEditId(null);
+    setForm({ name: '', description: '', trigger: 'ticket_created', conditions: [], actions: [], isActive: true });
+    setShowDialog(true);
+  }
+  function openEdit(r: WorkflowRule) {
+    setEditId(r.id);
+    setForm({ name: r.name, description: r.description ?? '', trigger: r.trigger, conditions: r.conditions, actions: r.actions, isActive: r.isActive });
+    setShowDialog(true);
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true);
+    try {
+      const payload = { ...form };
+      if (editId) {
+        await api(`/settings/workflow-rules/${editId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      } else {
+        await api('/settings/workflow-rules', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      setShowDialog(false); loadRules();
+    } finally { setSaving(false); }
+  }
+
+  async function toggleActive(id: string, isActive: boolean) {
+    await api(`/settings/workflow-rules/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive }) });
+    loadRules();
+  }
+
+  async function handleDelete() {
+    if (!deleteId) return;
+    await api(`/settings/workflow-rules/${deleteId}`, { method: 'DELETE' });
+    setDeleteId(null); loadRules();
+  }
+
+  function addCondition() {
+    setForm({ ...form, conditions: [...form.conditions, { field: 'priority', operator: 'equals', value: '' }] });
+  }
+  function updateCondition(idx: number, updates: Partial<WorkflowCondition>) {
+    setForm({ ...form, conditions: form.conditions.map((c, i) => i === idx ? { ...c, ...updates } : c) });
+  }
+  function removeCondition(idx: number) {
+    setForm({ ...form, conditions: form.conditions.filter((_, i) => i !== idx) });
+  }
+  function addAction() {
+    setForm({ ...form, actions: [...form.actions, { type: 'set_priority', params: {} }] });
+  }
+  function updateAction(idx: number, updates: Partial<WorkflowAction>) {
+    setForm({ ...form, actions: form.actions.map((a, i) => i === idx ? { ...a, ...updates } : a) });
+  }
+  function removeAction(idx: number) {
+    setForm({ ...form, actions: form.actions.filter((_, i) => i !== idx) });
+  }
+
+  return (
+    <div className="space-y-6 mt-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Workflow Rules</CardTitle>
+              <CardDescription>Automate ticket actions based on triggers and conditions</CardDescription>
+            </div>
+            <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4 mr-1" />Add Rule</Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {rules.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8 px-4">No workflow rules yet.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead><tr className="border-b bg-muted/50">
+                <th className="text-left p-3 font-medium">Name</th>
+                <th className="text-left p-3 font-medium">Trigger</th>
+                <th className="text-center p-3 font-medium">Conditions</th>
+                <th className="text-center p-3 font-medium">Actions</th>
+                <th className="text-center p-3 font-medium">Active</th>
+                <th className="text-center p-3 font-medium">Executions</th>
+                <th className="w-20"></th>
+              </tr></thead>
+              <tbody>
+                {rules.map(r => (
+                  <tr key={r.id} className="border-b hover:bg-muted/30">
+                    <td className="p-3"><div className="font-medium">{r.name}</div>{r.description && <div className="text-xs text-muted-foreground">{r.description}</div>}</td>
+                    <td className="p-3"><Badge variant="outline" className="text-xs">{TRIGGERS.find(t => t.value === r.trigger)?.label || r.trigger}</Badge></td>
+                    <td className="p-3 text-center">{r.conditions.length}</td>
+                    <td className="p-3 text-center">{r.actions.length}</td>
+                    <td className="p-3 text-center">
+                      <button onClick={() => toggleActive(r.id, !r.isActive)}>
+                        <Badge variant={r.isActive ? 'default' : 'secondary'} className={r.isActive ? 'bg-green-600' : ''}>{r.isActive ? 'On' : 'Off'}</Badge>
+                      </button>
+                    </td>
+                    <td className="p-3 text-center text-muted-foreground">{r.executionCount}</td>
+                    <td className="p-3">
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(r)}><Pencil className="h-3 w-3" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(r.id)}><Trash2 className="h-3 w-3" /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{editId ? 'Edit Workflow Rule' : 'Add Workflow Rule'}</DialogTitle></DialogHeader>
+          <form onSubmit={handleSave} className="space-y-5">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2"><Label>Name</Label><Input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Rule name" /></div>
+              <div className="space-y-2"><Label>Description</Label><Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Optional" /></div>
+            </div>
+            <div className="space-y-2">
+              <Label>Trigger</Label>
+              <select className="w-full px-3 py-2 border rounded-md text-sm bg-background" value={form.trigger} onChange={e => setForm({ ...form, trigger: e.target.value })}>
+                {TRIGGERS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+
+            {/* Conditions */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Conditions</Label>
+                <Button type="button" variant="outline" size="sm" onClick={addCondition}><Plus className="h-3 w-3 mr-1" />Add</Button>
+              </div>
+              {form.conditions.length === 0 && <p className="text-xs text-muted-foreground">No conditions - rule applies to all tickets matching the trigger</p>}
+              {form.conditions.map((cond, idx) => (
+                <div key={idx} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg">
+                  <select className="px-2 py-1.5 border rounded text-sm bg-background flex-1" value={cond.field} onChange={e => updateCondition(idx, { field: e.target.value })}>
+                    {CONDITION_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                  </select>
+                  <select className="px-2 py-1.5 border rounded text-sm bg-background" value={cond.operator} onChange={e => updateCondition(idx, { operator: e.target.value })}>
+                    {CONDITION_OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <Input className="flex-1 h-8" value={cond.value} onChange={e => updateCondition(idx, { value: e.target.value })} placeholder="Value" />
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => removeCondition(idx)}><X className="h-3 w-3" /></Button>
+                </div>
+              ))}
+            </div>
+
+            {/* Actions */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Actions</Label>
+                <Button type="button" variant="outline" size="sm" onClick={addAction}><Plus className="h-3 w-3 mr-1" />Add</Button>
+              </div>
+              {form.actions.length === 0 && <p className="text-xs text-muted-foreground">No actions - add at least one action</p>}
+              {form.actions.map((action, idx) => (
+                <div key={idx} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg">
+                  <select className="px-2 py-1.5 border rounded text-sm bg-background" value={action.type} onChange={e => updateAction(idx, { type: e.target.value, params: {} })}>
+                    {ACTION_TYPES.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
+                  </select>
+                  {action.type === 'assign_to' && (
+                    <select className="px-2 py-1.5 border rounded text-sm bg-background flex-1" value={action.params.userId || ''} onChange={e => updateAction(idx, { params: { userId: e.target.value } })}>
+                      <option value="">Select tech...</option>
+                      {techs.map(t => <option key={t.id} value={t.id}>{t.displayName}</option>)}
+                    </select>
+                  )}
+                  {action.type === 'set_priority' && (
+                    <select className="px-2 py-1.5 border rounded text-sm bg-background flex-1" value={action.params.priority || ''} onChange={e => updateAction(idx, { params: { priority: e.target.value } })}>
+                      <option value="">Select...</option>
+                      <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
+                    </select>
+                  )}
+                  {action.type === 'set_status' && (
+                    <select className="px-2 py-1.5 border rounded text-sm bg-background flex-1" value={action.params.status || ''} onChange={e => updateAction(idx, { params: { status: e.target.value } })}>
+                      <option value="">Select...</option>
+                      <option value="new">New</option><option value="open">Open</option><option value="pending">Pending</option><option value="waiting_on_customer">Waiting on Customer</option><option value="resolved">Resolved</option><option value="closed">Closed</option>
+                    </select>
+                  )}
+                  {action.type === 'set_queue' && (
+                    <select className="px-2 py-1.5 border rounded text-sm bg-background flex-1" value={action.params.queueId || ''} onChange={e => updateAction(idx, { params: { queueId: e.target.value } })}>
+                      <option value="">Select queue...</option>
+                      {queuesOpts.map(q => <option key={q.id} value={q.id}>{q.name}</option>)}
+                    </select>
+                  )}
+                  {action.type === 'send_notification' && (
+                    <Input className="flex-1 h-8" value={action.params.message || ''} onChange={e => updateAction(idx, { params: { message: e.target.value } })} placeholder="Notification message" />
+                  )}
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => removeAction(idx)}><X className="h-3 w-3" /></Button>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button type="button" role="switch" aria-checked={form.isActive} onClick={() => setForm({ ...form, isActive: !form.isActive })}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${form.isActive ? 'bg-green-500' : 'bg-input'}`}>
+                <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${form.isActive ? 'translate-x-4' : 'translate-x-0'}`} />
+              </button>
+              <Label>Active</Label>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
+              <Button type="submit" disabled={saving}>{saving ? 'Saving...' : editId ? 'Save' : 'Create'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)} title="Delete Rule" description="This will delete the workflow rule. This cannot be undone." confirmLabel="Delete" variant="destructive" onConfirm={handleDelete} />
     </div>
   );
 }

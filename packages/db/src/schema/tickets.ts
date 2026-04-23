@@ -21,6 +21,7 @@ export const tickets = pgTable(
     assetId: uuid('asset_id').references(() => assets.id),
     contractId: uuid('contract_id'),
     assignedTo: uuid('assigned_to').references(() => users.id),
+    queueId: uuid('queue_id'),
     categoryId: uuid('category_id').references(() => ticketCategories.id),
     subcategoryId: uuid('subcategory_id').references(() => ticketSubcategories.id),
     subject: text('subject').notNull(),

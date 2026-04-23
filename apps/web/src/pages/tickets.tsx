@@ -207,6 +207,10 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
   const [sort, setSort] = useState('newest');
   const [myTicketsOnly, setMyTicketsOnly] = useState(false);
 
+  // Queue filter
+  const [queueFilter, setQueueFilter] = useState('');
+  const [queueOptions, setQueueOptions] = useState<Array<{ id: string; name: string }>>([]);
+
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBulkAssign, setShowBulkAssign] = useState(false);
@@ -270,13 +274,14 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
       if (priorityFilter.length === 1) params.set('priority', priorityFilter[0]);
       if (debouncedSearch) params.set('search', debouncedSearch);
       if (myTicketsOnly && user?.id) params.set('assignedTo', user.id);
+      if (queueFilter) params.set('queueId', queueFilter);
       const data = await api<PaginatedResponse>(`/tickets?${params}`);
       setTickets(data.data);
       setTotal(data.pagination.total);
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, priorityFilter, debouncedSearch, myTicketsOnly, user?.id]);
+  }, [page, statusFilter, priorityFilter, debouncedSearch, myTicketsOnly, user?.id, queueFilter]);
 
   const fetchCustomers = useCallback(async () => {
     const data = await api<{ data: Customer[] }>('/customers?limit=100');
@@ -303,6 +308,9 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
       '/ticket-categories',
     )
       .then(setCategories)
+      .catch(() => {});
+    api<Array<{ id: string; name: string }>>('/settings/ticket-queues')
+      .then(setQueueOptions)
       .catch(() => {});
   }, [fetchCustomers, fetchTechs]);
 
@@ -558,6 +566,17 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
               setPage(1);
             }}
           />
+
+          {/* Queue filter */}
+          {queueOptions.length > 0 && (
+            <Combobox
+              options={[{ value: '', label: 'All Queues' }, ...queueOptions.map(q => ({ value: q.id, label: q.name }))]}
+              value={queueFilter}
+              onValueChange={(val) => { setQueueFilter(val); setPage(1); }}
+              placeholder="Queue..."
+              className="w-40"
+            />
+          )}
         </div>
 
         <div className="flex items-center gap-2">

@@ -243,6 +243,14 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   const { startNCentralSyncScheduler } = await import('./services/ncentral-sync.js');
   startNCentralSyncScheduler(db);
 
+  // Start recurring ticket scheduler
+  const { startRecurringTicketScheduler } = await import('./services/recurring-tickets.js');
+  startRecurringTicketScheduler(db);
+
+  // Start invoice auto-send scheduler
+  const { startInvoiceAutoSendScheduler } = await import('./services/invoice-auto-send.js');
+  startInvoiceAutoSendScheduler(db);
+
   // Start email inbox polling (check all tenant inboxes every 30 seconds)
   const { processInboundEmails } = await import('./services/email-to-ticket.js');
   const { tenants } = await import('@rivertown/db');
