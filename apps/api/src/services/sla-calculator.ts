@@ -10,6 +10,77 @@ interface SlaResult {
   policyName: string | null;
 }
 
+function isHoliday(date: Date, holidays: string[]): boolean {
+  return holidays.includes(date.toISOString().split('T')[0]);
+}
+
+function advanceToNextBusinessStart(date: Date, days: number[], holidays: string[], startH: number, startM: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + 1);
+  next.setHours(startH, startM, 0, 0);
+  while (!days.includes(next.getDay()) || isHoliday(next, holidays)) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next;
+}
+
+function addBusinessMinutes(
+  start: Date,
+  minutes: number,
+  hoursStart: string, // "09:00"
+  hoursEnd: string,   // "17:00"
+  daysStr: string,    // "1,2,3,4,5"
+  holidays: string[], // ["2026-12-25"]
+): Date {
+  const days = daysStr.split(',').map(Number);
+  const [startH, startM] = hoursStart.split(':').map(Number);
+  const [endH, endM] = hoursEnd.split(':').map(Number);
+  const businessEndMinute = endH * 60 + endM;
+  const businessStartMinute = startH * 60 + startM;
+
+  let remaining = minutes;
+  let current = new Date(start);
+
+  // If starting outside business hours, advance to next business hour start
+  const currentDayOfWeek = current.getDay();
+  const currentMinuteOfDay = current.getHours() * 60 + current.getMinutes();
+
+  // Advance to start of next business period if outside hours
+  if (!days.includes(currentDayOfWeek) ||
+      isHoliday(current, holidays) ||
+      currentMinuteOfDay >= businessEndMinute) {
+    current = advanceToNextBusinessStart(current, days, holidays, startH, startM);
+  } else if (currentMinuteOfDay < businessStartMinute) {
+    current.setHours(startH, startM, 0, 0);
+  }
+
+  while (remaining > 0) {
+    const dayOfWeek = current.getDay();
+    const dateStr = current.toISOString().split('T')[0];
+
+    if (!days.includes(dayOfWeek) || holidays.includes(dateStr)) {
+      // Skip non-business day
+      current.setDate(current.getDate() + 1);
+      current.setHours(startH, startM, 0, 0);
+      continue;
+    }
+
+    const currentMinute = current.getHours() * 60 + current.getMinutes();
+    const minutesLeftToday = businessEndMinute - currentMinute;
+
+    if (remaining <= minutesLeftToday) {
+      current = new Date(current.getTime() + remaining * 60000);
+      remaining = 0;
+    } else {
+      remaining -= minutesLeftToday;
+      current.setDate(current.getDate() + 1);
+      current.setHours(startH, startM, 0, 0);
+    }
+  }
+
+  return current;
+}
+
 export async function calculateSla(
   db: Database,
   tenantId: string,
@@ -64,8 +135,22 @@ export async function calculateSla(
       break;
   }
 
-  const slaResponseDueAt = new Date(createdAt.getTime() + responseMinutes * 60000);
-  const slaResolutionDueAt = new Date(createdAt.getTime() + resolutionMinutes * 60000);
+  let slaResponseDueAt: Date;
+  let slaResolutionDueAt: Date;
+
+  if (policy.businessHoursEnabled) {
+    const holidays = Array.isArray(policy.holidays) ? policy.holidays as string[] : [];
+    const hoursStart = policy.businessHoursStart ?? '09:00';
+    const hoursEnd = policy.businessHoursEnd ?? '17:00';
+    const businessDays = policy.businessDays ?? '1,2,3,4,5';
+
+    slaResponseDueAt = addBusinessMinutes(createdAt, responseMinutes, hoursStart, hoursEnd, businessDays, holidays);
+    slaResolutionDueAt = addBusinessMinutes(createdAt, resolutionMinutes, hoursStart, hoursEnd, businessDays, holidays);
+  } else {
+    // Simple linear calculation
+    slaResponseDueAt = new Date(createdAt.getTime() + responseMinutes * 60000);
+    slaResolutionDueAt = new Date(createdAt.getTime() + resolutionMinutes * 60000);
+  }
 
   return {
     slaPolicyId: policy.id,

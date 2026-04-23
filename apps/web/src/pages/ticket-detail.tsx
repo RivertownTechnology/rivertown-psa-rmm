@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   ArrowLeft, Clock, MessageSquare, Pencil, Check, X, ChevronDown, ChevronUp,
   Eye, EyeOff, Plus, Timer, User, Users, AlertCircle, Send, Trash2, Sparkles,
-  Monitor, ExternalLink, FileText, GitMerge, Search, Paperclip,
+  Monitor, ExternalLink, FileText, GitMerge, Search, Paperclip, DollarSign,
 } from 'lucide-react';
 import {
   Dialog,
@@ -23,6 +23,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
+import { useTimer } from '@/lib/timer';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -238,10 +239,9 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
   const [allTags, setAllTags] = useState<Array<{id: string; name: string; color: string}>>([]);
   const [showAddTag, setShowAddTag] = useState(false);
 
-  // Timer / Stopwatch
-  const [timerRunning, setTimerRunning] = useState(false);
-  const [timerStart, setTimerStart] = useState<number | null>(null);
-  const [timerDisplay, setTimerDisplay] = useState('00:00:00');
+  // Global timer
+  const timer = useTimer();
+  const isThisTicketTimer = timer.isRunning && timer.ticketId === ticketId;
 
   // UI state
   const [editingSubject, setEditingSubject] = useState(false);
@@ -272,6 +272,11 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
   // Time entry editing
   const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
   const [editTimeForm, setEditTimeForm] = useState({ durationMinutes: '', notes: '', isBillable: true });
+
+  // Expenses
+  const [expenses, setExpenses] = useState<Array<{id: string; expenseType: string; description: string; amountCents: number; quantity: string; isBillable: boolean; expenseDate: string}>>([]);
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({ expenseType: 'other', description: '', amountCents: '', quantity: '1', isBillable: true, expenseDate: new Date().toISOString().split('T')[0] });
 
   // Canned responses
   const [showCannedResponses, setShowCannedResponses] = useState(false);
@@ -358,18 +363,14 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
     }
   }, []);
 
-  // Timer effect
-  useEffect(() => {
-    if (!timerRunning || !timerStart) return;
-    const interval = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - timerStart) / 1000);
-      const h = Math.floor(elapsed / 3600);
-      const m = Math.floor((elapsed % 3600) / 60);
-      const s = elapsed % 60;
-      setTimerDisplay(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [timerRunning, timerStart]);
+  const loadExpenses = useCallback(async () => {
+    try {
+      const data = await api<Array<{id: string; expenseType: string; description: string; amountCents: number; quantity: string; isBillable: boolean; expenseDate: string}>>(`/tickets/${ticketId}/expenses`);
+      setExpenses(data);
+    } catch {
+      setExpenses([]);
+    }
+  }, [ticketId]);
 
   // Live tick counter for SLA countdown
   const [, setTick] = useState(0);
@@ -380,6 +381,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
       loadComments();
       loadTimeEntries();
       loadCustomFields();
+      loadExpenses();
       loadCustomerName(t.customerId);
       loadContracts(t.customerId);
       loadContacts(t.customerId);
@@ -411,7 +413,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
       clearInterval(dataInterval);
       clearInterval(tickInterval);
     };
-  }, [loadTicket, loadComments, loadTimeEntries, loadCustomFields, loadCustomerName, loadContracts, loadContacts, loadAssets]);
+  }, [loadTicket, loadComments, loadTimeEntries, loadCustomFields, loadExpenses, loadCustomerName, loadContracts, loadContacts, loadAssets]);
 
   // -------------------------------------------------------------------------
   // Ticket field updates
@@ -611,22 +613,42 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
   }
 
   // -------------------------------------------------------------------------
-  // Timer / Stopwatch
+  // Timer / Stopwatch (uses global timer context)
   // -------------------------------------------------------------------------
 
-  async function stopTimer() {
-    if (!timerStart) return;
-    const elapsed = Math.floor((Date.now() - timerStart) / 1000);
-    const durationMinutes = Math.max(1, Math.ceil(elapsed / 60));
-    setTimerRunning(false);
-    setTimerStart(null);
-    setTimerDisplay('00:00:00');
+  async function handleStopTimer() {
+    const result = await timer.stopTimer();
+    if (!result) return;
     const now = new Date().toISOString();
     await api(`/tickets/${ticketId}/time-entries`, {
       method: 'POST',
-      body: JSON.stringify({ ticketId, startedAt: now, endedAt: now, durationMinutes, isBillable: true, notes: 'Timer entry' }),
+      body: JSON.stringify({ ticketId, startedAt: now, endedAt: now, durationMinutes: result.durationMinutes, isBillable: true, notes: 'Timer entry' }),
     });
+    timer.clearTimer();
     loadTimeEntries();
+  }
+
+  // -------------------------------------------------------------------------
+  // Expenses
+  // -------------------------------------------------------------------------
+
+  async function submitExpense(e: React.FormEvent) {
+    e.preventDefault();
+    await api(`/tickets/${ticketId}/expenses`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...expenseForm,
+        amountCents: Math.round(parseFloat(expenseForm.amountCents) * 100),
+      }),
+    });
+    setExpenseForm({ expenseType: 'other', description: '', amountCents: '', quantity: '1', isBillable: true, expenseDate: new Date().toISOString().split('T')[0] });
+    setShowExpenseForm(false);
+    loadExpenses();
+  }
+
+  async function deleteExpense(id: string) {
+    await api(`/expenses/${id}`, { method: 'DELETE' });
+    loadExpenses();
   }
 
   // -------------------------------------------------------------------------
@@ -1463,14 +1485,18 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                 </div>
               )}
 
-              {/* Timer / Stopwatch */}
-              {timerRunning ? (
+              {/* Timer / Stopwatch (global) */}
+              {isThisTicketTimer ? (
                 <div className="flex items-center gap-2 p-2 bg-red-50 dark:bg-red-950/20 rounded-lg border border-red-200 dark:border-red-800">
-                  <div className="text-lg font-mono font-bold text-red-600">{timerDisplay}</div>
-                  <Button size="sm" variant="destructive" onClick={stopTimer}>Stop</Button>
+                  <div className="text-lg font-mono font-bold text-red-600">{timer.elapsed}</div>
+                  <Button size="sm" variant="destructive" onClick={handleStopTimer}>Stop</Button>
+                </div>
+              ) : timer.isRunning ? (
+                <div className="text-xs text-muted-foreground">
+                  Timer running on {timer.ticketNumber ? `#${timer.ticketNumber}` : 'another ticket'}
                 </div>
               ) : (
-                <Button size="sm" variant="outline" onClick={() => { setTimerRunning(true); setTimerStart(Date.now()); }} className="gap-1.5">
+                <Button size="sm" variant="outline" onClick={() => timer.startTimer(ticketId, ticket.ticketNumber, ticket.subject)} className="gap-1.5">
                   <Timer className="h-3.5 w-3.5" /> Start Timer
                 </Button>
               )}
@@ -1581,6 +1607,65 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                   No time logged yet.
                 </div>
               ) : null}
+            </CardContent>
+          </Card>
+
+          {/* ============================================================== */}
+          {/* EXPENSES — In sidebar                                          */}
+          {/* ============================================================== */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-1.5">
+                  <DollarSign className="h-4 w-4" /> Expenses
+                </CardTitle>
+                <Button size="sm" variant="ghost" onClick={() => setShowExpenseForm(!showExpenseForm)}>
+                  {showExpenseForm ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {showExpenseForm && (
+                <form onSubmit={submitExpense} className="space-y-2 p-2 bg-muted/50 rounded-lg">
+                  <select value={expenseForm.expenseType} onChange={e => setExpenseForm({...expenseForm, expenseType: e.target.value})}
+                    className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs">
+                    <option value="mileage">Mileage</option>
+                    <option value="parts">Parts</option>
+                    <option value="parking">Parking</option>
+                    <option value="meals">Meals</option>
+                    <option value="travel">Travel</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <Input placeholder="Description" className="h-8 text-xs" value={expenseForm.description} onChange={e => setExpenseForm({...expenseForm, description: e.target.value})} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input type="number" step="0.01" placeholder="Amount ($)" className="h-8 text-xs" value={expenseForm.amountCents} onChange={e => setExpenseForm({...expenseForm, amountCents: e.target.value})} />
+                    <Input type="number" min="1" placeholder="Qty" className="h-8 text-xs" value={expenseForm.quantity} onChange={e => setExpenseForm({...expenseForm, quantity: e.target.value})} />
+                  </div>
+                  <Button type="submit" size="sm" className="w-full h-7 text-xs">Add Expense</Button>
+                </form>
+              )}
+              {expenses.length > 0 ? expenses.map(e => (
+                <div key={e.id} className="flex items-center justify-between text-xs p-1.5 rounded hover:bg-muted/50 group">
+                  <div>
+                    <span className="font-medium capitalize">{e.expenseType}</span>
+                    {e.description && <span className="text-muted-foreground ml-1">- {e.description}</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">${(e.amountCents / 100).toFixed(2)}</span>
+                    <button onClick={() => deleteExpense(e.id)} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              )) : !showExpenseForm && (
+                <div className="text-xs text-muted-foreground text-center py-2">No expenses</div>
+              )}
+              {expenses.length > 0 && (
+                <div className="text-xs font-medium pt-1 border-t flex justify-between">
+                  <span>Total</span>
+                  <span>${(expenses.reduce((s, e) => s + e.amountCents * parseFloat(e.quantity || '1'), 0) / 100).toFixed(2)}</span>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

@@ -4,6 +4,7 @@ import {
   tickets,
   ticketComments,
   ticketTimeEntries,
+  ticketExpenses,
   ticketCategories,
   ticketSubcategories,
   ticketTags,
@@ -323,6 +324,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
 
       // Delete all child records that reference this ticket
       await fastify.db.delete(ticketTagAssignments).where(eq(ticketTagAssignments.ticketId, id));
+      await fastify.db.delete(ticketExpenses).where(eq(ticketExpenses.ticketId, id));
       await fastify.db.delete(ticketTimeEntries).where(eq(ticketTimeEntries.ticketId, id));
       await fastify.db.delete(ticketComments).where(eq(ticketComments.ticketId, id));
       await fastify.db.update(calendarEvents).set({ ticketId: null }).where(eq(calendarEvents.ticketId, id));
@@ -494,6 +496,102 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== TICKET EXPENSES =====
+
+  // List expenses for ticket
+  fastify.get(
+    '/api/v1/tickets/:id/expenses',
+    { preHandler: [fastify.authenticate, requirePermission('tickets:read')] },
+    async (request) => {
+      const { id } = request.params as { id: string };
+
+      return fastify.db
+        .select()
+        .from(ticketExpenses)
+        .where(
+          and(
+            eq(ticketExpenses.ticketId, id),
+            eq(ticketExpenses.tenantId, request.tenantId),
+          ),
+        )
+        .orderBy(desc(ticketExpenses.expenseDate));
+    },
+  );
+
+  // Create expense
+  fastify.post(
+    '/api/v1/tickets/:id/expenses',
+    { preHandler: [fastify.authenticate, requirePermission('tickets:write')] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as {
+        expenseType: string;
+        description?: string;
+        amountCents: number;
+        quantity?: string;
+        isBillable?: boolean;
+        expenseDate?: string;
+      };
+
+      const [expense] = await fastify.db
+        .insert(ticketExpenses)
+        .values({
+          tenantId: request.tenantId,
+          ticketId: id,
+          userId: request.user.sub,
+          expenseType: body.expenseType,
+          description: body.description,
+          amountCents: body.amountCents,
+          quantity: body.quantity,
+          isBillable: body.isBillable,
+          expenseDate: body.expenseDate ?? new Date().toISOString().split('T')[0],
+        })
+        .returning();
+
+      reply.code(201);
+      return expense;
+    },
+  );
+
+  // Update expense
+  fastify.patch(
+    '/api/v1/expenses/:id',
+    { preHandler: [fastify.authenticate, requirePermission('tickets:write')] },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Partial<{
+        expenseType: string;
+        description: string;
+        amountCents: number;
+        quantity: string;
+        isBillable: boolean;
+        isBilled: boolean;
+        expenseDate: string;
+      }>;
+
+      const [updated] = await fastify.db
+        .update(ticketExpenses)
+        .set({ ...body, updatedAt: new Date() })
+        .where(and(eq(ticketExpenses.id, id), eq(ticketExpenses.tenantId, request.tenantId)))
+        .returning();
+
+      return updated;
+    },
+  );
+
+  // Delete expense
+  fastify.delete(
+    '/api/v1/expenses/:id',
+    { preHandler: [fastify.authenticate, requirePermission('tickets:write')] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      await fastify.db
+        .delete(ticketExpenses)
+        .where(and(eq(ticketExpenses.id, id), eq(ticketExpenses.tenantId, request.tenantId)));
+      reply.code(204).send();
+    },
+  );
+
   // List ticket categories with subcategories
   fastify.get(
     '/api/v1/ticket-categories',
@@ -570,6 +668,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     const { ids } = request.body as { ids: string[] };
     for (const id of ids) {
       await fastify.db.delete(ticketTagAssignments).where(eq(ticketTagAssignments.ticketId, id));
+      await fastify.db.delete(ticketExpenses).where(eq(ticketExpenses.ticketId, id));
       await fastify.db.delete(ticketTimeEntries).where(eq(ticketTimeEntries.ticketId, id));
       await fastify.db.delete(ticketComments).where(eq(ticketComments.ticketId, id));
       await fastify.db.update(calendarEvents).set({ ticketId: null }).where(eq(calendarEvents.ticketId, id));

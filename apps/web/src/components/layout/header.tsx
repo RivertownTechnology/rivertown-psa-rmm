@@ -11,7 +11,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LogOut, User, Sun, Moon, Menu, Settings as SettingsIcon, Bell } from 'lucide-react';
+import { LogOut, User, Sun, Moon, Menu, Settings as SettingsIcon, Bell, Play, Square } from 'lucide-react';
+import { useTimer } from '@/lib/timer';
 import { Button } from '@/components/ui/button';
 
 interface HeaderProps {
@@ -23,6 +24,31 @@ interface HeaderProps {
 export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
   const { user, logout } = useAuth();
   const { mode, setMode } = useTheme();
+  const timer = useTimer();
+
+  async function handleStopTimer() {
+    const result = await timer.stopTimer();
+    if (!result) return;
+    if (timer.ticketId) {
+      // Auto-create time entry
+      const now = new Date().toISOString();
+      await api(`/tickets/${timer.ticketId}/time-entries`, {
+        method: 'POST',
+        body: JSON.stringify({
+          ticketId: timer.ticketId,
+          startedAt: now, endedAt: now,
+          durationMinutes: result.durationMinutes,
+          isBillable: true,
+          notes: 'Timer entry',
+        }),
+      }).catch(() => {});
+      timer.clearTimer();
+    } else {
+      // No ticket associated
+      timer.clearTimer();
+      alert(`Timer stopped: ${result.durationMinutes} minutes. No ticket was associated.`);
+    }
+  }
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationList, setNotificationList] = useState<Array<{id: string; type: string; title: string; body: string; entityType: string; entityId: string; isRead: boolean; createdAt: string}>>([]);
@@ -63,6 +89,25 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
         >
           Search... <kbd className="ml-2 text-xs opacity-60">{'\u2318'}K</kbd>
         </button>
+
+        {/* Global timer */}
+        {timer.isRunning && (
+          <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
+            <span className="font-mono text-sm font-bold text-red-600 dark:text-red-400">{timer.elapsed}</span>
+            {timer.ticketNumber && (
+              <span className="text-xs text-red-500 dark:text-red-400">#{timer.ticketNumber}</span>
+            )}
+            <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:text-red-700" onClick={handleStopTimer}>
+              <Square className="h-3 w-3 fill-current" />
+            </Button>
+          </div>
+        )}
+        {!timer.isRunning && (
+          <Button variant="ghost" size="icon" className="h-8 w-8" title="Start timer"
+            onClick={() => timer.startTimer()}>
+            <Play className="h-4 w-4" />
+          </Button>
+        )}
 
         {/* Notification bell */}
         <DropdownMenu onOpenChange={(open) => {

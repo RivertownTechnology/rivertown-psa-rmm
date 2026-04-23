@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { ThemeProvider } from '@/lib/theme';
+import { TimerProvider } from '@/lib/timer';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { LoginPage } from '@/pages/login';
 import { DashboardPage } from '@/pages/dashboard';
@@ -208,7 +209,9 @@ export function App() {
     <ErrorBoundary>
       <ThemeProvider>
         <AuthProvider>
-          <AppRouter />
+          <TimerProvider>
+            <AppRouter />
+          </TimerProvider>
         </AuthProvider>
       </ThemeProvider>
     </ErrorBoundary>

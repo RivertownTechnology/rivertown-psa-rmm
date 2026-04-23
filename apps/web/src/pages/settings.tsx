@@ -175,6 +175,11 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
     highResponseMinutes: '240', highResolutionMinutes: '480',
     mediumResponseMinutes: '480', mediumResolutionMinutes: '1440',
     lowResponseMinutes: '1440', lowResolutionMinutes: '2880',
+    businessHoursEnabled: false,
+    businessHoursStart: '09:00',
+    businessHoursEnd: '17:00',
+    businessDays: '1,2,3,4,5',
+    holidays: [] as string[],
   });
 
   // Profile
@@ -471,22 +476,32 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
         highResponseMinutes: String(policy.highResponseMinutes), highResolutionMinutes: String(policy.highResolutionMinutes),
         mediumResponseMinutes: String(policy.mediumResponseMinutes), mediumResolutionMinutes: String(policy.mediumResolutionMinutes),
         lowResponseMinutes: String(policy.lowResponseMinutes), lowResolutionMinutes: String(policy.lowResolutionMinutes),
+        businessHoursEnabled: (policy as any).businessHoursEnabled ?? false,
+        businessHoursStart: (policy as any).businessHoursStart ?? '09:00',
+        businessHoursEnd: (policy as any).businessHoursEnd ?? '17:00',
+        businessDays: (policy as any).businessDays ?? '1,2,3,4,5',
+        holidays: (policy as any).holidays ?? [],
       });
     } else {
       setEditingSlaId(null);
-      setSlaForm({ name: '', description: '', isDefault: false, criticalResponseMinutes: '60', criticalResolutionMinutes: '240', highResponseMinutes: '240', highResolutionMinutes: '480', mediumResponseMinutes: '480', mediumResolutionMinutes: '1440', lowResponseMinutes: '1440', lowResolutionMinutes: '2880' });
+      setSlaForm({ name: '', description: '', isDefault: false, criticalResponseMinutes: '60', criticalResolutionMinutes: '240', highResponseMinutes: '240', highResolutionMinutes: '480', mediumResponseMinutes: '480', mediumResolutionMinutes: '1440', lowResponseMinutes: '1440', lowResolutionMinutes: '2880', businessHoursEnabled: false, businessHoursStart: '09:00', businessHoursEnd: '17:00', businessDays: '1,2,3,4,5', holidays: [] });
     }
     setShowSlaEdit(true);
   }
 
   async function saveSlaPolicy(e: React.FormEvent) {
     e.preventDefault();
-    const payload = {
+    const payload: Record<string, unknown> = {
       name: slaForm.name, description: slaForm.description || undefined, isDefault: slaForm.isDefault,
       criticalResponseMinutes: parseInt(slaForm.criticalResponseMinutes), criticalResolutionMinutes: parseInt(slaForm.criticalResolutionMinutes),
       highResponseMinutes: parseInt(slaForm.highResponseMinutes), highResolutionMinutes: parseInt(slaForm.highResolutionMinutes),
       mediumResponseMinutes: parseInt(slaForm.mediumResponseMinutes), mediumResolutionMinutes: parseInt(slaForm.mediumResolutionMinutes),
       lowResponseMinutes: parseInt(slaForm.lowResponseMinutes), lowResolutionMinutes: parseInt(slaForm.lowResolutionMinutes),
+      businessHoursEnabled: slaForm.businessHoursEnabled,
+      businessHoursStart: slaForm.businessHoursStart,
+      businessHoursEnd: slaForm.businessHoursEnd,
+      businessDays: slaForm.businessDays,
+      holidays: slaForm.holidays,
     };
     if (editingSlaId) {
       await api(`/settings/sla-policies/${editingSlaId}`, { method: 'PATCH', body: JSON.stringify(payload) });
@@ -1112,6 +1127,61 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                     })}
                   </div>
                   <p className="text-xs text-muted-foreground">Values are stored in minutes internally. Switching between units converts the display only.</p>
+
+                  <Separator />
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium">Business Hours Only</div>
+                        <div className="text-xs text-muted-foreground">SLA timers only count during business hours</div>
+                      </div>
+                      <button type="button" role="switch" aria-checked={slaForm.businessHoursEnabled}
+                        onClick={() => setSlaForm({...slaForm, businessHoursEnabled: !slaForm.businessHoursEnabled})}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${slaForm.businessHoursEnabled ? 'bg-green-500' : 'bg-input'}`}>
+                        <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg transition-transform duration-200 ${slaForm.businessHoursEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+                    {slaForm.businessHoursEnabled && (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Start Time</Label>
+                            <Input type="time" value={slaForm.businessHoursStart} onChange={e => setSlaForm({...slaForm, businessHoursStart: e.target.value})} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">End Time</Label>
+                            <Input type="time" value={slaForm.businessHoursEnd} onChange={e => setSlaForm({...slaForm, businessHoursEnd: e.target.value})} />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Business Days</Label>
+                          <div className="flex gap-1.5">
+                            {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, i) => {
+                              const days = slaForm.businessDays.split(',').map(Number);
+                              const active = days.includes(i);
+                              return (
+                                <button key={day} type="button"
+                                  onClick={() => {
+                                    const next = active ? days.filter(d => d !== i) : [...days, i].sort();
+                                    setSlaForm({...slaForm, businessDays: next.join(',')});
+                                  }}
+                                  className={`w-9 h-8 rounded text-xs font-medium transition-colors ${active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent'}`}>
+                                  {day}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Holidays (one per line, YYYY-MM-DD)</Label>
+                          <textarea rows={3} className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs"
+                            value={(slaForm.holidays || []).join('\n')}
+                            onChange={e => setSlaForm({...slaForm, holidays: e.target.value.split('\n').filter(Boolean)})}
+                            placeholder={"2026-12-25\n2027-01-01"} />
+                        </div>
+                      </>
+                    )}
+                  </div>
 
                   <DialogFooter>
                     <Button type="button" variant="outline" onClick={() => setShowSlaEdit(false)}>Cancel</Button>
