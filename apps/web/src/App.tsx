@@ -28,6 +28,7 @@ import { TicketKanbanPage } from '@/pages/ticket-kanban';
 import { SearchResultsPage } from '@/pages/search';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { CommandPalette } from '@/components/command-palette';
+import { AIChat } from '@/components/ai-chat';
 
 function useLocation() {
   const getPath = () => window.location.pathname;
@@ -200,6 +201,7 @@ function AppRouter() {
       <DashboardLayout title={title} currentPath={currentNav} onNavigate={navigate}>
         {content}
       </DashboardLayout>
+      <AIChat />
     </>
   );
 }

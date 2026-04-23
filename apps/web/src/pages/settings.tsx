@@ -2167,7 +2167,7 @@ function QuickBooksCard() {
 // ===== AI ASSISTANT SETTINGS =====
 
 function AISettingsTab() {
-  const [config, setConfig] = useState({ isEnabled: false, provider: 'anthropic' as 'anthropic' | 'openai', apiKey: '', model: 'claude-sonnet-4-20250514', personality: '' });
+  const [config, setConfig] = useState({ isEnabled: false, provider: 'anthropic' as 'anthropic' | 'openai', apiKey: '', model: 'claude-sonnet-4-20250514', personality: '', name: 'Atlas' });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState('');
@@ -2186,7 +2186,7 @@ function AISettingsTab() {
   const models = config.provider === 'anthropic' ? anthropicModels : openaiModels;
 
   useEffect(() => {
-    api<typeof config>('/settings/ai').then(setConfig).catch(() => {});
+    api<typeof config>('/settings/ai').then(data => setConfig({ ...data, name: data.name || 'Atlas' })).catch(() => {});
   }, []);
 
   function changeProvider(provider: 'anthropic' | 'openai') {
@@ -2250,6 +2250,12 @@ function AISettingsTab() {
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <Label>Assistant Name</Label>
+              <Input value={config.name} onChange={e => setConfig(c => ({ ...c, name: e.target.value }))} placeholder="Atlas" />
+              <p className="text-xs text-muted-foreground mt-1">The name your AI assistant uses when chatting</p>
             </div>
 
             <div>

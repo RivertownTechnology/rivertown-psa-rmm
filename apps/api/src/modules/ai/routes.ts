@@ -1,4 +1,6 @@
 import { FastifyInstance } from 'fastify';
+import { eq, and } from 'drizzle-orm';
+import { integrationConfigs } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 
 export async function aiRoutes(fastify: FastifyInstance) {
@@ -30,5 +32,31 @@ export async function aiRoutes(fastify: FastifyInstance) {
     const { improveReply } = await import('../../services/ai.js');
     const improvedText = await improveReply(fastify.db, request.tenantId, draftText, ticketSubject || '');
     return { improvedText };
+  });
+
+  // Chat with AI assistant
+  fastify.post('/api/v1/ai/chat', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } } as any,
+  }, async (request) => {
+    const { messages, context } = request.body as {
+      messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+      context?: string;
+    };
+    const { chat } = await import('../../services/ai.js');
+    const response = await chat(fastify.db, request.tenantId, messages, context);
+    return { response };
+  });
+
+  // Get AI assistant config (name + status)
+  fastify.get('/api/v1/ai/config', {
+    preHandler: [fastify.authenticate],
+  }, async (request) => {
+    const [config] = await fastify.db.select().from(integrationConfigs)
+      .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'ai')))
+      .limit(1);
+    if (!config?.isEnabled) return { enabled: false, name: 'Atlas' };
+    const settings = (config.settings ?? {}) as Record<string, string>;
+    return { enabled: true, name: settings.name || 'Atlas', provider: settings.provider || 'anthropic' };
   });
 }
