@@ -6,9 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Ticket, Building2, Clock, AlertTriangle, DollarSign, TrendingUp,
-  PieChart, Receipt, ShieldAlert, Eye, EyeOff, Settings2,
+  PieChart as PieChartIcon, Receipt, ShieldAlert, Eye, EyeOff, Settings2,
   CheckCircle2, Circle, ArrowRight, X,
 } from 'lucide-react';
+import {
+  LineChart, Line, XAxis, YAxis, ResponsiveContainer,
+  PieChart, Pie, Cell, Tooltip,
+} from 'recharts';
 
 interface DashboardStats {
   customers: { total: number };
@@ -52,7 +56,7 @@ const ALL_WIDGETS: Widget[] = [
   { id: 'product_cost', title: 'Product Cost', getValue: s => formatCentsShort(s.contracts.productCostCents), icon: DollarSign, color: 'text-red-500', category: 'financial', link: '/billing/contracts' },
   { id: 'labor_cost', title: 'Labor Cost', getValue: s => formatCentsShort(s.contracts.laborCostCents), icon: Clock, color: 'text-orange-500', category: 'financial', link: '/billing/contracts' },
   { id: 'true_profit', title: 'True Profit', getValue: s => formatCentsShort(s.contracts.trueProfitCents), icon: TrendingUp, color: 'text-green-600', category: 'financial', link: '/billing/contracts' },
-  { id: 'true_margin', title: 'True Margin', getValue: s => `${s.contracts.trueMarginPercent}%`, icon: PieChart, color: 'text-purple-600', category: 'financial', link: '/billing/contracts' },
+  { id: 'true_margin', title: 'True Margin', getValue: s => `${s.contracts.trueMarginPercent}%`, icon: PieChartIcon, color: 'text-purple-600', category: 'financial', link: '/billing/contracts' },
 ];
 
 const DEFAULT_VISIBLE = ['customers', 'open_tickets', 'critical_tickets', 'unbilled_hours', 'open_invoices', 'overdue_invoices', 'monthly_revenue', 'true_profit'];
@@ -144,6 +148,8 @@ function OnboardingBanner({ stats }: { stats: DashboardStats }) {
   );
 }
 
+const SLA_COLORS = ['#22c55e', '#ef4444'];
+
 export function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [visibleWidgets, setVisibleWidgets] = useState<string[]>(() => {
@@ -152,15 +158,50 @@ export function DashboardPage() {
   });
   const [showConfig, setShowConfig] = useState(false);
 
+  // Chart data
+  const [ticketVolume, setTicketVolume] = useState<Array<{ day: string; count: number }>>([]);
+  const [slaCompliance, setSlaCompliance] = useState<{ met: number; breached: number; total: number } | null>(null);
+
   const fetchStats = useCallback(() => {
     api<DashboardStats>('/dashboard/stats').then(setStats).catch(() => {});
   }, []);
 
+  const fetchCharts = useCallback(() => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 7);
+    const startStr = start.toISOString().split('T')[0];
+    const endStr = end.toISOString().split('T')[0];
+
+    api<Array<{ day: string; count: number }>>(`/reports/ticket-volume?startDate=${startStr}&endDate=${endStr}`)
+      .then(data => {
+        if (!Array.isArray(data)) { setTicketVolume([]); return; }
+        // Fill in missing days
+        const dayMap = new Map(data.map(d => [new Date(d.day).toISOString().split('T')[0], d.count]));
+        const filled: Array<{ day: string; count: number }> = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const key = d.toISOString().split('T')[0];
+          filled.push({ day: key, count: dayMap.get(key) ?? 0 });
+        }
+        setTicketVolume(filled);
+      })
+      .catch(() => setTicketVolume([]));
+
+    const slaStart = new Date();
+    slaStart.setDate(slaStart.getDate() - 30);
+    api<{ met: number; breached: number; total: number }>(`/reports/sla-compliance?startDate=${slaStart.toISOString().split('T')[0]}&endDate=${endStr}`)
+      .then(setSlaCompliance)
+      .catch(() => setSlaCompliance(null));
+  }, []);
+
   useEffect(() => {
     fetchStats();
+    fetchCharts();
     // Poll every 30 seconds, not every 1 second
     const interval = setInterval(fetchStats, 30000);
-    function onVisible() { if (document.visibilityState === 'visible') fetchStats(); }
+    function onVisible() { if (document.visibilityState === 'visible') { fetchStats(); fetchCharts(); } }
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('popstate', fetchStats);
     return () => {
@@ -168,7 +209,7 @@ export function DashboardPage() {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('popstate', fetchStats);
     };
-  }, [fetchStats]);
+  }, [fetchStats, fetchCharts]);
 
   function toggleWidget(id: string) {
     setVisibleWidgets(prev => {
@@ -285,6 +326,102 @@ export function DashboardPage() {
           ))}
         </div>
       )}
+
+      {/* Mini Charts */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Ticket Volume Trend */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Ticket Volume (Last 7 Days)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {ticketVolume.length > 0 ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={ticketVolume}>
+                  <XAxis
+                    dataKey="day"
+                    tickFormatter={(v: string) => {
+                      const d = new Date(v + 'T00:00:00');
+                      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    }}
+                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={30}
+                  />
+                  <Tooltip
+                    labelFormatter={(v: any) => {
+                      const d = new Date(String(v) + 'T00:00:00');
+                      return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                    }}
+                    formatter={(value: any) => [value, 'Tickets']}
+                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                  />
+                  <Line type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6' }} activeDot={{ r: 5 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[200px] text-sm text-muted-foreground">No data available</div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* SLA Compliance Donut */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">SLA Compliance (Last 30 Days)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {slaCompliance && slaCompliance.total > 0 ? (
+              <div className="flex items-center gap-4">
+                <ResponsiveContainer width={140} height={200}>
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: 'Met', value: slaCompliance.met },
+                        { name: 'Breached', value: slaCompliance.breached },
+                      ]}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={40}
+                      outerRadius={65}
+                      paddingAngle={2}
+                      dataKey="value"
+                    >
+                      {[0, 1].map(idx => (
+                        <Cell key={idx} fill={SLA_COLORS[idx]} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-green-500" />
+                    <span className="text-sm">Met: {slaCompliance.met}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-red-500" />
+                    <span className="text-sm">Breached: {slaCompliance.breached}</span>
+                  </div>
+                  <div className="text-lg font-bold mt-2">
+                    {slaCompliance.total > 0 ? Math.round((slaCompliance.met / slaCompliance.total) * 100) : 100}%
+                  </div>
+                  <div className="text-xs text-muted-foreground">compliance rate</div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-[200px] text-sm text-muted-foreground">No SLA data available</div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

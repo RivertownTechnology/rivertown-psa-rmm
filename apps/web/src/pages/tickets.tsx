@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -169,6 +170,8 @@ const PRIORITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2
 // ---------------------------------------------------------------------------
 
 export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (id: string) => void; onNavigate?: (path: string) => void }) {
+  const { user } = useAuth();
+
   // Data state
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -183,6 +186,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sort, setSort] = useState('newest');
+  const [myTicketsOnly, setMyTicketsOnly] = useState(false);
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -192,6 +196,9 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
   const [showBulkStatus, setShowBulkStatus] = useState(false);
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
+
+  // Ticket templates
+  const [ticketTemplates, setTicketTemplates] = useState<Array<{ id: string; name: string; subject: string; body: string; priority: string; category: string }>>([]);
 
   // Create dialog state
   const [showCreate, setShowCreate] = useState(false);
@@ -243,13 +250,14 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
       if (statusFilter.length > 0) params.set('status', statusFilter.join(','));
       if (priorityFilter.length === 1) params.set('priority', priorityFilter[0]);
       if (debouncedSearch) params.set('search', debouncedSearch);
+      if (myTicketsOnly && user?.id) params.set('assignedTo', user.id);
       const data = await api<PaginatedResponse>(`/tickets?${params}`);
       setTickets(data.data);
       setTotal(data.pagination.total);
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, priorityFilter, debouncedSearch]);
+  }, [page, statusFilter, priorityFilter, debouncedSearch, myTicketsOnly, user?.id]);
 
   const fetchCustomers = useCallback(async () => {
     const data = await api<{ data: Customer[] }>('/customers?limit=100');
@@ -278,6 +286,15 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
       .then(setCategories)
       .catch(() => {});
   }, [fetchCustomers, fetchTechs]);
+
+  // Fetch ticket templates when create dialog opens
+  useEffect(() => {
+    if (showCreate) {
+      api<Array<{ id: string; name: string; subject: string; body: string; priority: string; category: string }>>('/settings/ticket-templates')
+        .then(data => setTicketTemplates(Array.isArray(data) ? data : []))
+        .catch(() => setTicketTemplates([]));
+    }
+  }, [showCreate]);
 
   // ---------------------------------------------------------------------------
   // Lookup maps
@@ -472,6 +489,15 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
+          {/* My Tickets toggle */}
+          <Button
+            variant={myTicketsOnly ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => { setMyTicketsOnly(!myTicketsOnly); setPage(1); }}
+          >
+            My Tickets
+          </Button>
+
           {/* Search */}
           <div className="relative w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -771,6 +797,32 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
             <DialogTitle>New Ticket</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleCreate} className="space-y-4">
+            {ticketTemplates.length > 0 && (
+              <div className="space-y-2">
+                <Label>Template</Label>
+                <select
+                  onChange={e => {
+                    const tpl = ticketTemplates.find(t => t.id === e.target.value);
+                    if (tpl) {
+                      setFormData(f => ({
+                        ...f,
+                        subject: tpl.subject || f.subject,
+                        description: tpl.body || f.description,
+                        priority: tpl.priority || f.priority,
+                      }));
+                    }
+                  }}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  defaultValue=""
+                >
+                  <option value="">No template</option>
+                  {ticketTemplates.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label>Customer</Label>
               <Combobox

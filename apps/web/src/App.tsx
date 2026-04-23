@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { ThemeProvider } from '@/lib/theme';
+import { ErrorBoundary } from '@/components/error-boundary';
 import { LoginPage } from '@/pages/login';
 import { DashboardPage } from '@/pages/dashboard';
 import { CustomersPage } from '@/pages/customers';
@@ -204,10 +205,12 @@ function AppRouter() {
 
 export function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <AppRouter />
-      </AuthProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <AppRouter />
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

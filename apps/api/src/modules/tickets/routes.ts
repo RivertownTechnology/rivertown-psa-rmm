@@ -159,6 +159,21 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         sendTicketCreatedEmail(fastify.db, request.tenantId, ticket.id).catch(e => console.error('Ticket created email failed:', e));
       });
 
+      // Notify all techs about new ticket (or just the assigned tech if set)
+      if (ticket.assignedTo) {
+        import('../../services/notifications.js').then(({ createNotification }) => {
+          createNotification(fastify.db, {
+            tenantId: request.tenantId,
+            userId: ticket.assignedTo!,
+            type: 'ticket_created',
+            title: `New ticket #${ticket.ticketNumber}`,
+            body: ticket.subject,
+            entityType: 'ticket',
+            entityId: ticket.id,
+          }).catch(() => {});
+        });
+      }
+
       reply.code(201);
       return ticket;
     },
@@ -257,6 +272,17 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       if ((body as any).assignedTo && (body as any).assignedTo !== existing.assignedTo) {
         import('../../services/email-notifications.js').then(({ sendTicketAssignedEmail }) => {
           sendTicketAssignedEmail(fastify.db, request.tenantId, id, request.user.sub).catch(e => console.error('Ticket assigned email failed:', e));
+        });
+        import('../../services/notifications.js').then(({ createNotification }) => {
+          createNotification(fastify.db, {
+            tenantId: request.tenantId,
+            userId: (body as any).assignedTo,
+            type: 'ticket_assigned',
+            title: `Ticket #${existing.ticketNumber} assigned to you`,
+            body: existing.subject,
+            entityType: 'ticket',
+            entityId: id,
+          }).catch(() => {});
         });
       }
 

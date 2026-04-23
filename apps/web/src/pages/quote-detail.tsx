@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   ArrowLeft, Plus, DollarSign, Calendar, FileText, Send,
   CheckCircle, XCircle, RefreshCw, Package, Trash2, AlertTriangle,
@@ -289,7 +290,30 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
   // Render
   // -------------------------------------------------------------------------
 
-  if (!quote) return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
+  if (!quote) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 space-y-4">
+            <Card><CardContent className="p-6 space-y-3">
+              <Skeleton className="h-6 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </CardContent></Card>
+          </div>
+          <div className="space-y-4">
+            <Card><CardContent className="p-6 space-y-3">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-full" />
+            </CardContent></Card>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

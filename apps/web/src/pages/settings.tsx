@@ -9,8 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Badge } from '@/components/ui/badge';
-import { User, Building, Bell, Hash, Mail, Send, CheckCircle, DollarSign, Shield, ShieldAlert, X, Package, Plus, Pencil, Trash2, Search, Sparkles, MessageSquare, Monitor, Smile, Server, HardDrive } from 'lucide-react';
+import { User, Building, Bell, Hash, Mail, Send, CheckCircle, DollarSign, Shield, ShieldAlert, X, Package, Plus, Pencil, Trash2, Search, Sparkles, MessageSquare, Monitor, Smile, Server, HardDrive, FileText } from 'lucide-react';
 import { BusinessProfileCard } from '@/components/business-profile-card';
 import { SecurityPage } from './security';
 import { ProductCatalogPage } from './product-catalog';
@@ -33,7 +34,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
   // Parse hash: "#topTab" or "#topTab/subTab" or "#topTab/subTab/subSubTab"
   const hashRaw = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
   const hashParts = hashRaw.split('/');
-  const validTabs = ['account', 'company', 'operations', 'catalog', 'integrations'];
+  const validTabs = ['account', 'company', 'operations', 'catalog', 'integrations', 'audit'];
   const legacyMap: Record<string, string> = {
     account: 'company', // My Account moved to /account route; settings defaults to Company
     general: 'company',
@@ -732,6 +733,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
             <TabsTrigger value="operations">Operations</TabsTrigger>
             <TabsTrigger value="catalog">Product Catalog</TabsTrigger>
             <TabsTrigger value="integrations">Integrations</TabsTrigger>
+            <TabsTrigger value="audit">Audit Log</TabsTrigger>
           </TabsList>
         )}
 
@@ -951,10 +953,13 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
         {/* OPERATIONS TAB */}
         <TabsContent value="operations">
           <Tabs defaultValue="sla" className="mt-4">
-            <TabsList>
+            <TabsList className="flex-wrap h-auto">
               <TabsTrigger value="sla">SLA</TabsTrigger>
               <TabsTrigger value="templates">Templates</TabsTrigger>
+              <TabsTrigger value="canned-responses">Canned Responses</TabsTrigger>
               <TabsTrigger value="ticket-settings">Ticket Settings</TabsTrigger>
+              <TabsTrigger value="custom-fields">Custom Fields</TabsTrigger>
+              <TabsTrigger value="ticket-templates">Ticket Templates</TabsTrigger>
             </TabsList>
             <TabsContent value="templates">
               <div className="mt-4">
@@ -1243,6 +1248,21 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                   </div>
                 </Card>
               </div>
+            </TabsContent>
+
+            {/* CANNED RESPONSES SUB-TAB */}
+            <TabsContent value="canned-responses">
+              <CannedResponsesTab />
+            </TabsContent>
+
+            {/* CUSTOM FIELDS SUB-TAB */}
+            <TabsContent value="custom-fields">
+              <CustomFieldsTab />
+            </TabsContent>
+
+            {/* TICKET TEMPLATES SUB-TAB */}
+            <TabsContent value="ticket-templates">
+              <TicketTemplatesTab />
             </TabsContent>
 
           </Tabs>
@@ -1572,6 +1592,13 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
         <TabsContent value="catalog">
           <div className="mt-4">
             <ProductCatalogPage />
+          </div>
+        </TabsContent>
+
+        {/* AUDIT LOG TAB */}
+        <TabsContent value="audit">
+          <div className="mt-4">
+            <AuditLogTab />
           </div>
         </TabsContent>
       </Tabs>
@@ -2894,5 +2921,766 @@ function StorageCard() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Canned Responses Tab
+// ---------------------------------------------------------------------------
+
+interface CannedResponse {
+  id: string;
+  name: string;
+  category: string | null;
+  body: string;
+  isShared: boolean;
+  createdAt: string;
+}
+
+function CannedResponsesTab() {
+  const [responses, setResponses] = useState<CannedResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: '', category: '', body: '', isShared: true });
+  const [saving, setSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  async function loadResponses() {
+    setLoading(true);
+    try {
+      const data = await api<CannedResponse[]>('/canned-responses');
+      setResponses(Array.isArray(data) ? data : []);
+    } catch {
+      setResponses([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadResponses(); }, []);
+
+  function openCreate() {
+    setEditingId(null);
+    setForm({ name: '', category: '', body: '', isShared: true });
+    setShowDialog(true);
+  }
+
+  function openEdit(r: CannedResponse) {
+    setEditingId(r.id);
+    setForm({ name: r.name, category: r.category || '', body: r.body, isShared: r.isShared });
+    setShowDialog(true);
+  }
+
+  async function handleSave() {
+    if (!form.name.trim() || !form.body.trim()) return;
+    setSaving(true);
+    try {
+      const payload = {
+        name: form.name.trim(),
+        category: form.category.trim() || null,
+        body: form.body.trim(),
+        isShared: form.isShared,
+      };
+      if (editingId) {
+        await api(`/canned-responses/${editingId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      } else {
+        await api('/canned-responses', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      setShowDialog(false);
+      await loadResponses();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteId) return;
+    await api(`/canned-responses/${deleteId}`, { method: 'DELETE' });
+    setDeleteId(null);
+    await loadResponses();
+  }
+
+  const filtered = responses.filter(r =>
+    !searchQuery ||
+    r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (r.category || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    r.body.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const categories = [...new Set(responses.map(r => r.category).filter(Boolean))] as string[];
+
+  return (
+    <div className="space-y-6 mt-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" />Canned Responses</CardTitle>
+              <CardDescription>Pre-written replies for common ticket scenarios</CardDescription>
+            </div>
+            <Button size="sm" onClick={openCreate}><Plus className="h-4 w-4 mr-1" />New Response</Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {/* Search */}
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search responses..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          {loading ? (
+            <div className="text-sm text-muted-foreground text-center py-8">Loading...</div>
+          ) : filtered.length === 0 ? (
+            <div className="text-sm text-muted-foreground text-center py-8">
+              {responses.length === 0 ? 'No canned responses yet. Create one to get started.' : 'No results match your search.'}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filtered.map(r => (
+                <div key={r.id} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-medium text-sm">{r.name}</span>
+                        {r.category && (
+                          <Badge variant="outline" className="text-xs">{r.category}</Badge>
+                        )}
+                        {r.isShared && (
+                          <Badge variant="secondary" className="text-xs">Shared</Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground line-clamp-2">{r.body}</p>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(r)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(r.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Create / Edit Dialog */}
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingId ? 'Edit Canned Response' : 'New Canned Response'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Title</Label>
+              <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g. Password Reset Instructions" />
+            </div>
+            <div className="space-y-2">
+              <Label>Category</Label>
+              <Input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="e.g. General, Networking, Email"
+                list="canned-categories" />
+              {categories.length > 0 && (
+                <datalist id="canned-categories">
+                  {categories.map(c => <option key={c} value={c} />)}
+                </datalist>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Body</Label>
+              <textarea
+                rows={6}
+                value={form.body}
+                onChange={e => setForm({ ...form, body: e.target.value })}
+                placeholder="Write the response text..."
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={form.isShared}
+                onChange={e => setForm({ ...form, isShared: e.target.checked })}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm">Shared with all technicians</span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving || !form.name.trim() || !form.body.trim()}>
+              {saving ? 'Saving...' : editingId ? 'Update' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(open) => { if (!open) setDeleteId(null); }}
+        title="Delete Canned Response"
+        description="Are you sure you want to delete this canned response? This cannot be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={handleDelete}
+      />
+    </div>
+  );
+}
+
+// ===== CUSTOM FIELDS TAB =====
+
+interface CustomFieldDef {
+  id: string;
+  entityType: string;
+  fieldName: string;
+  fieldLabel: string;
+  fieldType: string;
+  options: unknown;
+  required: boolean;
+  sortOrder: number;
+  createdAt: string;
+}
+
+function toSnakeCase(str: string): string {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+function CustomFieldsTab() {
+  const [entityType, setEntityType] = useState('ticket');
+  const [fields, setFields] = useState<CustomFieldDef[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ fieldLabel: '', fieldName: '', fieldType: 'text', options: '', required: false });
+  const [saving, setSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  async function loadFields(et?: string) {
+    setLoading(true);
+    try {
+      const data = await api<CustomFieldDef[]>(`/settings/custom-fields?entityType=${et || entityType}`);
+      setFields(Array.isArray(data) ? data : []);
+    } catch { setFields([]); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { loadFields(); }, [entityType]);
+
+  function openCreate() {
+    setEditingId(null);
+    setForm({ fieldLabel: '', fieldName: '', fieldType: 'text', options: '', required: false });
+    setShowDialog(true);
+  }
+
+  function openEdit(f: CustomFieldDef) {
+    setEditingId(f.id);
+    const opts = Array.isArray(f.options) ? (f.options as Array<{ value: string; label: string }>).map(o => o.label || o.value).join('\n') : '';
+    setForm({ fieldLabel: f.fieldLabel, fieldName: f.fieldName, fieldType: f.fieldType, options: opts, required: f.required });
+    setShowDialog(true);
+  }
+
+  async function handleSave() {
+    if (!form.fieldLabel.trim()) return;
+    setSaving(true);
+    try {
+      const optionsArr = form.fieldType === 'dropdown' && form.options.trim()
+        ? form.options.split(/[\n,]/).map(s => s.trim()).filter(Boolean).map(s => ({ value: toSnakeCase(s), label: s }))
+        : null;
+      const payload = {
+        entityType,
+        fieldLabel: form.fieldLabel.trim(),
+        fieldName: form.fieldName.trim() || toSnakeCase(form.fieldLabel),
+        fieldType: form.fieldType,
+        options: optionsArr,
+        required: form.required,
+      };
+      if (editingId) {
+        await api(`/settings/custom-fields/${editingId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      } else {
+        await api('/settings/custom-fields', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      setShowDialog(false);
+      await loadFields();
+    } finally { setSaving(false); }
+  }
+
+  async function handleDelete() {
+    if (!deleteId) return;
+    await api(`/settings/custom-fields/${deleteId}`, { method: 'DELETE' });
+    setDeleteId(null);
+    await loadFields();
+  }
+
+  const typeBadge: Record<string, string> = {
+    text: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+    number: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+    dropdown: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+    date: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
+    checkbox: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300',
+  };
+
+  return (
+    <div className="space-y-4 mt-4">
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1">
+          {(['ticket', 'customer', 'asset'] as const).map(et => (
+            <Button key={et} variant={entityType === et ? 'default' : 'outline'} size="sm"
+              onClick={() => setEntityType(et)}>
+              {et.charAt(0).toUpperCase() + et.slice(1)}s
+            </Button>
+          ))}
+        </div>
+        <Button size="sm" onClick={openCreate}><Plus className="h-4 w-4 mr-1" />Add Field</Button>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b bg-muted/50">
+              <th className="text-left p-3 font-medium">Label</th>
+              <th className="text-left p-3 font-medium">Field Name</th>
+              <th className="text-center p-3 font-medium">Type</th>
+              <th className="text-center p-3 font-medium">Required</th>
+              <th className="w-20"></th>
+            </tr></thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">Loading...</td></tr>
+              ) : fields.length === 0 ? (
+                <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">No custom fields defined for {entityType}s. Click "Add Field" to create one.</td></tr>
+              ) : fields.map(f => (
+                <tr key={f.id} className="border-b hover:bg-muted/30">
+                  <td className="p-3 font-medium">{f.fieldLabel}</td>
+                  <td className="p-3 text-muted-foreground font-mono text-xs">{f.fieldName}</td>
+                  <td className="p-3 text-center"><Badge variant="secondary" className={`text-xs ${typeBadge[f.fieldType] || ''}`}>{f.fieldType}</Badge></td>
+                  <td className="p-3 text-center">{f.required && <Badge variant="outline" className="text-xs">Required</Badge>}</td>
+                  <td className="p-3 text-right">
+                    <div className="flex gap-1 justify-end">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(f)}><Pencil className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(f.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      {/* Create/Edit Dialog */}
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingId ? 'Edit Custom Field' : 'Add Custom Field'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Field Label</Label>
+              <Input value={form.fieldLabel} onChange={e => {
+                const label = e.target.value;
+                setForm(f => ({ ...f, fieldLabel: label, fieldName: editingId ? f.fieldName : toSnakeCase(label) }));
+              }} placeholder="e.g. Location" />
+            </div>
+            <div className="space-y-2">
+              <Label>Field Name (internal)</Label>
+              <Input value={form.fieldName} onChange={e => setForm({ ...form, fieldName: e.target.value })} placeholder="auto-generated from label" className="font-mono text-sm" />
+            </div>
+            <div className="space-y-2">
+              <Label>Field Type</Label>
+              <select value={form.fieldType} onChange={e => setForm({ ...form, fieldType: e.target.value })}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                <option value="text">Text</option>
+                <option value="number">Number</option>
+                <option value="dropdown">Dropdown</option>
+                <option value="date">Date</option>
+                <option value="checkbox">Checkbox</option>
+              </select>
+            </div>
+            {form.fieldType === 'dropdown' && (
+              <div className="space-y-2">
+                <Label>Options (one per line or comma-separated)</Label>
+                <textarea rows={4} value={form.options} onChange={e => setForm({ ...form, options: e.target.value })}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none" placeholder="Option 1&#10;Option 2&#10;Option 3" />
+              </div>
+            )}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" checked={form.required} onChange={e => setForm({ ...form, required: e.target.checked })} className="rounded border-gray-300" />
+              <span className="text-sm">Required field</span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving || !form.fieldLabel.trim()}>
+              {saving ? 'Saving...' : editingId ? 'Update' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(open) => { if (!open) setDeleteId(null); }}
+        title="Delete Custom Field"
+        description="Are you sure you want to delete this custom field? All values for this field will also be removed. This cannot be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={handleDelete}
+      />
+    </div>
+  );
+}
+
+// ===== TICKET TEMPLATES TAB =====
+
+interface TicketTemplate {
+  id: string;
+  name: string;
+  description: string;
+  subject: string;
+  body: string;
+  priority: string;
+  category: string;
+}
+
+function TicketTemplatesTab() {
+  const [templates, setTemplates] = useState<TicketTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [form, setForm] = useState({ name: '', description: '', subject: '', body: '', priority: 'medium', category: '' });
+  const [saving, setSaving] = useState(false);
+  const [deleteIdx, setDeleteIdx] = useState<number | null>(null);
+
+  async function loadTemplates() {
+    setLoading(true);
+    try {
+      const data = await api<TicketTemplate[]>('/settings/ticket-templates');
+      setTemplates(Array.isArray(data) ? data : []);
+    } catch { setTemplates([]); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { loadTemplates(); }, []);
+
+  function openCreate() {
+    setEditingIdx(null);
+    setForm({ name: '', description: '', subject: '', body: '', priority: 'medium', category: '' });
+    setShowDialog(true);
+  }
+
+  function openEdit(idx: number) {
+    const t = templates[idx];
+    setEditingIdx(idx);
+    setForm({ name: t.name, description: t.description || '', subject: t.subject || '', body: t.body || '', priority: t.priority || 'medium', category: t.category || '' });
+    setShowDialog(true);
+  }
+
+  async function handleSave() {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      const entry: TicketTemplate = {
+        id: editingIdx !== null ? templates[editingIdx].id : crypto.randomUUID(),
+        name: form.name.trim(),
+        description: form.description.trim(),
+        subject: form.subject.trim(),
+        body: form.body.trim(),
+        priority: form.priority,
+        category: form.category.trim(),
+      };
+      let updated: TicketTemplate[];
+      if (editingIdx !== null) {
+        updated = templates.map((t, i) => i === editingIdx ? entry : t);
+      } else {
+        updated = [...templates, entry];
+      }
+      await api('/settings/ticket-templates', { method: 'PUT', body: JSON.stringify(updated) });
+      setShowDialog(false);
+      await loadTemplates();
+    } finally { setSaving(false); }
+  }
+
+  async function handleDelete() {
+    if (deleteIdx === null) return;
+    const updated = templates.filter((_, i) => i !== deleteIdx);
+    await api('/settings/ticket-templates', { method: 'PUT', body: JSON.stringify(updated) });
+    setDeleteIdx(null);
+    await loadTemplates();
+  }
+
+  const priorityLabel: Record<string, string> = { low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical' };
+
+  return (
+    <div className="space-y-4 mt-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold">Ticket Templates</h3>
+          <p className="text-xs text-muted-foreground">Pre-fill ticket fields for common requests</p>
+        </div>
+        <Button size="sm" onClick={openCreate}><Plus className="h-4 w-4 mr-1" />Add Template</Button>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b bg-muted/50">
+              <th className="text-left p-3 font-medium">Name</th>
+              <th className="text-left p-3 font-medium">Subject</th>
+              <th className="text-center p-3 font-medium">Priority</th>
+              <th className="text-left p-3 font-medium">Category</th>
+              <th className="w-20"></th>
+            </tr></thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">Loading...</td></tr>
+              ) : templates.length === 0 ? (
+                <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">No ticket templates yet. Click "Add Template" to create one.</td></tr>
+              ) : templates.map((t, idx) => (
+                <tr key={t.id} className="border-b hover:bg-muted/30">
+                  <td className="p-3">
+                    <div className="font-medium">{t.name}</div>
+                    {t.description && <div className="text-xs text-muted-foreground">{t.description}</div>}
+                  </td>
+                  <td className="p-3 text-muted-foreground">{t.subject || '-'}</td>
+                  <td className="p-3 text-center"><Badge variant="outline" className="text-xs capitalize">{priorityLabel[t.priority] || t.priority}</Badge></td>
+                  <td className="p-3 text-muted-foreground">{t.category || '-'}</td>
+                  <td className="p-3 text-right">
+                    <div className="flex gap-1 justify-end">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(idx)}><Pencil className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => setDeleteIdx(idx)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      {/* Create/Edit Dialog */}
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingIdx !== null ? 'Edit Template' : 'Add Ticket Template'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Template Name</Label>
+              <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g. New Employee Onboarding" />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Brief description of when to use this template" />
+            </div>
+            <div className="space-y-2">
+              <Label>Default Subject</Label>
+              <Input value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder="Subject line for the ticket" />
+            </div>
+            <div className="space-y-2">
+              <Label>Default Description</Label>
+              <textarea rows={4} value={form.body} onChange={e => setForm({ ...form, body: e.target.value })}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none" placeholder="Pre-filled ticket description..." />
+            </div>
+            <div className="space-y-2">
+              <Label>Priority</Label>
+              <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Category</Label>
+              <Input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="Optional category name" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving || !form.name.trim()}>
+              {saving ? 'Saving...' : editingIdx !== null ? 'Update' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={deleteIdx !== null}
+        onOpenChange={(open) => { if (!open) setDeleteIdx(null); }}
+        title="Delete Template"
+        description="Are you sure you want to delete this ticket template? This cannot be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={handleDelete}
+      />
+    </div>
+  );
+}
+
+// ===== AUDIT LOG TAB =====
+
+interface AuditLogEntry {
+  id: string;
+  actorType: string;
+  actorId: string;
+  actorName: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  changes: unknown;
+  ipAddress: string | null;
+  createdAt: string;
+}
+
+interface AuditLogResponse {
+  data: AuditLogEntry[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+}
+
+function AuditLogTab() {
+  const [entries, setEntries] = useState<AuditLogEntry[]>([]);
+  const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 0 });
+  const [loading, setLoading] = useState(true);
+  const [actionFilter, setActionFilter] = useState('');
+  const [entityTypeFilter, setEntityTypeFilter] = useState('');
+
+  async function loadAuditLog(page = 1) {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: '50' });
+      if (actionFilter) params.set('action', actionFilter);
+      if (entityTypeFilter) params.set('entityType', entityTypeFilter);
+      const res = await api<AuditLogResponse>(`/settings/audit-log?${params}`);
+      setEntries(res.data);
+      setPagination(res.pagination);
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { loadAuditLog(); }, [actionFilter, entityTypeFilter]);
+
+  function formatTimestamp(dateStr: string): string {
+    const d = new Date(dateStr);
+    return d.toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+    });
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Audit Log</CardTitle>
+          <CardDescription>Track all actions performed in your account.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Filters */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Entity Type</Label>
+              <select
+                value={entityTypeFilter}
+                onChange={e => { setEntityTypeFilter(e.target.value); }}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+              >
+                <option value="">All</option>
+                <option value="ticket">Ticket</option>
+                <option value="customer">Customer</option>
+                <option value="contract">Contract</option>
+                <option value="invoice">Invoice</option>
+                <option value="quote">Quote</option>
+                <option value="contact">Contact</option>
+                <option value="user">User</option>
+                <option value="asset">Asset</option>
+                <option value="time_entry">Time Entry</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Action</Label>
+              <Input
+                placeholder="e.g. ticket.created"
+                value={actionFilter}
+                onChange={e => setActionFilter(e.target.value)}
+                className="h-9 w-48"
+              />
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="text-left p-3 font-medium">Timestamp</th>
+                  <th className="text-left p-3 font-medium">Action</th>
+                  <th className="text-left p-3 font-medium">Actor</th>
+                  <th className="text-left p-3 font-medium">Entity Type</th>
+                  <th className="text-left p-3 font-medium">Entity ID</th>
+                  <th className="text-left p-3 font-medium">IP Address</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">Loading...</td></tr>
+                ) : entries.length === 0 ? (
+                  <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No audit log entries found.</td></tr>
+                ) : entries.map(entry => (
+                  <tr key={entry.id} className="border-b hover:bg-muted/30">
+                    <td className="p-3 text-muted-foreground whitespace-nowrap">{formatTimestamp(entry.createdAt)}</td>
+                    <td className="p-3"><Badge variant="outline" className="text-xs font-mono">{entry.action}</Badge></td>
+                    <td className="p-3">{entry.actorName}</td>
+                    <td className="p-3"><Badge variant="secondary" className="text-xs capitalize">{entry.entityType}</Badge></td>
+                    <td className="p-3 text-muted-foreground font-mono text-xs max-w-[120px] truncate" title={entry.entityId}>{entry.entityId.slice(0, 8)}...</td>
+                    <td className="p-3 text-muted-foreground text-xs">{entry.ipAddress ?? '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {pagination.totalPages > 1 && (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">
+                Page {pagination.page} of {pagination.totalPages} ({pagination.total} entries)
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pagination.page <= 1}
+                  onClick={() => loadAuditLog(pagination.page - 1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pagination.page >= pagination.totalPages}
+                  onClick={() => loadAuditLog(pagination.page + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

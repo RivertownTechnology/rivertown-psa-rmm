@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Combobox } from '@/components/ui/combobox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   ArrowLeft, Plus, DollarSign, Send, Trash2, CreditCard, XCircle, Pencil, FileText,
 } from 'lucide-react';
@@ -163,7 +164,30 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
     } finally { setSaving(false); }
   }
 
-  if (!invoice) return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
+  if (!invoice) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 space-y-4">
+            <Card><CardContent className="p-6 space-y-3">
+              <Skeleton className="h-6 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </CardContent></Card>
+          </div>
+          <div className="space-y-4">
+            <Card><CardContent className="p-6 space-y-3">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-full" />
+            </CardContent></Card>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const isDraft = invoice.status === 'draft';
   const isEditable = isDraft;

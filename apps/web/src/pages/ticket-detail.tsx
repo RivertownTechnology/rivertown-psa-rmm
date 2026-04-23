@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   ArrowLeft, Clock, MessageSquare, Pencil, Check, X, ChevronDown, ChevronUp,
   Eye, EyeOff, Plus, Timer, User, Users, AlertCircle, Send, Trash2, Sparkles,
-  Monitor, ExternalLink, FileText, GitMerge, Search,
+  Monitor, ExternalLink, FileText, GitMerge, Search, Paperclip,
 } from 'lucide-react';
 import {
   Dialog,
@@ -242,6 +242,8 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
   const [commentBody, setCommentBody] = useState('');
   const [commentInternal, setCommentInternal] = useState(false);
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [commentFiles, setCommentFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // AI assist
   const [aiSummary, setAiSummary] = useState('');
@@ -263,6 +265,9 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
   const [cannedResponses, setCannedResponses] = useState<Array<{ id: string; name: string; body: string }>>([]);
   const [cannedSearch, setCannedSearch] = useState('');
   const [cannedLoading, setCannedLoading] = useState(false);
+
+  // Custom fields
+  const [customFields, setCustomFields] = useState<Array<{ id: string; fieldLabel: string; fieldName: string; fieldType: string; options: unknown; required: boolean; value: string | null }>>([]);
 
   // Merge ticket
   const [showMergeDialog, setShowMergeDialog] = useState(false);
@@ -324,6 +329,13 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
     }
   }, []);
 
+  const loadCustomFields = useCallback(async () => {
+    try {
+      const data = await api<Array<{ id: string; fieldLabel: string; fieldName: string; fieldType: string; options: unknown; required: boolean; value: string | null }>>(`/custom-fields/ticket/${ticketId}`);
+      setCustomFields(data);
+    } catch { setCustomFields([]); }
+  }, [ticketId]);
+
   const loadCustomerName = useCallback(async (customerId: string) => {
     try {
       const data = await api<Customer>(`/customers/${customerId}`);
@@ -341,6 +353,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
       const t = await loadTicket();
       loadComments();
       loadTimeEntries();
+      loadCustomFields();
       loadCustomerName(t.customerId);
       loadContracts(t.customerId);
       loadContacts(t.customerId);
@@ -369,7 +382,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
       clearInterval(dataInterval);
       clearInterval(tickInterval);
     };
-  }, [loadTicket, loadComments, loadTimeEntries, loadCustomerName, loadContracts, loadContacts, loadAssets]);
+  }, [loadTicket, loadComments, loadTimeEntries, loadCustomFields, loadCustomerName, loadContracts, loadContacts, loadAssets]);
 
   // -------------------------------------------------------------------------
   // Ticket field updates
@@ -406,6 +419,27 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
         method: 'POST',
         body: JSON.stringify({ body: commentBody.trim(), isInternal }),
       });
+
+      // Upload attachments
+      if (commentFiles.length > 0) {
+        const commentData = await api<Comment[]>(`/tickets/${ticketId}/comments`);
+        const latestComment = commentData?.[commentData.length - 1];
+        if (latestComment) {
+          for (const file of commentFiles) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('entityType', 'ticket_comment');
+            formData.append('entityId', latestComment.id);
+            await fetch(`${(import.meta as any).env?.VITE_API_URL || ''}/api/v1/attachments/upload`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+              body: formData,
+            }).catch(() => {});
+          }
+        }
+        setCommentFiles([]);
+      }
+
       setCommentBody('');
       setCommentInternal(false);
       await loadComments();
@@ -759,7 +793,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                       : 'border-input bg-background'
                   }`}
                 />
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Button
                     size="sm"
                     disabled={submittingComment || !commentBody.trim()}
@@ -779,6 +813,13 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                     <EyeOff className="h-3.5 w-3.5" />
                     {submittingComment && commentInternal ? 'Saving...' : 'Internal Note'}
                   </Button>
+                  <Button type="button" variant="ghost" size="sm" className="gap-1"
+                    onClick={() => fileInputRef.current?.click()}>
+                    <Paperclip className="h-3.5 w-3.5" />
+                    {commentFiles.length > 0 ? `${commentFiles.length} file(s)` : 'Attach'}
+                  </Button>
+                  <input ref={fileInputRef} type="file" multiple className="hidden"
+                    onChange={e => setCommentFiles(Array.from(e.target.files || []))} />
                   <div className="flex-1" />
                   {/* Canned Responses */}
                   <div className="relative">
@@ -856,6 +897,20 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                     {aiImproving ? 'Improving...' : 'AI Improve'}
                   </Button>
                 </div>
+                {/* Selected file attachments */}
+                {commentFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {commentFiles.map((f, i) => (
+                      <div key={i} className="flex items-center gap-1.5 text-xs bg-muted px-2 py-1 rounded">
+                        <Paperclip className="h-3 w-3" />
+                        <span className="truncate max-w-[150px]">{f.name}</span>
+                        <button onClick={() => setCommentFiles(prev => prev.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-foreground">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {/* AI Improved Reply Preview */}
                 {showAiPreview && aiImprovedText && (
                   <div className="p-3 rounded-md bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 space-y-2">
@@ -1157,6 +1212,103 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
               </div>
             </CardContent>
           </Card>
+
+          {/* ============================================================== */}
+          {/* CUSTOM FIELDS — In sidebar                                     */}
+          {/* ============================================================== */}
+          {customFields.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Custom Fields</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {customFields.map(cf => (
+                  <div key={cf.id} className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">{cf.fieldLabel}</Label>
+                    {cf.fieldType === 'text' && (
+                      <Input
+                        value={cf.value ?? ''}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setCustomFields(prev => prev.map(f => f.id === cf.id ? { ...f, value: val } : f));
+                        }}
+                        onBlur={() => {
+                          api(`/custom-fields/ticket/${ticketId}`, {
+                            method: 'PUT', body: JSON.stringify({ [cf.id]: cf.value || null }),
+                          }).catch(() => {});
+                        }}
+                        placeholder={cf.fieldLabel}
+                      />
+                    )}
+                    {cf.fieldType === 'number' && (
+                      <Input
+                        type="number"
+                        value={cf.value ?? ''}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setCustomFields(prev => prev.map(f => f.id === cf.id ? { ...f, value: val } : f));
+                        }}
+                        onBlur={() => {
+                          api(`/custom-fields/ticket/${ticketId}`, {
+                            method: 'PUT', body: JSON.stringify({ [cf.id]: cf.value || null }),
+                          }).catch(() => {});
+                        }}
+                        placeholder={cf.fieldLabel}
+                      />
+                    )}
+                    {cf.fieldType === 'date' && (
+                      <Input
+                        type="date"
+                        value={cf.value ?? ''}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setCustomFields(prev => prev.map(f => f.id === cf.id ? { ...f, value: val } : f));
+                          api(`/custom-fields/ticket/${ticketId}`, {
+                            method: 'PUT', body: JSON.stringify({ [cf.id]: val || null }),
+                          }).catch(() => {});
+                        }}
+                      />
+                    )}
+                    {cf.fieldType === 'dropdown' && (
+                      <select
+                        value={cf.value ?? ''}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setCustomFields(prev => prev.map(f => f.id === cf.id ? { ...f, value: val } : f));
+                          api(`/custom-fields/ticket/${ticketId}`, {
+                            method: 'PUT', body: JSON.stringify({ [cf.id]: val || null }),
+                          }).catch(() => {});
+                        }}
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="">Select...</option>
+                        {Array.isArray(cf.options) && (cf.options as Array<{ value: string; label: string }>).map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    )}
+                    {cf.fieldType === 'checkbox' && (
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={cf.value === 'true'}
+                          onChange={e => {
+                            const val = e.target.checked ? 'true' : 'false';
+                            setCustomFields(prev => prev.map(f => f.id === cf.id ? { ...f, value: val } : f));
+                            api(`/custom-fields/ticket/${ticketId}`, {
+                              method: 'PUT', body: JSON.stringify({ [cf.id]: val }),
+                            }).catch(() => {});
+                          }}
+                          className="rounded border-gray-300"
+                        />
+                        <span className="text-sm">{cf.value === 'true' ? 'Yes' : 'No'}</span>
+                      </label>
+                    )}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {/* ============================================================== */}
           {/* TIME ENTRIES — In sidebar                                       */}

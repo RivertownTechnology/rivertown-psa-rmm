@@ -432,6 +432,21 @@ async function processEmail(db: Database, tenantId: string, email: {
       ticketId = existingTicket.id;
       isComment = true;
 
+      // Notify the assigned tech about the customer reply
+      if (existingTicket.assignedTo) {
+        import('./notifications.js').then(({ createNotification }) => {
+          createNotification(db, {
+            tenantId,
+            userId: existingTicket.assignedTo!,
+            type: 'customer_replied',
+            title: `Customer replied on Ticket #${existingTicket.ticketNumber}`,
+            body: cleanBody.substring(0, 100),
+            entityType: 'ticket',
+            entityId: existingTicket.id,
+          }).catch(() => {});
+        });
+      }
+
       // Handle auto-reopen/new ticket based on existing ticket status
       if (existingTicket.status === 'resolved') {
         // Auto-reopen resolved tickets on customer reply (if setting enabled)

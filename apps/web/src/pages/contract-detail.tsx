@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Separator } from '@/components/ui/separator';
 import { Combobox } from '@/components/ui/combobox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   ArrowLeft, Plus, DollarSign, TrendingUp, PieChart, Clock, Pencil, Trash2,
   ShieldCheck, Cpu, Shield, HardDrive, Package, Headphones, Wrench, MoreHorizontal,
@@ -205,7 +206,30 @@ export function ContractDetailPage({ contractId, onBack, onNavigateToCustomer }:
     setDeleteConfirm({open: true, id: contractId, name: contract.name});
   }
 
-  if (!contract) return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
+  if (!contract) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 space-y-4">
+            <Card><CardContent className="p-6 space-y-3">
+              <Skeleton className="h-6 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </CardContent></Card>
+          </div>
+          <div className="space-y-4">
+            <Card><CardContent className="p-6 space-y-3">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-full" />
+            </CardContent></Card>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const s = contract.summary;
 

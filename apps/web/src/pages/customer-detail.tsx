@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Plus, Mail, Phone, MapPin, Monitor, Ticket, FileText, Pencil, Trash2, Globe, Key } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { Combobox } from '@/components/ui/combobox';
@@ -178,7 +179,30 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
     } finally { setSaving(false); }
   }
 
-  if (!customer) return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
+  if (!customer) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 space-y-4">
+            <Card><CardContent className="p-6 space-y-3">
+              <Skeleton className="h-6 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </CardContent></Card>
+          </div>
+          <div className="space-y-4">
+            <Card><CardContent className="p-6 space-y-3">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-full" />
+            </CardContent></Card>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

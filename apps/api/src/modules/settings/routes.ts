@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and, sql } from 'drizzle-orm';
-import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates } from '@rivertown/db';
+import { eq, and, sql, desc, count } from 'drizzle-orm';
+import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
 
@@ -24,6 +24,50 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     }
     await fastify.db.update(users).set(update).where(eq(users.id, request.user.sub));
     return { success: true };
+  });
+
+  // ===== AUDIT LOG =====
+
+  fastify.get('/api/v1/settings/audit-log', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { page = '1', limit = '50', action, entityType } = request.query as Record<string, string>;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const conditions: any[] = [eq(auditLog.tenantId, request.tenantId)];
+    if (action) conditions.push(eq(auditLog.action, action));
+    if (entityType) conditions.push(eq(auditLog.entityType, entityType));
+
+    const [data, [{ total }]] = await Promise.all([
+      fastify.db.select().from(auditLog).where(and(...conditions))
+        .orderBy(desc(auditLog.createdAt)).limit(parseInt(limit)).offset(offset),
+      fastify.db.select({ total: count() }).from(auditLog).where(and(...conditions)),
+    ]);
+
+    // Resolve actor names
+    const actorIds = [...new Set(data.map(d => d.actorId))];
+    const actorMap = new Map<string, string>();
+    if (actorIds.length > 0) {
+      for (const id of actorIds) {
+        const [u] = await fastify.db.select({ displayName: users.displayName, email: users.email })
+          .from(users).where(eq(users.id, id)).limit(1);
+        if (u) actorMap.set(id, u.displayName || u.email);
+      }
+    }
+
+    const enriched = data.map(d => ({
+      ...d,
+      actorName: actorMap.get(d.actorId) || d.actorId,
+    }));
+
+    return {
+      data: enriched,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: Number(total),
+        totalPages: Math.ceil(Number(total) / parseInt(limit)),
+      },
+    };
   });
 
   // ===== SEQUENCES =====
@@ -1589,5 +1633,102 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     }
 
     return { rate: rate || null };
+  });
+
+  // ===== CUSTOM FIELD DEFINITIONS =====
+
+  fastify.get('/api/v1/settings/custom-fields', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { entityType } = request.query as { entityType?: string };
+    const conditions = [eq(customFieldDefinitions.tenantId, request.tenantId)];
+    if (entityType) conditions.push(eq(customFieldDefinitions.entityType, entityType));
+    return fastify.db.select().from(customFieldDefinitions).where(and(...conditions)).orderBy(customFieldDefinitions.sortOrder);
+  });
+
+  fastify.post('/api/v1/settings/custom-fields', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const body = request.body as { entityType: string; fieldName: string; fieldLabel: string; fieldType: string; options?: unknown; required?: boolean };
+    const [field] = await fastify.db.insert(customFieldDefinitions).values({
+      tenantId: request.tenantId, ...body,
+    }).returning();
+    reply.code(201);
+    return field;
+  });
+
+  fastify.patch('/api/v1/settings/custom-fields/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as Record<string, unknown>;
+    const [updated] = await fastify.db.update(customFieldDefinitions).set({ ...body })
+      .where(and(eq(customFieldDefinitions.id, id), eq(customFieldDefinitions.tenantId, request.tenantId))).returning();
+    return updated;
+  });
+
+  fastify.delete('/api/v1/settings/custom-fields/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.delete(customFieldValues).where(eq(customFieldValues.definitionId, id));
+    await fastify.db.delete(customFieldDefinitions)
+      .where(and(eq(customFieldDefinitions.id, id), eq(customFieldDefinitions.tenantId, request.tenantId)));
+    reply.code(204).send();
+  });
+
+  // ===== CUSTOM FIELD VALUES (for reading/writing on entities) =====
+
+  fastify.get('/api/v1/custom-fields/:entityType/:entityId', {
+    preHandler: [fastify.authenticate]
+  }, async (request) => {
+    const { entityType, entityId } = request.params as { entityType: string; entityId: string };
+    const defs = await fastify.db.select().from(customFieldDefinitions)
+      .where(and(eq(customFieldDefinitions.tenantId, request.tenantId), eq(customFieldDefinitions.entityType, entityType)))
+      .orderBy(customFieldDefinitions.sortOrder);
+    const vals = await fastify.db.select().from(customFieldValues)
+      .where(and(eq(customFieldValues.tenantId, request.tenantId), eq(customFieldValues.entityId, entityId)));
+    const valueMap = new Map(vals.map(v => [v.definitionId, v.value]));
+    return defs.map(d => ({ ...d, value: valueMap.get(d.id) ?? null }));
+  });
+
+  fastify.put('/api/v1/custom-fields/:entityType/:entityId', {
+    preHandler: [fastify.authenticate]
+  }, async (request) => {
+    const { entityType, entityId } = request.params as { entityType: string; entityId: string };
+    const body = request.body as Record<string, string | null>;
+    for (const [defId, value] of Object.entries(body)) {
+      const existing = await fastify.db.select().from(customFieldValues)
+        .where(and(eq(customFieldValues.definitionId, defId), eq(customFieldValues.entityId, entityId))).limit(1);
+      if (existing.length) {
+        await fastify.db.update(customFieldValues).set({ value, updatedAt: new Date() })
+          .where(and(eq(customFieldValues.definitionId, defId), eq(customFieldValues.entityId, entityId)));
+      } else {
+        await fastify.db.insert(customFieldValues).values({ tenantId: request.tenantId, definitionId: defId, entityId, value });
+      }
+    }
+    return { success: true };
+  });
+
+  // ===== TICKET TEMPLATES (stored in tenant settings JSONB) =====
+
+  fastify.get('/api/v1/settings/ticket-templates', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const [tenant] = await fastify.db.select({ settings: tenants.settings }).from(tenants)
+      .where(eq(tenants.id, request.tenantId)).limit(1);
+    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    return (settings.ticketTemplates as any[]) ?? [];
+  });
+
+  fastify.put('/api/v1/settings/ticket-templates', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const templates = request.body as any[];
+    const [tenant] = await fastify.db.select({ settings: tenants.settings }).from(tenants)
+      .where(eq(tenants.id, request.tenantId)).limit(1);
+    const settings = { ...((tenant?.settings ?? {}) as Record<string, unknown>), ticketTemplates: templates };
+    await fastify.db.update(tenants).set({ settings, updatedAt: new Date() }).where(eq(tenants.id, request.tenantId));
+    return { success: true };
   });
 }
