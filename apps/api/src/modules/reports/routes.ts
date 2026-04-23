@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { eq, and, sql, count, gte, lte, desc } from 'drizzle-orm';
-import { tickets, ticketTimeEntries, users, customers, contracts, contractLineItems, invoices } from '@rivertown/db';
+import { tickets, ticketTimeEntries, users, customers, contracts, contractLineItems, invoices, csatRatings } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 
 export async function reportRoutes(fastify: FastifyInstance) {
@@ -212,6 +212,34 @@ export async function reportRoutes(fastify: FastifyInstance) {
         '90_plus_cents': sumBucket(buckets['90_plus']),
         totalOutstandingCents: sumBucket(openInvoices.map(i => ({ outstandingCents: i.totalCents - i.amountPaidCents }))),
       },
+    };
+  });
+
+  // CSAT summary report
+  fastify.get('/api/v1/reports/csat', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')]
+  }, async (request) => {
+    const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+    const conditions: any[] = [eq(csatRatings.tenantId, request.tenantId)];
+    if (startDate) conditions.push(gte(csatRatings.createdAt, new Date(startDate)));
+    if (endDate) conditions.push(lte(csatRatings.createdAt, new Date(endDate)));
+
+    // Only count rated entries (rating is not null and > 0)
+    conditions.push(sql`${csatRatings.rating} IS NOT NULL AND ${csatRatings.rating} > 0`);
+
+    const ratings = await fastify.db.select({
+      rating: csatRatings.rating,
+      count: count(),
+    }).from(csatRatings).where(and(...conditions)).groupBy(csatRatings.rating);
+
+    const happy = ratings.find(r => r.rating === 3)?.count ?? 0;
+    const neutral = ratings.find(r => r.rating === 2)?.count ?? 0;
+    const unhappy = ratings.find(r => r.rating === 1)?.count ?? 0;
+    const total = happy + neutral + unhappy;
+
+    return {
+      happy, neutral, unhappy, total,
+      satisfactionPercent: total > 0 ? Math.round((happy / total) * 1000) / 10 : 0,
     };
   });
 }

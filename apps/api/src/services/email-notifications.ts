@@ -1,5 +1,5 @@
 import { eq, and, desc } from 'drizzle-orm';
-import { tickets, ticketComments, contacts, customers, emailTemplates, tenants, users } from '@rivertown/db';
+import { tickets, ticketComments, contacts, customers, emailTemplates, tenants, users, csatRatings } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import { sendEmail } from './email.js';
 import { renderTemplate } from './template-renderer.js';
@@ -174,10 +174,29 @@ export async function sendTicketClosedEmail(db: Database, tenantId: string, tick
   const to = await getTicketRecipient(db, tenantId, ticket);
   if (!to) return;
 
+  // Look up CSAT token for this ticket
+  const [csatRecord] = await db.select({ token: csatRatings.token })
+    .from(csatRatings).where(eq(csatRatings.ticketId, ticketId)).limit(1);
+  const apiBaseUrl = process.env.API_BASE_URL || 'https://rivertownapi-production.up.railway.app';
+  const csatUrl = csatRecord
+    ? `${apiBaseUrl}/api/v1/csat/${csatRecord.token}/page`
+    : null;
+
+  const csatHtml = csatUrl
+    ? `<div style="text-align:center; margin-top:20px; padding:20px; background:#f9fafb; border-radius:8px;">
+  <p style="margin:0 0 12px; font-size:14px; color:#374151;">How was your experience?</p>
+  <a href="${csatUrl}" style="text-decoration:none; font-size:28px; padding:0 8px;" title="Rate your experience">
+    &#128542; &#128528; &#128522;
+  </a>
+  <p style="margin:8px 0 0; font-size:12px; color:#9ca3af;">Click to rate your support experience</p>
+</div>`
+    : '';
+
   const vars: Record<string, string> = {
     ...await getBusinessVars(db, tenantId),
     ticketNumber: String(ticket.ticketNumber),
     ticketSubject: ticket.subject,
+    csatUrl: csatUrl ?? '',
   };
 
   const template = await getTemplate(db, tenantId, 'ticket_closed');
@@ -185,13 +204,13 @@ export async function sendTicketClosedEmail(db: Database, tenantId: string, tick
     await sendEmail(db, tenantId, {
       to,
       subject: `[Ticket #${ticket.ticketNumber}] Resolved: ${ticket.subject}`,
-      html: `<p>Your ticket <strong>${ticket.subject}</strong> has been resolved.</p><p>Reply to reopen.</p>${THREAD_SEPARATOR}`,
+      html: `<p>Your ticket <strong>${ticket.subject}</strong> has been resolved.</p><p>Reply to reopen.</p>${csatHtml}${THREAD_SEPARATOR}`,
     });
     return;
   }
 
   const subject = renderTemplate(template.subject, vars);
-  const bodyHtml = renderTemplate(template.bodyHtml, vars) + THREAD_SEPARATOR;
+  const bodyHtml = renderTemplate(template.bodyHtml, vars) + csatHtml + THREAD_SEPARATOR;
 
   await sendEmail(db, tenantId, { to, subject, html: bodyHtml });
 }

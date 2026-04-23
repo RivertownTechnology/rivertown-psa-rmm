@@ -29,3 +29,4 @@ export * from './ticket-tags.js';
 export * from './recurring-tickets.js';
 export * from './workflow-rules.js';
 export * from './ticket-expenses.js';
+export * from './csat-ratings.js';

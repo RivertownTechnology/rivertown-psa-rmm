@@ -1930,9 +1930,18 @@ export async function settingsRoutes(fastify: FastifyInstance) {
   fastify.get('/api/v1/settings/recurring-tickets', {
     preHandler: [fastify.authenticate, requirePermission('*')]
   }, async (request) => {
-    return fastify.db.select().from(recurringTicketRules)
+    const rules = await fastify.db.select().from(recurringTicketRules)
       .where(eq(recurringTicketRules.tenantId, request.tenantId))
       .orderBy(recurringTicketRules.name);
+    // Enrich with customer names
+    const customerIds = rules.map(r => r.customerId).filter(Boolean) as string[];
+    const customerNames = new Map<string, string>();
+    if (customerIds.length > 0) {
+      const custs = await fastify.db.select({ id: customers.id, name: customers.name }).from(customers)
+        .where(and(eq(customers.tenantId, request.tenantId)));
+      for (const c of custs) customerNames.set(c.id, c.name);
+    }
+    return rules.map(r => ({ ...r, customerName: r.customerId ? customerNames.get(r.customerId) ?? null : null }));
   });
 
   fastify.post('/api/v1/settings/recurring-tickets', {

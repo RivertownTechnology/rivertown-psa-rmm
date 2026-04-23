@@ -225,6 +225,13 @@
       "when": 1745194000000,
       "tag": "0031_sla_business_hours_expenses",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1745194100000,
+      "tag": "0032_csat_ratings",
+      "breakpoints": true
     }
   ]
 }

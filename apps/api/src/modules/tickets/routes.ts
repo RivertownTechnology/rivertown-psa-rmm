@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { FastifyInstance } from 'fastify';
 import { eq, and, sql, count, desc, inArray } from 'drizzle-orm';
 import {
@@ -15,6 +16,7 @@ import {
   contacts,
   calendarEvents,
   emailMessages,
+  csatRatings,
 } from '@rivertown/db';
 import {
   createTicketSchema,
@@ -24,7 +26,7 @@ import {
   paginationSchema,
 } from '@rivertown/shared';
 import { requirePermission } from '../../auth/rbac.js';
-import { NotFoundError } from '../../common/errors.js';
+import { NotFoundError, ValidationError } from '../../common/errors.js';
 import { paginationToOffset, paginate } from '../../common/pagination.js';
 import { logAudit } from '../../common/audit.js';
 import { moduleEvents } from '../registry.js';
@@ -271,6 +273,15 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         const breached = adjustedDueAt ? now > adjustedDueAt : false;
         await fastify.db.update(tickets).set({ slaBreached: breached }).where(eq(tickets.id, id));
 
+        // Create CSAT rating record with unique token
+        const csatToken = crypto.randomUUID();
+        await fastify.db.insert(csatRatings).values({
+          tenantId: request.tenantId,
+          ticketId: id,
+          contactId: existing.contactId,
+          token: csatToken,
+        }).catch(() => {}); // Don't fail ticket resolution if CSAT insert fails
+
         import('../../services/email-notifications.js').then(({ sendTicketClosedEmail }) => {
           sendTicketClosedEmail(fastify.db, request.tenantId, id).catch(e => console.error('Ticket closed email failed:', e));
         });
@@ -323,6 +334,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       if (!existing) throw new NotFoundError('Ticket', id);
 
       // Delete all child records that reference this ticket
+      await fastify.db.delete(csatRatings).where(eq(csatRatings.ticketId, id));
       await fastify.db.delete(ticketTagAssignments).where(eq(ticketTagAssignments.ticketId, id));
       await fastify.db.delete(ticketExpenses).where(eq(ticketExpenses.ticketId, id));
       await fastify.db.delete(ticketTimeEntries).where(eq(ticketTimeEntries.ticketId, id));
@@ -667,6 +679,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     const { ids } = request.body as { ids: string[] };
     for (const id of ids) {
+      await fastify.db.delete(csatRatings).where(eq(csatRatings.ticketId, id));
       await fastify.db.delete(ticketTagAssignments).where(eq(ticketTagAssignments.ticketId, id));
       await fastify.db.delete(ticketExpenses).where(eq(ticketExpenses.ticketId, id));
       await fastify.db.delete(ticketTimeEntries).where(eq(ticketTimeEntries.ticketId, id));
@@ -759,4 +772,141 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       reply.code(204).send();
     },
   );
+
+  // ===== CSAT (Customer Satisfaction) — Public endpoints (no auth) =====
+
+  // Get CSAT info by token (public, no auth)
+  fastify.get('/api/v1/csat/:token', async (request) => {
+    const { token } = request.params as { token: string };
+    const [existing] = await fastify.db.select({
+      id: csatRatings.id,
+      ticketId: csatRatings.ticketId,
+      rating: csatRatings.rating,
+      comment: csatRatings.comment,
+      ticketNumber: tickets.ticketNumber,
+      ticketSubject: tickets.subject,
+    }).from(csatRatings)
+      .innerJoin(tickets, eq(csatRatings.ticketId, tickets.id))
+      .where(eq(csatRatings.token, token)).limit(1);
+
+    if (!existing) throw new NotFoundError('Rating', token);
+    return existing;
+  });
+
+  // Submit/update CSAT rating (public, no auth — uses token)
+  fastify.put('/api/v1/csat/:token', async (request) => {
+    const { token } = request.params as { token: string };
+    const { rating, comment } = request.body as { rating: number; comment?: string };
+
+    if (rating < 1 || rating > 3) throw new ValidationError('Rating must be 1, 2, or 3');
+
+    const [existing] = await fastify.db.select().from(csatRatings)
+      .where(eq(csatRatings.token, token)).limit(1);
+
+    if (!existing) throw new NotFoundError('Rating', token);
+
+    await fastify.db.update(csatRatings).set({
+      rating,
+      comment: comment ?? existing.comment,
+      updatedAt: new Date(),
+    }).where(eq(csatRatings.token, token));
+
+    return { success: true };
+  });
+
+  // CSAT rating page (public HTML — customer clicks from email)
+  fastify.get('/api/v1/csat/:token/page', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const [record] = await fastify.db.select({
+      id: csatRatings.id,
+      rating: csatRatings.rating,
+      comment: csatRatings.comment,
+      ticketNumber: tickets.ticketNumber,
+      ticketSubject: tickets.subject,
+    }).from(csatRatings)
+      .innerJoin(tickets, eq(csatRatings.ticketId, tickets.id))
+      .where(eq(csatRatings.token, token)).limit(1);
+
+    if (!record) {
+      reply.type('text/html').send('<html><body><h2>Rating not found</h2></body></html>');
+      return;
+    }
+
+    const apiBase = process.env.API_BASE_URL || '';
+    const currentRating = record.rating;
+
+    const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rate Your Experience</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,system-ui,sans-serif; background:#f3f4f6; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .card { background:white; border-radius:16px; padding:40px; max-width:480px; width:100%; box-shadow:0 4px 24px rgba(0,0,0,0.08); text-align:center; }
+  h1 { font-size:20px; color:#111827; margin-bottom:4px; }
+  .ticket { font-size:14px; color:#6b7280; margin-bottom:24px; }
+  .smileys { display:flex; gap:16px; justify-content:center; margin-bottom:24px; }
+  .smiley { width:80px; height:80px; border-radius:50%; border:3px solid #e5e7eb; display:flex; align-items:center; justify-content:center; font-size:40px; cursor:pointer; transition:all 0.2s; background:white; }
+  .smiley:hover { transform:scale(1.1); }
+  .smiley.selected { border-width:3px; transform:scale(1.15); box-shadow:0 4px 12px rgba(0,0,0,0.15); }
+  .smiley.s1.selected { border-color:#ef4444; background:#fef2f2; }
+  .smiley.s2.selected { border-color:#f59e0b; background:#fffbeb; }
+  .smiley.s3.selected { border-color:#22c55e; background:#f0fdf4; }
+  textarea { width:100%; border:1px solid #d1d5db; border-radius:8px; padding:12px; font-size:14px; resize:vertical; min-height:80px; margin-bottom:16px; font-family:inherit; }
+  textarea:focus { outline:none; border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,0.1); }
+  .btn { background:#3b82f6; color:white; border:none; padding:12px 32px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; transition:background 0.2s; }
+  .btn:hover { background:#2563eb; }
+  .btn:disabled { background:#9ca3af; cursor:not-allowed; }
+  .success { color:#22c55e; font-weight:600; margin-top:12px; display:none; }
+  .label { font-size:12px; color:#9ca3af; margin-top:4px; }
+</style>
+</head><body>
+<div class="card">
+  <h1>How was your experience?</h1>
+  <p class="ticket">Ticket #${record.ticketNumber} &mdash; ${(record.ticketSubject ?? '').substring(0, 60).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
+  <div class="smileys">
+    <div class="smiley s1 ${currentRating === 1 ? 'selected' : ''}" onclick="selectRating(1)" title="Unhappy">&#128542;</div>
+    <div class="smiley s2 ${currentRating === 2 ? 'selected' : ''}" onclick="selectRating(2)" title="Neutral">&#128528;</div>
+    <div class="smiley s3 ${currentRating === 3 ? 'selected' : ''}" onclick="selectRating(3)" title="Happy">&#128522;</div>
+  </div>
+  <div class="smileys" style="margin-top:-16px;margin-bottom:24px;">
+    <div class="label" style="width:80px">Unhappy</div>
+    <div class="label" style="width:80px">Okay</div>
+    <div class="label" style="width:80px">Great!</div>
+  </div>
+  <textarea id="comment" placeholder="Any additional feedback? (optional)">${(record.comment ?? '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+  <button class="btn" id="submitBtn" onclick="submitRating()">Submit Feedback</button>
+  <p class="success" id="successMsg">Thank you for your feedback!</p>
+</div>
+<script>
+let selectedRating = ${currentRating || 0};
+function selectRating(r) {
+  selectedRating = r;
+  document.querySelectorAll('.smiley').forEach(function(el, i) {
+    el.classList.toggle('selected', i + 1 === r);
+  });
+}
+async function submitRating() {
+  if (!selectedRating) { alert('Please select a rating'); return; }
+  var comment = document.getElementById('comment').value;
+  var btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = 'Submitting...';
+  try {
+    var res = await fetch('${apiBase}/api/v1/csat/${token}', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rating: selectedRating, comment: comment }),
+    });
+    if (res.ok) {
+      document.getElementById('successMsg').style.display = 'block';
+      btn.textContent = 'Updated!';
+      setTimeout(function() { btn.disabled = false; btn.textContent = 'Update Feedback'; }, 2000);
+    }
+  } catch(e) { btn.disabled = false; btn.textContent = 'Submit Feedback'; }
+}
+</script>
+</body></html>`;
+
+    reply.type('text/html').send(html);
+  });
 }
