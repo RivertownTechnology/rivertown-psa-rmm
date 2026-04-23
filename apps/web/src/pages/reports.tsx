@@ -117,12 +117,12 @@ export function ReportsPage() {
   const fetchTicketReport = useCallback(async () => {
     setTicketLoading(true);
     try {
-      const params = new URLSearchParams({ from: dateFrom, to: dateTo });
-      const res = await api<{ daily: TicketsByDay[]; summary: { created: number; resolved: number; open: number } }>(
-        `/reports/tickets?${params}`,
-      );
-      setTicketData(res.daily ?? []);
-      setTicketSummary(res.summary ?? { created: 0, resolved: 0, open: 0 });
+      const params = new URLSearchParams({ startDate: dateFrom, endDate: dateTo });
+      const res = await api<any>(`/reports/ticket-volume?${params}`);
+      const rows = Array.isArray(res) ? res : [];
+      setTicketData(rows.map((r: any) => ({ date: String(r.day).split('T')[0], count: Number(r.count) || 0 })));
+      const created = rows.reduce((s: number, r: any) => s + (Number(r.count) || 0), 0);
+      setTicketSummary({ created, resolved: 0, open: 0 });
     } catch {
       setTicketData([]);
       setTicketSummary({ created: 0, resolved: 0, open: 0 });
@@ -134,9 +134,9 @@ export function ReportsPage() {
   const fetchSlaReport = useCallback(async () => {
     setSlaLoading(true);
     try {
-      const params = new URLSearchParams({ from: dateFrom, to: dateTo });
-      const res = await api<SlaData>(`/reports/sla?${params}`);
-      setSlaData(res);
+      const params = new URLSearchParams({ startDate: dateFrom, endDate: dateTo });
+      const res = await api<any>(`/reports/sla-compliance?${params}`);
+      setSlaData({ met: res.met ?? 0, breached: res.breached ?? 0 });
     } catch {
       setSlaData({ met: 0, breached: 0 });
     } finally {
@@ -147,9 +147,10 @@ export function ReportsPage() {
   const fetchUtilizationReport = useCallback(async () => {
     setUtilizationLoading(true);
     try {
-      const params = new URLSearchParams({ from: dateFrom, to: dateTo });
-      const res = await api<{ techs: UtilizationEntry[] }>(`/reports/utilization?${params}`);
-      setUtilizationData(res.techs ?? []);
+      const params = new URLSearchParams({ startDate: dateFrom, endDate: dateTo });
+      const res = await api<any>(`/reports/tech-utilization?${params}`);
+      const rows = Array.isArray(res) ? res : [];
+      setUtilizationData(rows.map((r: any) => ({ techId: r.userId || '', techName: r.displayName || 'Unknown', hours: r.totalHours || 0 })));
     } catch {
       setUtilizationData([]);
     } finally {
@@ -160,9 +161,9 @@ export function ReportsPage() {
   const fetchRevenueReport = useCallback(async () => {
     setRevenueLoading(true);
     try {
-      const params = new URLSearchParams({ from: dateFrom, to: dateTo });
-      const res = await api<{ customers: RevenueEntry[] }>(`/reports/revenue?${params}`);
-      setRevenueData((res.customers ?? []).slice(0, 10));
+      const res = await api<any>(`/reports/revenue-by-customer`);
+      const rows = Array.isArray(res) ? res : [];
+      setRevenueData(rows.slice(0, 10).map((r: any) => ({ customerId: r.customerId || '', customerName: r.customerName || 'Unknown', mrr: r.totalRevenueCents || 0 })));
     } catch {
       setRevenueData([]);
     } finally {
@@ -173,9 +174,19 @@ export function ReportsPage() {
   const fetchTimeReport = useCallback(async () => {
     setTimeLoading(true);
     try {
-      const params = new URLSearchParams({ from: dateFrom, to: dateTo });
-      const res = await api<{ techs: TimeEntryRow[] }>(`/reports/time?${params}`);
-      setTimeData(res.techs ?? []);
+      const params = new URLSearchParams({ startDate: dateFrom, endDate: dateTo });
+      const res = await api<any>(`/reports/time-summary?${params}`);
+      const rows = Array.isArray(res) ? res : [];
+      // Group by tech
+      const techMap = new Map<string, { techName: string; entries: number; hours: number }>();
+      for (const r of rows) {
+        const name = r.displayName || 'Unknown';
+        const existing = techMap.get(name) || { techName: name, entries: 0, hours: 0 };
+        existing.entries += 1;
+        existing.hours += (r.totalMinutes || 0) / 60;
+        techMap.set(name, existing);
+      }
+      setTimeData(Array.from(techMap.values()).map(t => ({ ...t, hours: Math.round(t.hours * 10) / 10 })));
     } catch {
       setTimeData([]);
     } finally {
@@ -186,8 +197,15 @@ export function ReportsPage() {
   const fetchInvoiceReport = useCallback(async () => {
     setInvoiceLoading(true);
     try {
-      const res = await api<{ buckets: AgingBucket[] }>('/reports/invoice-aging');
-      setAgingData(res.buckets ?? []);
+      const res = await api<any>('/reports/invoice-aging');
+      const summary = res.summary || {};
+      setAgingData([
+        { bucket: 'Current', amount: summary.currentCents || 0 },
+        { bucket: '1-30 days', amount: summary['1_30_cents'] || 0 },
+        { bucket: '31-60 days', amount: summary['31_60_cents'] || 0 },
+        { bucket: '61-90 days', amount: summary['61_90_cents'] || 0 },
+        { bucket: '90+ days', amount: summary['90_plus_cents'] || 0 },
+      ]);
     } catch {
       setAgingData([]);
     } finally {

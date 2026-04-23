@@ -11,17 +11,28 @@ export async function reportRoutes(fastify: FastifyInstance) {
     const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
     const conditions: any[] = [eq(tickets.tenantId, request.tenantId)];
     if (startDate) conditions.push(gte(tickets.createdAt, new Date(startDate)));
-    if (endDate) conditions.push(lte(tickets.createdAt, new Date(endDate)));
+    if (endDate) {
+      // Add 1 day to include tickets created on the end date
+      const end = new Date(endDate);
+      end.setDate(end.getDate() + 1);
+      conditions.push(lte(tickets.createdAt, end));
+    }
 
-    const rows = await fastify.db.execute(sql`
-      SELECT date_trunc('day', ${tickets.createdAt}) as day, count(*)::int as count
-      FROM ${tickets}
-      WHERE ${and(...conditions)}
-      GROUP BY day
-      ORDER BY day
-    `);
+    // Use Drizzle query instead of raw SQL for reliability
+    const allTickets = await fastify.db.select({
+      createdAt: tickets.createdAt,
+    }).from(tickets).where(and(...conditions));
 
-    return Array.isArray(rows) ? rows : [];
+    // Group by day in JS
+    const dayMap = new Map<string, number>();
+    for (const t of allTickets) {
+      const day = new Date(t.createdAt).toISOString().split('T')[0];
+      dayMap.set(day, (dayMap.get(day) ?? 0) + 1);
+    }
+
+    return Array.from(dayMap.entries())
+      .map(([day, count]) => ({ day, count }))
+      .sort((a, b) => a.day.localeCompare(b.day));
   });
 
   // SLA compliance
@@ -34,7 +45,11 @@ export async function reportRoutes(fastify: FastifyInstance) {
       sql`${tickets.status} IN ('resolved', 'closed')`,
     ];
     if (startDate) conditions.push(gte(tickets.createdAt, new Date(startDate)));
-    if (endDate) conditions.push(lte(tickets.createdAt, new Date(endDate)));
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setDate(end.getDate() + 1);
+      conditions.push(lte(tickets.createdAt, end));
+    }
 
     const where = and(...conditions);
 
