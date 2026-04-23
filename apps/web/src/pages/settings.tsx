@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Badge } from '@/components/ui/badge';
+import { Combobox } from '@/components/ui/combobox';
 import { User, Building, Bell, Hash, Mail, Send, CheckCircle, DollarSign, Shield, ShieldAlert, X, Package, Plus, Pencil, Trash2, Search, Sparkles, MessageSquare, Monitor, Smile, Server, HardDrive, FileText } from 'lucide-react';
 import { BusinessProfileCard } from '@/components/business-profile-card';
 import { SecurityPage } from './security';
@@ -4187,7 +4188,7 @@ function RecurringTicketsTab() {
 
   useEffect(() => {
     loadRules();
-    api<{ data: Array<{ id: string; name: string }> }>('/customers?limit=200').then(d => setCustomers(d.data)).catch(() => {});
+    api<{ data: Array<{ id: string; name: string }> }>('/customers?limit=200').then(d => setCustomers(d.data ?? [])).catch(() => {});
     api<Array<{ id: string; displayName: string }>>('/dispatch/techs').then(setTechs).catch(() => {});
     api<Array<{ id: string; name: string }>>('/ticket-categories').then(setCategories).catch(() => {});
     api<Array<{ id: string; name: string }>>('/settings/ticket-queues').then(setQueuesOpts).catch(() => {});
@@ -4332,10 +4333,13 @@ function RecurringTicketsTab() {
             </div>
             <div className="space-y-2">
               <Label>Customer</Label>
-              <select className="w-full px-3 py-2 border rounded-md text-sm bg-background" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })}>
-                <option value="">No customer</option>
-                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <Combobox
+                options={[{ value: '', label: 'No customer (internal)' }, ...customers.map(c => ({ value: c.id, label: c.name }))]}
+                value={form.customerId}
+                onValueChange={v => setForm({ ...form, customerId: v })}
+                placeholder="Select customer..."
+                searchPlaceholder="Search customers..."
+              />
             </div>
             <div className="space-y-2"><Label>Subject</Label><Input required value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder="Ticket subject" /></div>
             <div className="space-y-2"><Label>Description</Label><textarea rows={3} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none" placeholder="Ticket description" /></div>
