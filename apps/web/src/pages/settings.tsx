@@ -3272,9 +3272,9 @@ function NCentralCard() {
         setConfig({
           isEnabled: data.isEnabled,
           serverUrl: data.serverUrl || '',
-          jwtToken: data.jwtToken || '',
+          jwtToken: '',
           psaApiUsername: (data as any).psaApiUsername || (data as any).psaUsername || '',
-          psaApiPassword: (data as any).psaApiPassword || (data as any).psaPassword || '',
+          psaApiPassword: '',
           syncFrequency: data.syncFrequency || '15min',
         });
         setLastSync(data.lastSyncAt);
@@ -3345,7 +3345,7 @@ function NCentralCard() {
 
         <div className="space-y-2">
           <Label>JWT Token (for device sync)</Label>
-          <Input type="password" value={config.jwtToken} onChange={e => setConfig({ ...config, jwtToken: e.target.value })} placeholder="JWT token from N-central" />
+          <Input type="password" value={config.jwtToken} onChange={e => setConfig({ ...config, jwtToken: e.target.value })} placeholder={loaded && config.isEnabled ? 'Token saved — leave blank to keep' : 'JWT token from N-central'} />
           <p className="text-xs text-muted-foreground">Generate in N-central: Administration &rarr; User Management &rarr; Users &rarr; [User] &rarr; API Access &rarr; Generate JSON Web Token</p>
         </div>
 
@@ -3360,7 +3360,7 @@ function NCentralCard() {
           </div>
           <div className="space-y-2">
             <Label>API Password</Label>
-            <Input type="password" value={config.psaApiPassword} onChange={e => setConfig({ ...config, psaApiPassword: e.target.value })} placeholder="Password from N-central" />
+            <Input type="password" value={config.psaApiPassword} onChange={e => setConfig({ ...config, psaApiPassword: e.target.value })} placeholder={loaded && config.isEnabled ? 'Saved — leave blank to keep' : 'Password from N-central'} />
           </div>
         </div>
 

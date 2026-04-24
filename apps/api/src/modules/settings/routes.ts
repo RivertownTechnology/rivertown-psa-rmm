@@ -689,8 +689,8 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       const prevSettings = (existing?.settings ?? {}) as Record<string, string>;
 
       const credentials = writeCredentials({
-        jwtToken: body.jwtToken?.startsWith('••') ? prevCreds.jwtToken : (body.jwtToken || prevCreds.jwtToken || ''),
-        psaApiPassword: body.psaApiPassword?.startsWith('••') ? prevCreds.psaApiPassword : (body.psaApiPassword || prevCreds.psaApiPassword || ''),
+        jwtToken: (!body.jwtToken || body.jwtToken.startsWith('••')) ? (prevCreds.jwtToken || '') : body.jwtToken,
+        psaApiPassword: (!body.psaApiPassword || body.psaApiPassword.startsWith('••')) ? (prevCreds.psaApiPassword || '') : body.psaApiPassword,
       });
 
       const settings = {
