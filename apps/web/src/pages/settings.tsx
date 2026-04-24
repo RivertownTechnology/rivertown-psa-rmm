@@ -3413,9 +3413,12 @@ function NCentralCard() {
               if (res.success) {
                 let msg = `Sync complete: ${res.devices ?? 0} devices found, ${res.synced ?? 0} synced, ${res.created ?? 0} created`;
                 if (res.debug) msg += `\n⚠ ${res.debug}`;
+                if (res.ncCustomerNames?.length) {
+                  msg += `\nN-central customers: ${res.ncCustomerNames.join(', ')}`;
+                }
                 if (res.unmatchedCustomers?.length) {
-                  msg += `\nUnmatched N-central customers: ${res.unmatchedCustomers.join(', ')}`;
-                  msg += `\nSet the "N-central Name" field on each customer's Edit page to match.`;
+                  msg += `\n❌ Unmatched: ${res.unmatchedCustomers.join(', ')}`;
+                  msg += `\nGo to each customer → Edit → set "N-central Name" to the exact name above.`;
                 }
                 setTestResult(msg);
               } else {

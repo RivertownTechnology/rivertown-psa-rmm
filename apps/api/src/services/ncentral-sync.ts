@@ -348,7 +348,8 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
       syncStatus: 'idle', lastSyncAt: new Date(), syncError: null, updatedAt: new Date(),
     }).where(eq(integrationConfigs.id, config.id));
 
-    return { synced: totalSynced, created: totalCreated, devices: devices.length, unmatchedCustomers: [...unmatchedSet] };
+    const ncCustomerNames = [...new Set(ncCustomers.map(c => c.customerName))];
+    return { synced: totalSynced, created: totalCreated, devices: devices.length, unmatchedCustomers: [...unmatchedSet], ncCustomerNames };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Sync failed';
     await db.update(integrationConfigs).set({
