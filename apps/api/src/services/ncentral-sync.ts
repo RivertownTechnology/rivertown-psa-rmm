@@ -39,7 +39,11 @@ async function getNCentralAccessToken(serverUrl: string, jwtToken: string): Prom
   });
   if (!res.ok) throw new Error(`N-central auth failed (${res.status})`);
   const data = await res.json() as any;
-  return data.tokens?.access?.token ?? '';
+  const token = data.tokens?.access?.token ?? '';
+  if (!token) {
+    console.log('[ncentral-sync] Auth response keys:', Object.keys(data), 'tokens keys:', data.tokens ? Object.keys(data.tokens) : 'none');
+  }
+  return token;
 }
 
 async function fetchNCentralDevices(serverUrl: string, accessToken: string): Promise<NCentralDevice[]> {
@@ -52,6 +56,9 @@ async function fetchNCentralDevices(serverUrl: string, accessToken: string): Pro
     });
     if (!res.ok) throw new Error(`N-central devices API error (${res.status})`);
     const data = await res.json() as any;
+    if (page === 1) {
+      console.log('[ncentral-sync] Devices response keys:', Object.keys(data), 'data is array?', Array.isArray(data.data), 'totalItems:', data.totalItems);
+    }
     if (!data.data || !Array.isArray(data.data)) break;
     allDevices.push(...data.data);
     if (allDevices.length >= (data.totalItems || 0)) break;
@@ -99,21 +106,21 @@ export async function fetchNCentralDevicesForTest(
 
 // ── Sync runner ──────────────────────────────────────────────────────
 
-export async function runNCentralSync(db: any, tenantId: string): Promise<{ synced: number; created: number; devices?: number; unmatchedCustomers?: string[] }> {
+export async function runNCentralSync(db: any, tenantId: string): Promise<{ synced: number; created: number; devices?: number; unmatchedCustomers?: string[]; debug?: string }> {
   const [config] = await db
     .select()
     .from(integrationConfigs)
     .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'ncentral')))
     .limit(1);
 
-  if (!config?.isEnabled) return { synced: 0, created: 0 };
+  if (!config?.isEnabled) return { synced: 0, created: 0, debug: 'Config not found or not enabled' };
 
   const creds = (config.credentials ?? {}) as Record<string, string>;
   const settings = (config.settings ?? {}) as Record<string, string>;
 
   const serverUrl = settings.serverUrl;
   const jwtToken = creds.jwtToken;
-  if (!serverUrl || !jwtToken) return { synced: 0, created: 0 };
+  if (!serverUrl || !jwtToken) return { synced: 0, created: 0, debug: `Missing: serverUrl=${!!serverUrl} jwtToken=${!!jwtToken}` };
 
   // Mark syncing
   await db.update(integrationConfigs).set({
