@@ -76,8 +76,8 @@ export function TicketKanbanPage() {
       const params = new URLSearchParams({ limit: '500' });
       const statuses = COLUMNS.map(c => c.status).join(',');
       params.set('status', statuses);
-      const res = await api<{ data: TicketRow[] }>(`/tickets?${params}`);
-      setTickets(res.data);
+      const res = await api<any>(`/tickets?${params}`);
+      setTickets(Array.isArray(res) ? res : (res.data ?? []));
     } catch {
       setTickets([]);
     } finally {
