@@ -221,6 +221,10 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   // Document panel
   const [selectedDoc, setSelectedDoc] = useState<GovDocument | null>(null);
 
+  // Paste RFP
+  const [pasteRfpText, setPasteRfpText] = useState('');
+  const [savingPastedRfp, setSavingPastedRfp] = useState(false);
+
   // Editing
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesValue, setNotesValue] = useState('');
@@ -769,23 +773,61 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
         {/* ---- DOCUMENTS ---- */}
         <TabsContent value="documents">
           <div className="space-y-4">
+            {/* Paste RFP Text */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Paste RFP Content</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <textarea
+                  rows={6}
+                  value={pasteRfpText}
+                  onChange={e => setPasteRfpText(e.target.value)}
+                  placeholder="Paste the full RFP / solicitation text here..."
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y font-mono"
+                  disabled={savingPastedRfp}
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" disabled={pasteRfpText.length < 50 || savingPastedRfp} onClick={async () => {
+                    setSavingPastedRfp(true);
+                    try {
+                      // Save to notes
+                      await api(`/gov/opportunities/${opportunityId}`, { method: 'PATCH', body: JSON.stringify({ notes: pasteRfpText.substring(0, 50000) }) });
+                      // Run AI analysis
+                      const result = await api<any>(`/gov/opportunities/${opportunityId}/analyze`, { method: 'POST' });
+                      setAnalysisResult({
+                        summary: result.summary || result.scopeOfWork || 'Analysis complete',
+                        keyRequirements: result.keyRequirements || result.technicalRequirements || [],
+                        risks: result.risks || [],
+                        recommendations: result.recommendations || result.differentiators || [],
+                      });
+                      fetchOpp();
+                      setPasteRfpText('');
+                      alert('RFP saved and analyzed successfully');
+                    } catch (err: any) {
+                      alert(`Failed: ${err.message || 'Unknown error'}`);
+                    } finally { setSavingPastedRfp(false); }
+                  }}>
+                    {savingPastedRfp ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Saving & Analyzing...</> : <><Sparkles className="h-4 w-4 mr-1" /> Save & Analyze RFP</>}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Paste the full RFP text here. It will be saved to the opportunity and analyzed by AI.</p>
+              </CardContent>
+            </Card>
+
+            {/* File Upload (if R2 storage is configured) */}
             <div className="flex items-center gap-2">
               <label className="flex-1">
                 <div
-                  className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 transition-colors"
+                  className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
                   onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
                   onDrop={e => { e.preventDefault(); e.stopPropagation(); handleUpload(e.dataTransfer.files); }}
                 >
-                  <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">Drag & drop files or click to upload</p>
+                  <Upload className="h-6 w-6 mx-auto text-muted-foreground mb-1" />
+                  <p className="text-xs text-muted-foreground">Drag & drop files or click to upload (requires R2 storage)</p>
                   <input type="file" multiple className="hidden" onChange={e => handleUpload(e.target.files)} />
                 </div>
               </label>
-            </div>
-            <div className="flex justify-end">
-              <Button size="sm" onClick={handleAnalyzeAllDocs} disabled={analyzingDocs || documents.length === 0}>
-                {analyzingDocs ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Analyzing...</> : <><Sparkles className="h-4 w-4 mr-1" /> Analyze All</>}
-              </Button>
             </div>
 
             <div className="flex gap-4">
