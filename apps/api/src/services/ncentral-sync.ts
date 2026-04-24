@@ -99,7 +99,7 @@ export async function fetchNCentralDevicesForTest(
 
 // ── Sync runner ──────────────────────────────────────────────────────
 
-export async function runNCentralSync(db: any, tenantId: string): Promise<{ synced: number; created: number }> {
+export async function runNCentralSync(db: any, tenantId: string): Promise<{ synced: number; created: number; devices?: number; unmatchedCustomers?: string[] }> {
   const [config] = await db
     .select()
     .from(integrationConfigs)
@@ -139,6 +139,7 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
 
     let totalSynced = 0;
     let totalCreated = 0;
+    const unmatchedSet = new Set<string>();
 
     console.log(`[ncentral-sync] Found ${devices.length} devices, ${ncCustomers.length} N-central customers, ${allCustomers.length} PSA customers`);
 
@@ -226,6 +227,7 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
         }
         else {
           // No matching customer — log and skip
+          if (ncCustomerName) unmatchedSet.add(ncCustomerName);
           console.log(`[ncentral-sync] Skipped device "${hostname}" — no matching customer for N-central customer "${ncCustomerName}"`);
         }
       }
@@ -236,7 +238,7 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
       syncStatus: 'idle', lastSyncAt: new Date(), syncError: null, updatedAt: new Date(),
     }).where(eq(integrationConfigs.id, config.id));
 
-    return { synced: totalSynced, created: totalCreated };
+    return { synced: totalSynced, created: totalCreated, devices: devices.length, unmatchedCustomers: [...unmatchedSet] };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Sync failed';
     await db.update(integrationConfigs).set({

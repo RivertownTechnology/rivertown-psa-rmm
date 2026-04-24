@@ -3316,7 +3316,7 @@ function NCentralCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         {success && <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800 flex items-center gap-2"><CheckCircle className="h-4 w-4" />{success}</div>}
-        {testResult && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4">{testResult}</div>}
+        {testResult && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800 mb-4 whitespace-pre-line">{testResult}</div>}
 
         {/* Enable toggle */}
         <div className="flex items-center justify-between gap-4">
@@ -3410,7 +3410,16 @@ function NCentralCard() {
             setTesting(true); setTestResult('');
             try {
               const res = await api<any>('/settings/ncentral/sync', { method: 'POST' });
-              setTestResult(res.success ? `Sync complete: ${res.synced ?? 0} synced, ${res.created ?? 0} created` : `Sync failed: ${res.error}`);
+              if (res.success) {
+                let msg = `Sync complete: ${res.devices ?? 0} devices found, ${res.synced ?? 0} synced, ${res.created ?? 0} created`;
+                if (res.unmatchedCustomers?.length) {
+                  msg += `\nUnmatched N-central customers: ${res.unmatchedCustomers.join(', ')}`;
+                  msg += `\nSet the "N-central Name" field on each customer's Edit page to match.`;
+                }
+                setTestResult(msg);
+              } else {
+                setTestResult(`Sync failed: ${res.error}`);
+              }
             } catch (e: any) { setTestResult(e.message || 'Sync failed'); }
             finally { setTesting(false); }
           }} disabled={testing || !config.isEnabled}>
