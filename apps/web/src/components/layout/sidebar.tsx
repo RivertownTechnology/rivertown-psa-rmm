@@ -161,9 +161,13 @@ export function Sidebar({
             <div className="space-y-1">
               {group.items.map((item) => {
                 const Icon = item.icon;
-                const active =
-                  currentPath === item.href ||
-                  (item.href !== '/' && currentPath.startsWith(item.href + '/'));
+                // Exact match, or prefix match only if no other nav item is a longer match
+                const exactMatch = currentPath === item.href;
+                const prefixMatch = item.href !== '/' && currentPath.startsWith(item.href + '/');
+                const hasBetterMatch = prefixMatch && group.items.some(
+                  other => other.href !== item.href && other.href.length > item.href.length && (currentPath === other.href || currentPath.startsWith(other.href + '/'))
+                );
+                const active = exactMatch || (prefixMatch && !hasBetterMatch);
                 const badgeCount = item.badgeKey ? badgeCounts?.[item.badgeKey] : undefined;
 
                 return (
