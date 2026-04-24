@@ -58,11 +58,15 @@ export function AIChat() {
     setLoading(true);
 
     try {
-      const res = await api<{ response: string }>('/ai/chat', {
+      const res = await api<{ response: string; actions?: string[] }>('/ai/chat', {
         method: 'POST',
         body: JSON.stringify({ messages: updatedMessages }),
       });
-      setMessages([...updatedMessages, { role: 'assistant', content: res.response }]);
+      let content = res.response;
+      if (res.actions?.length) {
+        content += '\n\n✅ ' + res.actions.join('\n✅ ');
+      }
+      setMessages([...updatedMessages, { role: 'assistant', content }]);
     } catch (err: any) {
       setMessages([...updatedMessages, { role: 'assistant', content: `Error: ${err.message || 'Failed to get response'}` }]);
     } finally {

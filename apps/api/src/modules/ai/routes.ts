@@ -1,7 +1,49 @@
 import { FastifyInstance } from 'fastify';
 import { eq, and } from 'drizzle-orm';
-import { integrationConfigs } from '@rivertown/db';
+import { integrationConfigs, serviceCatalogItems } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
+
+const VALID_CATEGORIES = ['license', 'security', 'backup', 'managed_service', 'support_hours', 'hardware', 'other'];
+const VALID_ITEM_TYPES = ['recurring', 'per_device', 'per_user', 'block_time', 'one_time'];
+
+async function executeActions(db: any, tenantId: string, response: string): Promise<{ response: string; actions: string[] }> {
+  const actions: string[] = [];
+  const actionRegex = /```action\s*\n?([\s\S]*?)```/g;
+  let match;
+
+  while ((match = actionRegex.exec(response)) !== null) {
+    try {
+      const action = JSON.parse(match[1].trim());
+
+      if (action.action === 'create_product') {
+        if (!action.name || !action.unitPriceCents) continue;
+        const category = VALID_CATEGORIES.includes(action.category) ? action.category : 'other';
+        const itemType = VALID_ITEM_TYPES.includes(action.itemType) ? action.itemType : 'recurring';
+
+        const [product] = await db.insert(serviceCatalogItems).values({
+          tenantId,
+          name: action.name,
+          description: action.description || null,
+          proposalDescription: action.proposalDescription || null,
+          sku: action.sku || null,
+          vendor: action.vendor || null,
+          category,
+          itemType,
+          defaultUnitCostCents: action.unitCostCents || 0,
+          defaultUnitPriceCents: action.unitPriceCents,
+          taxable: action.taxable !== false,
+          isActive: true,
+        }).returning();
+
+        actions.push(`Created product: ${product.name} (SKU: ${product.sku || 'N/A'}) — $${(product.defaultUnitPriceCents / 100).toFixed(2)}/${itemType.replace('_', ' ')}`);
+      }
+    } catch { /* skip invalid JSON */ }
+  }
+
+  // Clean action blocks from the visible response
+  const cleanResponse = response.replace(/```action\s*\n?[\s\S]*?```/g, '').trim();
+  return { response: cleanResponse, actions };
+}
 
 export async function aiRoutes(fastify: FastifyInstance) {
   // Summarize a ticket
@@ -44,8 +86,9 @@ export async function aiRoutes(fastify: FastifyInstance) {
       context?: string;
     };
     const { chat } = await import('../../services/ai.js');
-    const response = await chat(fastify.db, request.tenantId, messages, context);
-    return { response };
+    const rawResponse = await chat(fastify.db, request.tenantId, messages, context);
+    const { response, actions } = await executeActions(fastify.db, request.tenantId, rawResponse);
+    return { response, actions: actions.length > 0 ? actions : undefined };
   });
 
   // Get AI assistant config (name + status)

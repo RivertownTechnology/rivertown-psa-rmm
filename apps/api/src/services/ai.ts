@@ -1,5 +1,5 @@
 import { eq, and, sql, desc } from 'drizzle-orm';
-import { tickets, ticketComments, integrationConfigs, customers, contacts, contracts, contractLineItems, invoices, assets, serviceCatalogItems } from '@rivertown/db';
+import { tickets, ticketComments, integrationConfigs, customers, contacts, contracts, contractLineItems, invoices, assets, serviceCatalogItems, govOpportunities, govProposals, govComplianceItems, govDocumentLibrary } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import { readCredentials } from '../common/credentials.js';
 
@@ -219,6 +219,52 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
     context.push(`Assets (${devs.length}):\n${devs.map(d => `- ${d.name} [${d.assetType}] ${d.osName || ''} ${d.ipAddress || ''} — ${custNames.get(d.customerId) || 'Unknown'} ${d.screenconnectOnline ? '(online)' : '(offline)'}`).join('\n')}`);
   }
 
+  // If asking about gov contracts/opportunities/rfp/proposals/compliance
+  if (msgLower.match(/gov|government|opportunity|opportunities|rfp|bid|proposal|compliance|cmmc|nist|set.aside|sdvosb|agency|federal|state contract|submission|award/)) {
+    const opps = await db.select({
+      id: govOpportunities.id, title: govOpportunities.title, agency: govOpportunities.agency,
+      agencyType: govOpportunities.agencyType, status: govOpportunities.status,
+      estimatedValue: govOpportunities.estimatedValue, setAsideType: govOpportunities.setAsideType,
+      submissionDeadline: govOpportunities.submissionDeadline, winProbability: govOpportunities.winProbability,
+      contractType: govOpportunities.contractType, samNumber: govOpportunities.samNumber,
+    }).from(govOpportunities).where(eq(govOpportunities.tenantId, tenantId)).orderBy(desc(govOpportunities.createdAt)).limit(25);
+
+    if (opps.length > 0) {
+      context.push(`Government Opportunities (${opps.length}):\n${opps.map(o => {
+        const val = o.estimatedValue ? `$${(o.estimatedValue / 100).toFixed(2)}` : 'TBD';
+        const deadline = o.submissionDeadline ? new Date(o.submissionDeadline).toLocaleDateString() : 'No deadline';
+        return `- ${o.title} | ${o.agency} [${o.agencyType}] | Status: ${o.status} | Value: ${val} | Set-aside: ${o.setAsideType || 'none'} | Deadline: ${deadline} | Win prob: ${o.winProbability ?? 'N/A'}%${o.samNumber ? ` | SAM#: ${o.samNumber}` : ''}`;
+      }).join('\n')}`);
+
+      // Include proposals count per opportunity
+      const proposals = await db.select({
+        id: govProposals.id, opportunityId: govProposals.opportunityId, title: govProposals.title, status: govProposals.status,
+      }).from(govProposals).where(eq(govProposals.tenantId, tenantId)).limit(25);
+      if (proposals.length > 0) {
+        context.push(`Gov Proposals (${proposals.length}):\n${proposals.map(p => `- ${p.title} [${p.status}]`).join('\n')}`);
+      }
+
+      // Compliance summary
+      const compliance = await db.select({
+        id: govComplianceItems.id, requirement: govComplianceItems.requirement, status: govComplianceItems.status, category: govComplianceItems.category,
+      }).from(govComplianceItems).where(eq(govComplianceItems.tenantId, tenantId)).limit(50);
+      if (compliance.length > 0) {
+        const complete = compliance.filter(c => c.status === 'complete').length;
+        const pending = compliance.filter(c => c.status === 'pending').length;
+        const atRisk = compliance.filter(c => c.status === 'at_risk').length;
+        context.push(`Compliance items: ${compliance.length} total — ${complete} complete, ${pending} pending, ${atRisk} at risk`);
+      }
+    }
+
+    // Library items
+    const library = await db.select({
+      id: govDocumentLibrary.id, title: govDocumentLibrary.title, category: govDocumentLibrary.category,
+    }).from(govDocumentLibrary).where(eq(govDocumentLibrary.tenantId, tenantId)).limit(20);
+    if (library.length > 0) {
+      context.push(`Gov Document Library (${library.length}):\n${library.map(l => `- ${l.title} [${l.category}]`).join('\n')}`);
+    }
+  }
+
   return context.join('\n\n');
 }
 
@@ -248,13 +294,23 @@ export async function chat(
     ? `\n\nPersonality instructions: ${ai.personality}`
     : '';
 
-  const systemPrompt = `You are ${ai.name}, an AI assistant for an MSP (Managed Service Provider) help desk. You help technicians with IT troubleshooting, documentation, and client communication.${personalityInstructions}
+  const systemPrompt = `You are ${ai.name}, an AI assistant for an MSP (Managed Service Provider) help desk. You help technicians with IT troubleshooting, documentation, client communication, government contract questions, and managing the product catalog.${personalityInstructions}
 
 You have access to the following context about the current environment:
 Here is current data from the PSA system:
 ${dataContext}
 
 ${context ? `Additional context: ${context}` : ''}
+
+## Actions
+You can perform actions by including a JSON block in your response. The user will see your text response, and the system will execute the action.
+
+To create a product in the service catalog, include this JSON block anywhere in your response:
+\`\`\`action
+{"action":"create_product","name":"Product Name","description":"Invoice description","proposalDescription":"Detailed proposal description","sku":"SKU-CODE","vendor":"Vendor Name","category":"managed_service|license|security|backup|support_hours|hardware|other","itemType":"recurring|per_device|per_user|block_time|one_time","unitCostCents":1400,"unitPriceCents":3000}
+\`\`\`
+
+Only create products when the user explicitly asks you to. Confirm what you're creating in your text response.
 
 Be concise, technical when appropriate, and helpful. If you don't know something, say so.`;
 
