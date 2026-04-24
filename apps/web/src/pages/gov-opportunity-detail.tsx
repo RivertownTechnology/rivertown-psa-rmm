@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api, getAccessToken, API_BASE } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -360,6 +360,8 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
     finally { setAnalyzing(false); }
   }
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   async function handleUpload(files: FileList | null) {
     if (!files || files.length === 0) return;
     for (const file of Array.from(files)) {
@@ -367,17 +369,22 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
       formData.append('file', file);
       try {
         const token = getAccessToken();
-        const res = await fetch(`${API_BASE}/gov/opportunities/${opportunityId}/documents`, {
+        const url = `${API_BASE}/gov/opportunities/${opportunityId}/documents`;
+        console.log('[GOV-UPLOAD] Uploading to:', url, 'File:', file.name, file.size);
+        const res = await fetch(url, {
           method: 'POST',
           headers: token ? { 'Authorization': `Bearer ${token}` } : {},
           body: formData,
         });
         if (!res.ok) {
           const err = await res.text();
-          alert(`Upload failed: ${err.substring(0, 200)}`);
+          alert(`Upload failed (${res.status}): ${err.substring(0, 200)}`);
+        } else {
+          console.log('[GOV-UPLOAD] Success');
         }
       } catch (err: any) {
         alert(`Upload error: ${err.message || 'Failed'}`);
+        console.error('[GOV-UPLOAD] Error:', err);
       }
     }
     fetchDocuments();
@@ -817,19 +824,16 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
               </CardContent>
             </Card>
 
-            {/* File Upload (if R2 storage is configured) */}
-            <div className="flex items-center gap-2">
-              <label className="flex-1">
-                <div
-                  className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
-                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
-                  onDrop={e => { e.preventDefault(); e.stopPropagation(); handleUpload(e.dataTransfer.files); }}
-                >
-                  <Upload className="h-6 w-6 mx-auto text-muted-foreground mb-1" />
-                  <p className="text-xs text-muted-foreground">Drag & drop files or click to upload (requires R2 storage)</p>
-                  <input type="file" multiple className="hidden" onChange={e => handleUpload(e.target.files)} />
-                </div>
-              </label>
+            {/* File Upload */}
+            <div
+              className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+              onDrop={e => { e.preventDefault(); e.stopPropagation(); handleUpload(e.dataTransfer.files); }}
+            >
+              <Upload className="h-6 w-6 mx-auto text-muted-foreground mb-1" />
+              <p className="text-xs text-muted-foreground">Drag & drop files or click to upload</p>
+              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={e => { handleUpload(e.target.files); e.target.value = ''; }} />
             </div>
 
             <div className="flex gap-4">
