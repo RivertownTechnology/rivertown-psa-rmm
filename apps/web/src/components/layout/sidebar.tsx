@@ -163,7 +163,7 @@ export function Sidebar({
                 const Icon = item.icon;
                 const active =
                   currentPath === item.href ||
-                  (item.href !== '/' && currentPath.startsWith(item.href));
+                  (item.href !== '/' && currentPath.startsWith(item.href + '/'));
                 const badgeCount = item.badgeKey ? badgeCounts?.[item.badgeKey] : undefined;
 
                 return (

@@ -25,8 +25,7 @@ interface UpcomingDeadline {
   id: string;
   title: string;
   agency: string;
-  deadline: string;
-  daysRemaining: number;
+  submissionDeadline: string;
 }
 
 interface RecentActivity {
@@ -278,24 +277,29 @@ export function GovDashboardPage() {
           <CardContent>
             {data.upcomingDeadlines.length > 0 ? (
               <div className="space-y-2 max-h-[240px] overflow-y-auto">
-                {data.upcomingDeadlines.map(d => (
-                  <div key={d.id} className="flex items-center justify-between py-2 border-b last:border-0">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium truncate">{d.title}</div>
-                      <div className="text-xs text-muted-foreground">{d.agency}</div>
-                    </div>
-                    <div className="text-right shrink-0 ml-3">
-                      <div className={`text-sm font-semibold ${
-                        d.daysRemaining <= 7 ? 'text-red-600' : d.daysRemaining <= 14 ? 'text-yellow-600' : 'text-green-600'
-                      }`}>
-                        {d.daysRemaining}d
+                {data.upcomingDeadlines.map(d => {
+                  const daysRemaining = d.submissionDeadline
+                    ? Math.ceil((new Date(d.submissionDeadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                    : 0;
+                  return (
+                    <div key={d.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">{d.title}</div>
+                        <div className="text-xs text-muted-foreground">{d.agency}</div>
                       </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {new Date(d.deadline).toLocaleDateString()}
+                      <div className="text-right shrink-0 ml-3">
+                        <div className={`text-sm font-semibold ${
+                          daysRemaining <= 7 ? 'text-red-600' : daysRemaining <= 14 ? 'text-yellow-600' : 'text-green-600'
+                        }`}>
+                          {daysRemaining}d
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {d.submissionDeadline ? new Date(d.submissionDeadline).toLocaleDateString() : 'No deadline'}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="flex items-center justify-center h-[180px] text-sm text-muted-foreground">
