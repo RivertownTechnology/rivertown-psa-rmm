@@ -1959,7 +1959,7 @@ function UsersTab() {
         description="This will deactivate the user and prevent them from logging in. You can reactivate them later."
         confirmLabel="Deactivate"
         variant="destructive"
-        onConfirm={() => deactivateId && deactivateUser(deactivateId)}
+        onConfirm={async () => { if (deactivateId) await deactivateUser(deactivateId); }}
       />
     </div>
   );
