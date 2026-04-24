@@ -720,6 +720,24 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                           <ul className="list-disc ml-4 mt-1 space-y-0.5">{(analysisResult.recommendations ?? (analysisResult as any).differentiators ?? []).map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
                         </div>
                       )}
+                      {((analysisResult as any).itemsToPriceOut || []).length > 0 && (
+                        <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                          <strong className="text-blue-700 dark:text-blue-300">Items to Price Out:</strong>
+                          <ul className="list-disc ml-4 mt-1 space-y-0.5">{((analysisResult as any).itemsToPriceOut ?? []).map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
+                        </div>
+                      )}
+                      {((analysisResult as any).businessRequirements || []).length > 0 && (
+                        <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800">
+                          <strong className="text-orange-700 dark:text-orange-300">Business Requirements (What They Need From You):</strong>
+                          <ul className="list-disc ml-4 mt-1 space-y-0.5">{((analysisResult as any).businessRequirements ?? []).map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
+                        </div>
+                      )}
+                      {((analysisResult as any).staffingNeeds || []).length > 0 && (
+                        <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
+                          <strong className="text-purple-700 dark:text-purple-300">Staffing Needs:</strong>
+                          <ul className="list-disc ml-4 mt-1 space-y-0.5">{((analysisResult as any).staffingNeeds ?? []).map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">Click "Analyze with AI" to get insights about this opportunity.</p>
