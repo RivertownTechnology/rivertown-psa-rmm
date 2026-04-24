@@ -219,6 +219,7 @@ export const updateLineItemSchema = createLineItemSchema.partial();
 export const createCatalogItemSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().optional(),
+  proposalDescription: z.string().optional(),
   sku: z.string().max(100).optional(),
   vendor: z.string().max(200).optional(),
   category: z.enum(LINE_ITEM_CATEGORIES),
