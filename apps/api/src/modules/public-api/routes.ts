@@ -17,6 +17,7 @@ import {
   tenantSequences,
   customers,
   contacts,
+  integrationConfigs,
 } from '@rivertown/db';
 import { AppError, NotFoundError } from '../../common/errors.js';
 import { logAudit } from '../../common/audit.js';
