@@ -1,5 +1,6 @@
 import { eq, and } from 'drizzle-orm';
 import { integrationConfigs, assets, customers } from '@rivertown/db';
+import { readCredentials } from '../common/credentials.js';
 
 interface NCentralDevice {
   deviceId: number;
@@ -141,7 +142,7 @@ export async function createCustomerInNCentral(
 
   if (!config?.isEnabled) return { success: false, ncentralName: '', error: 'N-central integration not enabled' };
 
-  const creds = (config.credentials ?? {}) as Record<string, string>;
+  const creds = readCredentials(config.credentials) as Record<string, string>;
   const settings = (config.settings ?? {}) as Record<string, string>;
   const serverUrl = settings.serverUrl;
   const jwtToken = creds.jwtToken;
@@ -209,7 +210,7 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
 
   if (!config?.isEnabled) return { synced: 0, created: 0, debug: 'Config not found or not enabled' };
 
-  const creds = (config.credentials ?? {}) as Record<string, string>;
+  const creds = readCredentials(config.credentials) as Record<string, string>;
   const settings = (config.settings ?? {}) as Record<string, string>;
 
   const serverUrl = settings.serverUrl;
