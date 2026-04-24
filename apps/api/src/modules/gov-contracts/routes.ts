@@ -8,6 +8,8 @@ import {
   govComplianceItems,
   govDocumentLibrary,
   govSubmissions,
+  govPricingItems,
+  serviceCatalogItems,
 } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError } from '../../common/errors.js';
@@ -41,6 +43,36 @@ async function logActivity(
     description,
     metadata: metadata ?? null,
   });
+}
+
+// ── Helper: update opportunity estimated value from pricing items ───
+
+async function updateOpportunityValue(db: any, tenantId: string, opportunityId: string) {
+  const items = await db.select().from(govPricingItems)
+    .where(and(eq(govPricingItems.opportunityId, opportunityId), eq(govPricingItems.tenantId, tenantId)));
+
+  // Calculate total monthly value
+  let totalMonthlyCents = 0;
+  for (const item of items) {
+    const qty = parseFloat(item.quantity ?? '1');
+    const price = item.unitPriceCents ?? 0;
+    if (item.frequency === 'annually') {
+      totalMonthlyCents += Math.round((price * qty) / 12);
+    } else if (item.frequency === 'one_time') {
+      // Include one-time costs as-is for total estimate
+      totalMonthlyCents += Math.round(price * qty);
+    } else {
+      totalMonthlyCents += Math.round(price * qty);
+    }
+  }
+
+  // Annualize for estimated contract value
+  const annualCents = totalMonthlyCents * 12;
+
+  await db.update(govOpportunities).set({
+    estimatedValue: annualCents,
+    updatedAt: new Date(),
+  }).where(eq(govOpportunities.id, opportunityId));
 }
 
 // ── Helper: parse pagination from query ─────────────────────────────
@@ -278,6 +310,8 @@ export async function govContractRoutes(fastify: FastifyInstance) {
     if (!existing) throw new NotFoundError('Opportunity', id);
 
     // Cascade delete all related records
+    await fastify.db.delete(govPricingItems)
+      .where(and(eq(govPricingItems.opportunityId, id), eq(govPricingItems.tenantId, request.tenantId)));
     await fastify.db.delete(govSubmissions)
       .where(and(eq(govSubmissions.opportunityId, id), eq(govSubmissions.tenantId, request.tenantId)));
     await fastify.db.delete(govComplianceItems)
@@ -741,6 +775,17 @@ export async function govContractRoutes(fastify: FastifyInstance) {
     return updated;
   });
 
+  // ── Compliance: Delete ───────────────────────────────────────────
+
+  fastify.delete('/api/v1/gov/compliance/:id', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.delete(govComplianceItems)
+      .where(and(eq(govComplianceItems.id, id), eq(govComplianceItems.tenantId, request.tenantId)));
+    reply.code(204).send();
+  });
+
   // ── Compliance: AI Generate from RFP Analysis ────────────────────
 
   fastify.post('/api/v1/gov/opportunities/:id/compliance/generate', {
@@ -830,6 +875,131 @@ export async function govContractRoutes(fastify: FastifyInstance) {
     return fastify.db.select().from(govSubmissions)
       .where(and(eq(govSubmissions.opportunityId, id), eq(govSubmissions.tenantId, request.tenantId)))
       .orderBy(desc(govSubmissions.createdAt));
+  });
+
+  // ── Pricing Items (Product Mapping) ──────────────────────────────
+
+  // List pricing items for opportunity
+  fastify.get('/api/v1/gov/opportunities/:id/pricing', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    return fastify.db.select().from(govPricingItems)
+      .where(and(eq(govPricingItems.opportunityId, id), eq(govPricingItems.tenantId, request.tenantId)))
+      .orderBy(govPricingItems.sortOrder);
+  });
+
+  // Add pricing item
+  fastify.post('/api/v1/gov/opportunities/:id/pricing', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as any;
+
+    // If catalogItemId provided, look up the catalog item for defaults
+    let catalogItemName = body.catalogItemName || null;
+    let unitPriceCents = body.unitPriceCents ?? 0;
+    let unitCostCents = body.unitCostCents ?? 0;
+
+    if (body.catalogItemId) {
+      const [catItem] = await fastify.db.select().from(serviceCatalogItems)
+        .where(and(eq(serviceCatalogItems.id, body.catalogItemId), eq(serviceCatalogItems.tenantId, request.tenantId))).limit(1);
+      if (catItem) {
+        catalogItemName = catItem.name;
+        if (!body.unitPriceCents) unitPriceCents = catItem.defaultUnitPriceCents;
+        if (!body.unitCostCents) unitCostCents = catItem.defaultUnitCostCents ?? 0;
+      }
+    }
+
+    const [item] = await fastify.db.insert(govPricingItems).values({
+      tenantId: request.tenantId,
+      opportunityId: id,
+      need: body.need,
+      catalogItemId: body.catalogItemId || null,
+      catalogItemName,
+      quantity: body.quantity || '1',
+      unitPriceCents,
+      unitCostCents,
+      frequency: body.frequency || 'monthly',
+      notes: body.notes || null,
+      sortOrder: body.sortOrder ?? 0,
+    }).returning();
+
+    // Update opportunity estimated value from total pricing
+    await updateOpportunityValue(fastify.db, request.tenantId, id);
+
+    reply.code(201);
+    return item;
+  });
+
+  // Update pricing item
+  fastify.patch('/api/v1/gov/pricing/:itemId', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+  }, async (request) => {
+    const { itemId } = request.params as { itemId: string };
+    const body = request.body as any;
+
+    // If changing catalog item, look up defaults
+    if (body.catalogItemId) {
+      const [catItem] = await fastify.db.select().from(serviceCatalogItems)
+        .where(and(eq(serviceCatalogItems.id, body.catalogItemId), eq(serviceCatalogItems.tenantId, request.tenantId))).limit(1);
+      if (catItem) {
+        body.catalogItemName = catItem.name;
+        if (body.unitPriceCents === undefined) body.unitPriceCents = catItem.defaultUnitPriceCents;
+        if (body.unitCostCents === undefined) body.unitCostCents = catItem.defaultUnitCostCents ?? 0;
+      }
+    }
+
+    const [updated] = await fastify.db.update(govPricingItems)
+      .set({ ...body, updatedAt: new Date() })
+      .where(and(eq(govPricingItems.id, itemId), eq(govPricingItems.tenantId, request.tenantId)))
+      .returning();
+
+    if (updated) await updateOpportunityValue(fastify.db, request.tenantId, updated.opportunityId);
+
+    return updated;
+  });
+
+  // Delete pricing item
+  fastify.delete('/api/v1/gov/pricing/:itemId', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+  }, async (request, reply) => {
+    const { itemId } = request.params as { itemId: string };
+    const [item] = await fastify.db.select({ opportunityId: govPricingItems.opportunityId }).from(govPricingItems)
+      .where(and(eq(govPricingItems.id, itemId), eq(govPricingItems.tenantId, request.tenantId))).limit(1);
+
+    await fastify.db.delete(govPricingItems)
+      .where(and(eq(govPricingItems.id, itemId), eq(govPricingItems.tenantId, request.tenantId)));
+
+    if (item) await updateOpportunityValue(fastify.db, request.tenantId, item.opportunityId);
+
+    reply.code(204).send();
+  });
+
+  // Auto-generate pricing items from AI analysis
+  fastify.post('/api/v1/gov/opportunities/:id/pricing/generate', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [opp] = await fastify.db.select().from(govOpportunities)
+      .where(and(eq(govOpportunities.id, id), eq(govOpportunities.tenantId, request.tenantId))).limit(1);
+    if (!opp) throw new NotFoundError('Opportunity', id);
+
+    const aiAnalysis = opp.aiAnalysis as any;
+    const items = aiAnalysis?.itemsToPriceOut ?? aiAnalysis?.technicalRequirements ?? [];
+
+    let created = 0;
+    for (let i = 0; i < items.length; i++) {
+      await fastify.db.insert(govPricingItems).values({
+        tenantId: request.tenantId,
+        opportunityId: id,
+        need: items[i],
+        sortOrder: i,
+      });
+      created++;
+    }
+
+    return { created };
   });
 
   // ── Document Library: List ───────────────────────────────────────

@@ -17,6 +17,7 @@ import {
 import {
   ArrowLeft, Clock, Upload, FileText, Sparkles, ChevronDown,
   CheckCircle2, Circle, AlertTriangle, Minus, Plus, Send, X, Loader2,
+  DollarSign, Pencil, Trash2,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -211,6 +212,14 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
 
+  // Pricing
+  const [pricingItems, setPricingItems] = useState<any[]>([]);
+  const [catalogItems, setCatalogItems] = useState<Array<{id: string; name: string; category: string; defaultUnitPriceCents: number; defaultUnitCostCents: number | null}>>([]);
+  const [showAddPricing, setShowAddPricing] = useState(false);
+  const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
+  const [pricingForm, setPricingForm] = useState({ need: '', catalogItemId: '', quantity: '1', unitPriceCents: '', unitCostCents: '', frequency: 'monthly', notes: '' });
+  const [generatingPricing, setGeneratingPricing] = useState(false);
+
   // AI states
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AIAnalysisResult | null>(null);
@@ -310,6 +319,13 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
     } catch { setActivities([]); }
   }, [opportunityId]);
 
+  const fetchPricing = useCallback(async () => {
+    try {
+      const res = await api<any>(`/gov/opportunities/${opportunityId}/pricing`);
+      setPricingItems(Array.isArray(res) ? res : (res.data ?? []));
+    } catch { setPricingItems([]); }
+  }, [opportunityId]);
+
   useEffect(() => {
     fetchOpp();
     fetchDocuments();
@@ -317,8 +333,13 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
     fetchCompliance();
     fetchSubmissions();
     fetchActivities();
+    fetchPricing();
     api<Tech[]>('/dispatch/techs').then(setTechs).catch(() => {});
-  }, [fetchOpp, fetchDocuments, fetchProposals, fetchCompliance, fetchSubmissions, fetchActivities]);
+    api<any>('/service-catalog').then(d => {
+      const items = Array.isArray(d) ? d : (d.data ?? []);
+      setCatalogItems(items);
+    }).catch(() => {});
+  }, [fetchOpp, fetchDocuments, fetchProposals, fetchCompliance, fetchSubmissions, fetchActivities, fetchPricing]);
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -459,7 +480,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
     const statusCycle = ['pending', 'complete', 'missing', 'at_risk', 'na'];
     const nextIdx = (statusCycle.indexOf(currentStatus) + 1) % statusCycle.length;
     try {
-      await api(`/gov/opportunities/${opportunityId}/compliance/${itemId}`, {
+      await api(`/gov/compliance/${itemId}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: statusCycle[nextIdx] }),
       });
@@ -516,6 +537,123 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
     } catch { /* ignore */ }
     finally { setAddingNote(false); }
   }
+
+  // ---------------------------------------------------------------------------
+  // Pricing actions
+  // ---------------------------------------------------------------------------
+
+  function resetPricingForm() {
+    setPricingForm({ need: '', catalogItemId: '', quantity: '1', unitPriceCents: '', unitCostCents: '', frequency: 'monthly', notes: '' });
+  }
+
+  function handleCatalogSelect(catalogItemId: string) {
+    const cat = catalogItems.find(c => c.id === catalogItemId);
+    setPricingForm(f => ({
+      ...f,
+      catalogItemId,
+      unitPriceCents: cat ? String((cat.defaultUnitPriceCents / 100).toFixed(2)) : f.unitPriceCents,
+      unitCostCents: cat?.defaultUnitCostCents != null ? String((cat.defaultUnitCostCents / 100).toFixed(2)) : f.unitCostCents,
+    }));
+  }
+
+  async function handleAddPricing() {
+    if (!pricingForm.need) return;
+    try {
+      await api(`/gov/opportunities/${opportunityId}/pricing`, {
+        method: 'POST',
+        body: JSON.stringify({
+          need: pricingForm.need,
+          catalogItemId: pricingForm.catalogItemId || null,
+          quantity: pricingForm.quantity || '1',
+          unitPriceCents: pricingForm.unitPriceCents ? Math.round(parseFloat(pricingForm.unitPriceCents) * 100) : 0,
+          unitCostCents: pricingForm.unitCostCents ? Math.round(parseFloat(pricingForm.unitCostCents) * 100) : 0,
+          frequency: pricingForm.frequency,
+          notes: pricingForm.notes || null,
+        }),
+      });
+      setShowAddPricing(false);
+      resetPricingForm();
+      fetchPricing();
+      fetchOpp();
+    } catch { /* ignore */ }
+  }
+
+  async function handleUpdatePricing() {
+    if (!editingPricingId) return;
+    try {
+      await api(`/gov/pricing/${editingPricingId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          need: pricingForm.need,
+          catalogItemId: pricingForm.catalogItemId || null,
+          quantity: pricingForm.quantity || '1',
+          unitPriceCents: pricingForm.unitPriceCents ? Math.round(parseFloat(pricingForm.unitPriceCents) * 100) : 0,
+          unitCostCents: pricingForm.unitCostCents ? Math.round(parseFloat(pricingForm.unitCostCents) * 100) : 0,
+          frequency: pricingForm.frequency,
+          notes: pricingForm.notes || null,
+        }),
+      });
+      setEditingPricingId(null);
+      setShowAddPricing(false);
+      resetPricingForm();
+      fetchPricing();
+      fetchOpp();
+    } catch { /* ignore */ }
+  }
+
+  async function handleDeletePricing(itemId: string) {
+    try {
+      await api(`/gov/pricing/${itemId}`, { method: 'DELETE' });
+      fetchPricing();
+      fetchOpp();
+    } catch { /* ignore */ }
+  }
+
+  async function handleGeneratePricing() {
+    setGeneratingPricing(true);
+    try {
+      await api(`/gov/opportunities/${opportunityId}/pricing/generate`, { method: 'POST' });
+      fetchPricing();
+      fetchOpp();
+    } catch { /* ignore */ }
+    finally { setGeneratingPricing(false); }
+  }
+
+  function openEditPricing(item: any) {
+    setEditingPricingId(item.id);
+    setPricingForm({
+      need: item.need || '',
+      catalogItemId: item.catalogItemId || '',
+      quantity: item.quantity || '1',
+      unitPriceCents: item.unitPriceCents != null ? (item.unitPriceCents / 100).toFixed(2) : '',
+      unitCostCents: item.unitCostCents != null ? (item.unitCostCents / 100).toFixed(2) : '',
+      frequency: item.frequency || 'monthly',
+      notes: item.notes || '',
+    });
+    setShowAddPricing(true);
+  }
+
+  // Pricing calculations
+  const pricingTotals = (() => {
+    let totalMonthlyCents = 0;
+    let totalMonthlyCostCents = 0;
+    for (const item of pricingItems) {
+      const qty = parseFloat(item.quantity ?? '1');
+      const price = item.unitPriceCents ?? 0;
+      const cost = item.unitCostCents ?? 0;
+      if (item.frequency === 'annually') {
+        totalMonthlyCents += Math.round((price * qty) / 12);
+        totalMonthlyCostCents += Math.round((cost * qty) / 12);
+      } else {
+        totalMonthlyCents += Math.round(price * qty);
+        totalMonthlyCostCents += Math.round(cost * qty);
+      }
+    }
+    const annualRevenue = totalMonthlyCents * 12;
+    const annualCost = totalMonthlyCostCents * 12;
+    const margin = annualRevenue > 0 ? Math.round(((annualRevenue - annualCost) / annualRevenue) * 100) : 0;
+    return { totalMonthlyCents, totalMonthlyCostCents, annualRevenue, annualCost, margin };
+  })();
 
   // ---------------------------------------------------------------------------
   // Render
@@ -637,6 +775,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="pricing">Pricing</TabsTrigger>
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="proposal">Proposal</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
@@ -776,6 +915,11 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                 <CardHeader className="pb-2"><CardTitle className="text-sm">Estimated Value</CardTitle></CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{formatDollars(opp.estimatedValue)}</div>
+                  {pricingItems.length > 0 && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {formatDollars(pricingTotals.totalMonthlyCents)}/mo &middot; {pricingTotals.margin}% margin
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -809,6 +953,237 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                 </Card>
               )}
             </div>
+          </div>
+        </TabsContent>
+
+        {/* ---- PRICING ---- */}
+        <TabsContent value="pricing">
+          <div className="space-y-4">
+            {/* Pricing Summary */}
+            {pricingItems.length > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-xs text-muted-foreground mb-1">Monthly Revenue</div>
+                    <div className="text-lg font-bold text-green-600">{formatDollars(pricingTotals.totalMonthlyCents)}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-xs text-muted-foreground mb-1">Annual Revenue</div>
+                    <div className="text-lg font-bold text-green-600">{formatDollars(pricingTotals.annualRevenue)}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-xs text-muted-foreground mb-1">Annual Cost</div>
+                    <div className="text-lg font-bold text-red-600">{formatDollars(pricingTotals.annualCost)}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-xs text-muted-foreground mb-1">Margin</div>
+                    <div className={`text-lg font-bold ${pricingTotals.margin >= 30 ? 'text-green-600' : pricingTotals.margin >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>{pricingTotals.margin}%</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-xs text-muted-foreground mb-1">Contract Value</div>
+                    <div className="text-lg font-bold">{formatDollars(pricingTotals.annualRevenue)}</div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={handleGeneratePricing} disabled={generatingPricing}>
+                {generatingPricing ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Generating...</> : <><Sparkles className="h-4 w-4 mr-1" /> Generate from AI Analysis</>}
+              </Button>
+              <Button size="sm" onClick={() => { resetPricingForm(); setEditingPricingId(null); setShowAddPricing(true); }}>
+                <Plus className="h-4 w-4 mr-1" /> Add Item
+              </Button>
+            </div>
+
+            {/* Pricing Table */}
+            {pricingItems.length > 0 ? (
+              <Card>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="text-left px-4 py-2 font-medium">Need / Requirement</th>
+                          <th className="text-left px-4 py-2 font-medium">Product</th>
+                          <th className="text-right px-4 py-2 font-medium">Qty</th>
+                          <th className="text-right px-4 py-2 font-medium">Unit Price</th>
+                          <th className="text-right px-4 py-2 font-medium">Unit Cost</th>
+                          <th className="text-left px-4 py-2 font-medium">Freq</th>
+                          <th className="text-right px-4 py-2 font-medium">Line Total</th>
+                          <th className="text-right px-4 py-2 font-medium">Margin</th>
+                          <th className="text-right px-4 py-2 font-medium">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pricingItems.map(item => {
+                          const qty = parseFloat(item.quantity ?? '1');
+                          const lineTotal = (item.unitPriceCents ?? 0) * qty;
+                          const lineCost = (item.unitCostCents ?? 0) * qty;
+                          const lineMargin = lineTotal > 0 ? Math.round(((lineTotal - lineCost) / lineTotal) * 100) : 0;
+                          return (
+                            <tr key={item.id} className="border-b hover:bg-muted/30">
+                              <td className="px-4 py-2 max-w-[200px]">
+                                <div className="truncate" title={item.need}>{item.need}</div>
+                                {item.notes && <div className="text-xs text-muted-foreground truncate">{item.notes}</div>}
+                              </td>
+                              <td className="px-4 py-2">
+                                {item.catalogItemName ? (
+                                  <Badge variant="secondary" className="text-xs">{item.catalogItemName}</Badge>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground italic">Unmapped</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-2 text-right">{item.quantity ?? '1'}</td>
+                              <td className="px-4 py-2 text-right">${((item.unitPriceCents ?? 0) / 100).toFixed(2)}</td>
+                              <td className="px-4 py-2 text-right">${((item.unitCostCents ?? 0) / 100).toFixed(2)}</td>
+                              <td className="px-4 py-2">
+                                <Badge variant="outline" className="text-[10px]">{item.frequency ?? 'monthly'}</Badge>
+                              </td>
+                              <td className="px-4 py-2 text-right font-medium">${(lineTotal / 100).toFixed(2)}</td>
+                              <td className="px-4 py-2 text-right">
+                                <span className={`text-xs font-medium ${lineMargin >= 30 ? 'text-green-600' : lineMargin >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                  {lineMargin}%
+                                </span>
+                              </td>
+                              <td className="px-4 py-2 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditPricing(item)}>
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDeletePricing(item.id)}>
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-muted/50 font-medium">
+                          <td className="px-4 py-2" colSpan={6}>Totals</td>
+                          <td className="px-4 py-2 text-right">{formatDollars(pricingTotals.totalMonthlyCents)}/mo</td>
+                          <td className="px-4 py-2 text-right">
+                            <span className={pricingTotals.margin >= 30 ? 'text-green-600' : pricingTotals.margin >= 15 ? 'text-yellow-600' : 'text-red-600'}>
+                              {pricingTotals.margin}%
+                            </span>
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <DollarSign className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-muted-foreground mb-4">No pricing items yet. Generate from the AI analysis or add manually.</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Add/Edit pricing dialog */}
+            <Dialog open={showAddPricing} onOpenChange={(open) => { setShowAddPricing(open); if (!open) { setEditingPricingId(null); resetPricingForm(); } }}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>{editingPricingId ? 'Edit Pricing Item' : 'Add Pricing Item'}</DialogTitle>
+                  <DialogDescription>Map an RFP requirement to a product from your service catalog.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div>
+                    <Label>Need / Requirement *</Label>
+                    <Input
+                      value={pricingForm.need}
+                      onChange={e => setPricingForm(f => ({ ...f, need: e.target.value }))}
+                      placeholder="e.g. Endpoint Protection for 55 workstations"
+                    />
+                  </div>
+                  <div>
+                    <Label>Product (from Catalog)</Label>
+                    <Combobox
+                      options={[
+                        { value: '', label: 'No product mapped' },
+                        ...catalogItems.map(c => ({ value: c.id, label: `${c.name} (${c.category})` })),
+                      ]}
+                      value={pricingForm.catalogItemId}
+                      onValueChange={handleCatalogSelect}
+                      placeholder="Search catalog..."
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label>Quantity</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={pricingForm.quantity}
+                        onChange={e => setPricingForm(f => ({ ...f, quantity: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label>Unit Price ($)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={pricingForm.unitPriceCents}
+                        onChange={e => setPricingForm(f => ({ ...f, unitPriceCents: e.target.value }))}
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div>
+                      <Label>Unit Cost ($)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={pricingForm.unitCostCents}
+                        onChange={e => setPricingForm(f => ({ ...f, unitCostCents: e.target.value }))}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Frequency</Label>
+                    <Select value={pricingForm.frequency} onValueChange={v => setPricingForm(f => ({ ...f, frequency: v }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="annually">Annually</SelectItem>
+                        <SelectItem value="one_time">One Time</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Notes</Label>
+                    <Input
+                      value={pricingForm.notes}
+                      onChange={e => setPricingForm(f => ({ ...f, notes: e.target.value }))}
+                      placeholder="Optional notes..."
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => { setShowAddPricing(false); setEditingPricingId(null); resetPricingForm(); }}>Cancel</Button>
+                  <Button onClick={editingPricingId ? handleUpdatePricing : handleAddPricing} disabled={!pricingForm.need}>
+                    {editingPricingId ? 'Update' : 'Add'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </TabsContent>
 
@@ -885,16 +1260,17 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant="secondary" className="text-[10px]">{doc.fileType}</Badge>
-                      {doc.aiAnalysisStatus && (
-                        <Badge className={`text-[10px] ${
-                          doc.aiAnalysisStatus === 'complete' ? 'bg-green-100 text-green-700' :
-                          doc.aiAnalysisStatus === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-gray-100 text-gray-700'
-                        }`}>
-                          {doc.aiAnalysisStatus}
-                        </Badge>
-                      )}
+                      <Badge variant="secondary" className="text-[10px]">{doc.fileType || doc.fileName?.split('.').pop()}</Badge>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (!confirm(`Delete ${doc.fileName}?`)) return;
+                          await api(`/gov/documents/${doc.id}`, { method: 'DELETE' }).catch(() => {});
+                          fetchDocuments();
+                          if (selectedDoc?.id === doc.id) setSelectedDoc(null);
+                        }}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
                 )) : (
@@ -1057,19 +1433,33 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                     {compliance.map(item => {
                       const StatusIcon = COMPLIANCE_STATUS_ICONS[item.status] ?? Circle;
                       return (
-                        <div key={item.id} className="flex items-center gap-3 px-4 py-3">
-                          <button onClick={() => handleToggleCompliance(item.id, item.status)} className="shrink-0">
-                            <StatusIcon className={`h-5 w-5 ${COMPLIANCE_STATUS_COLORS[item.status]}`} />
+                        <div key={item.id} className="flex items-center gap-3 px-4 py-3 group">
+                          <button
+                            onClick={() => handleToggleCompliance(item.id, item.status)}
+                            className="shrink-0"
+                            title={`Status: ${item.status} — Click to cycle: pending → complete → missing → at risk → N/A`}
+                          >
+                            <StatusIcon className={`h-5 w-5 ${COMPLIANCE_STATUS_COLORS[item.status]} transition-transform hover:scale-110`} />
                           </button>
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm">{item.requirement}</div>
-                            {item.dueDate && (
-                              <div className="text-xs text-muted-foreground">Due: {new Date(item.dueDate).toLocaleDateString()}</div>
-                            )}
+                            <div className={`text-sm ${item.status === 'complete' ? 'line-through text-muted-foreground' : ''}`}>{item.requirement}</div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className={`text-[10px] font-medium capitalize ${COMPLIANCE_STATUS_COLORS[item.status]}`}>{item.status.replace('_', ' ')}</span>
+                              {item.dueDate && (
+                                <span className="text-[10px] text-muted-foreground">Due: {new Date(item.dueDate).toLocaleDateString()}</span>
+                              )}
+                            </div>
                           </div>
                           <Badge className={`text-[10px] ${CATEGORY_COLORS[item.category] ?? 'bg-gray-100 text-gray-700'}`}>
                             {item.category}
                           </Badge>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                            onClick={async () => {
+                              await api(`/gov/compliance/${item.id}`, { method: 'DELETE' }).catch(() => {});
+                              fetchCompliance();
+                            }}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
                         </div>
                       );
                     })}

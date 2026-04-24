@@ -32,3 +32,4 @@ export * from './ticket-expenses.js';
 export * from './csat-ratings.js';
 export * from './gov-contracts.js';
 export * from './business-documents.js';
+export * from './gov-pricing.js';
