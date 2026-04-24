@@ -38,11 +38,12 @@ interface RecentActivity {
 }
 
 interface DashboardData {
-  pipeline: PipelineStatus[];
+  statusCounts: Array<{ status: string; count: number; totalValue: number }>;
   upcomingDeadlines: UpcomingDeadline[];
-  winRate: { awarded: number; lost: number; percentage: number };
+  winRate: number;
   pipelineValue: number;
-  recentActivity: RecentActivity[];
+  awardedValue: number;
+  recentActivities: Array<{ id: string; activityType: string; description: string; createdAt: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,13 +162,15 @@ export function GovDashboardPage() {
   }
 
   // Build pipeline map for easy lookup
-  const pipelineMap = new Map(data.pipeline.map(p => [p.status, p]));
+  const pipelineMap = new Map((data.statusCounts ?? []).map(p => [p.status, p]));
 
+  const awardedCount = pipelineMap.get('awarded')?.count ?? 0;
+  const lostCount = pipelineMap.get('lost')?.count ?? 0;
   const pieData = [
-    { name: 'Awarded', value: data.winRate.awarded },
-    { name: 'Lost', value: data.winRate.lost },
+    { name: 'Awarded', value: awardedCount },
+    { name: 'Lost', value: lostCount },
   ];
-  const hasWinData = data.winRate.awarded > 0 || data.winRate.lost > 0;
+  const hasWinData = awardedCount > 0 || lostCount > 0;
 
   return (
     <div className="space-y-6">
@@ -194,7 +197,7 @@ export function GovDashboardPage() {
           {STATUS_ORDER.map(status => {
             const item = pipelineMap.get(status);
             const count = item?.count ?? 0;
-            const value = item?.totalEstimatedValue ?? 0;
+            const value = item?.totalValue ?? 0;
             const Icon = STATUS_ICONS[status] ?? Landmark;
             return (
               <Card key={status} className="relative overflow-hidden">
@@ -247,14 +250,14 @@ export function GovDashboardPage() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <span className="h-3 w-3 rounded-full bg-green-500" />
-                    <span className="text-sm">Awarded: {data.winRate.awarded}</span>
+                    <span className="text-sm">Awarded: {awardedCount}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="h-3 w-3 rounded-full bg-red-500" />
-                    <span className="text-sm">Lost: {data.winRate.lost}</span>
+                    <span className="text-sm">Lost: {lostCount}</span>
                   </div>
                   <div className="text-3xl font-bold mt-2">
-                    {data.winRate.percentage}%
+                    {data.winRate}%
                   </div>
                   <div className="text-xs text-muted-foreground">win rate</div>
                 </div>
@@ -309,9 +312,9 @@ export function GovDashboardPage() {
           <CardTitle className="text-sm font-medium text-muted-foreground">Recent Activity</CardTitle>
         </CardHeader>
         <CardContent>
-          {data.recentActivity.length > 0 ? (
+          {(data.recentActivities ?? []).length > 0 ? (
             <div className="space-y-3">
-              {data.recentActivity.map(a => (
+              {(data.recentActivities ?? []).map(a => (
                 <div key={a.id} className="flex items-start gap-3">
                   <div className="mt-1">
                     <Activity className="h-4 w-4 text-muted-foreground" />
@@ -319,11 +322,11 @@ export function GovDashboardPage() {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm">{a.description}</div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      {a.opportunityTitle} &middot; {timeAgo(a.createdAt)}
+                      {timeAgo(a.createdAt)}
                     </div>
                   </div>
                   <Badge variant="secondary" className="text-[10px] shrink-0">
-                    {a.type}
+                    {a.activityType}
                   </Badge>
                 </div>
               ))}
