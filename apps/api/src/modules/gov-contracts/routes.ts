@@ -51,9 +51,10 @@ async function updateOpportunityValue(db: any, tenantId: string, opportunityId: 
   const items = await db.select().from(govPricingItems)
     .where(and(eq(govPricingItems.opportunityId, opportunityId), eq(govPricingItems.tenantId, tenantId)));
 
-  // Calculate total monthly value
+  // Calculate total monthly value (exclude linked items — they're covered by their parent)
   let totalMonthlyCents = 0;
   for (const item of items) {
+    if (item.linkedToId) continue; // Skip items linked to a parent (included in parent price)
     const qty = parseFloat(item.quantity ?? '1');
     const price = item.unitPriceCents ?? 0;
     if (item.frequency === 'annually') {

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api, getAccessToken, API_BASE } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -220,7 +220,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   const [catalogItems, setCatalogItems] = useState<Array<{id: string; name: string; category: string; defaultUnitPriceCents: number; defaultUnitCostCents: number | null}>>([]);
   const [showAddPricing, setShowAddPricing] = useState(false);
   const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
-  const [pricingForm, setPricingForm] = useState({ need: '', catalogItemId: '', quantity: '1', unitPriceCents: '', unitCostCents: '', frequency: 'monthly', notes: '' });
+  const [pricingForm, setPricingForm] = useState({ need: '', catalogItemId: '', quantity: '1', unitPriceCents: '', unitCostCents: '', frequency: 'monthly', notes: '', linkedToId: '' });
   const [generatingPricing, setGeneratingPricing] = useState(false);
 
   // AI states
@@ -546,7 +546,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   // ---------------------------------------------------------------------------
 
   function resetPricingForm() {
-    setPricingForm({ need: '', catalogItemId: '', quantity: '1', unitPriceCents: '', unitCostCents: '', frequency: 'monthly', notes: '' });
+    setPricingForm({ need: '', catalogItemId: '', quantity: '1', unitPriceCents: '', unitCostCents: '', frequency: 'monthly', notes: '', linkedToId: '' });
   }
 
   function handleCatalogSelect(catalogItemId: string) {
@@ -572,6 +572,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
           unitCostCents: pricingForm.unitCostCents ? Math.round(parseFloat(pricingForm.unitCostCents) * 100) : 0,
           frequency: pricingForm.frequency,
           notes: pricingForm.notes || null,
+          linkedToId: pricingForm.linkedToId || null,
         }),
       });
       setShowAddPricing(false);
@@ -594,6 +595,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
           unitCostCents: pricingForm.unitCostCents ? Math.round(parseFloat(pricingForm.unitCostCents) * 100) : 0,
           frequency: pricingForm.frequency,
           notes: pricingForm.notes || null,
+          linkedToId: pricingForm.linkedToId || null,
         }),
       });
       setEditingPricingId(null);
@@ -607,6 +609,21 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   async function handleDeletePricing(itemId: string) {
     try {
       await api(`/gov/pricing/${itemId}`, { method: 'DELETE' });
+      fetchPricing();
+      fetchOpp();
+    } catch { /* ignore */ }
+  }
+
+  async function unlinkPricingItem(itemId: string) {
+    try {
+      await api(`/gov/pricing/${itemId}`, { method: 'PATCH', body: JSON.stringify({ linkedToId: null }) });
+      fetchPricing();
+    } catch { /* ignore */ }
+  }
+
+  async function linkPricingItem(itemId: string, parentId: string) {
+    try {
+      await api(`/gov/pricing/${itemId}`, { method: 'PATCH', body: JSON.stringify({ linkedToId: parentId, unitPriceCents: 0, unitCostCents: 0 }) });
       fetchPricing();
       fetchOpp();
     } catch { /* ignore */ }
@@ -632,6 +649,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
       unitCostCents: item.unitCostCents != null ? (item.unitCostCents / 100).toFixed(2) : '',
       frequency: item.frequency || 'monthly',
       notes: item.notes || '',
+      linkedToId: item.linkedToId || '',
     });
     setShowAddPricing(true);
   }
@@ -1028,15 +1046,29 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                         </tr>
                       </thead>
                       <tbody>
-                        {pricingItems.map(item => {
+                        {pricingItems.filter(i => !i.linkedToId).map(item => {
                           const qty = parseFloat(item.quantity ?? '1');
                           const lineTotal = (item.unitPriceCents ?? 0) * qty;
                           const lineCost = (item.unitCostCents ?? 0) * qty;
                           const lineMargin = lineTotal > 0 ? Math.round(((lineTotal - lineCost) / lineTotal) * 100) : 0;
+                          const linkedItems = pricingItems.filter(i => i.linkedToId === item.id);
                           return (
-                            <tr key={item.id} className="border-b hover:bg-muted/30">
+                            <React.Fragment key={item.id}>
+                            <tr className="border-b hover:bg-muted/30">
                               <td className="px-4 py-2 max-w-[200px]">
-                                <div className="truncate" title={item.need}>{item.need}</div>
+                                <div className="truncate font-medium" title={item.need}>{item.need}</div>
+                                {linkedItems.length > 0 && (
+                                  <div className="mt-1 space-y-0.5">
+                                    {linkedItems.map(li => (
+                                      <div key={li.id} className="flex items-center gap-1 text-xs text-muted-foreground">
+                                        <span className="text-primary">↳</span> {li.need}
+                                        <button onClick={() => unlinkPricingItem(li.id)} className="ml-1 text-muted-foreground/50 hover:text-destructive" title="Unlink">
+                                          <X className="h-3 w-3" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                                 {item.notes && <div className="text-xs text-muted-foreground truncate">{item.notes}</div>}
                               </td>
                               <td className="px-4 py-2">
@@ -1069,8 +1101,11 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                                 </div>
                               </td>
                             </tr>
+                            </React.Fragment>
                           );
                         })}
+                        {/* Unlinked unmapped items that can be linked */}
+                        {pricingItems.filter(i => i.linkedToId && !pricingItems.some(p => p.id === i.linkedToId)).length > 0 && null}
                       </tbody>
                       <tfoot>
                         <tr className="bg-muted/50 font-medium">
@@ -1177,6 +1212,29 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                       onChange={e => setPricingForm(f => ({ ...f, notes: e.target.value }))}
                       placeholder="Optional notes..."
                     />
+                  </div>
+                  <div>
+                    <Label>Included In (link to another item)</Label>
+                    <Combobox
+                      options={[
+                        { value: '', label: 'None — standalone item' },
+                        ...pricingItems
+                          .filter(i => !i.linkedToId && i.id !== editingPricingId && (i.catalogItemId || i.unitPriceCents > 0))
+                          .map(i => ({ value: i.id, label: `${i.catalogItemName || i.need}` })),
+                      ]}
+                      value={pricingForm.linkedToId}
+                      onValueChange={v => {
+                        setPricingForm(f => ({
+                          ...f,
+                          linkedToId: v,
+                          ...(v ? { unitPriceCents: '0', unitCostCents: '0' } : {}),
+                        }));
+                      }}
+                      placeholder="Select parent item..."
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      If this need is already covered by another product, link it here. Price will be set to $0.
+                    </p>
                   </div>
                 </div>
                 <DialogFooter>
