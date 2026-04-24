@@ -475,7 +475,8 @@ export async function govContractRoutes(fastify: FastifyInstance) {
         const buffer = Buffer.from(await res.arrayBuffer());
 
         if (doc.mimeType === 'application/pdf' || doc.fileName.endsWith('.pdf')) {
-          const pdfParse = (await import('pdf-parse')).default;
+          const pdfParseModule = await import('pdf-parse');
+          const pdfParse = (pdfParseModule as any).default || pdfParseModule;
           const pdfData = await pdfParse(buffer);
           docText = pdfData.text;
         } else {
