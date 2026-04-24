@@ -454,7 +454,90 @@ export async function govContractRoutes(fastify: FastifyInstance) {
     reply.code(204).send();
   });
 
-  // ── AI Analysis: Analyze RFP ─────────────────────────────────────
+  // ── Documents: Analyze a single document ─────────────────────────
+
+  fastify.post('/api/v1/gov/documents/:id/analyze', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } } as any,
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [doc] = await fastify.db.select().from(govDocuments)
+      .where(and(eq(govDocuments.id, id), eq(govDocuments.tenantId, request.tenantId))).limit(1);
+    if (!doc) throw new NotFoundError('Document', id);
+
+    // Extract text from the document
+    let docText = '';
+    if (doc.storageKey && await isR2Configured(fastify.db, request.tenantId)) {
+      try {
+        const { getFileUrl } = await import('../../services/r2-storage.js');
+        const url = await getFileUrl(fastify.db, request.tenantId, doc.storageKey);
+        const res = await fetch(url);
+        const buffer = Buffer.from(await res.arrayBuffer());
+
+        if (doc.mimeType === 'application/pdf' || doc.fileName.endsWith('.pdf')) {
+          const pdfParse = (await import('pdf-parse')).default;
+          const pdfData = await pdfParse(buffer);
+          docText = pdfData.text;
+        } else {
+          docText = buffer.toString('utf-8');
+        }
+      } catch (err) {
+        console.error('[GOV-DOC] Failed to extract text:', err);
+        docText = `[Could not extract text from ${doc.fileName}]`;
+      }
+    }
+
+    if (!docText || docText.length < 10) {
+      return { error: 'Could not extract text from this document' };
+    }
+
+    // Run AI analysis
+    const analysis = await analyzeRFP(fastify.db, request.tenantId, docText);
+
+    // Save analysis on the document
+    await fastify.db.update(govDocuments).set({
+      aiSummary: analysis.summary || analysis.scopeOfWork,
+      aiExtractedData: analysis as any,
+    }).where(eq(govDocuments.id, id));
+
+    // Also update opportunity with this analysis and save RFP text to notes
+    const [opp] = await fastify.db.select({ id: govOpportunities.id, notes: govOpportunities.notes })
+      .from(govOpportunities).where(eq(govOpportunities.id, doc.opportunityId)).limit(1);
+    if (opp) {
+      await fastify.db.update(govOpportunities).set({
+        aiAnalysis: analysis as any,
+        notes: docText.substring(0, 50000),
+        updatedAt: new Date(),
+      }).where(eq(govOpportunities.id, doc.opportunityId));
+
+      // Auto-generate compliance items
+      if (analysis.complianceItems?.length) {
+        // Clear existing auto-generated ones first
+        for (const item of analysis.complianceItems) {
+          const [existing] = await fastify.db.select({ id: govComplianceItems.id }).from(govComplianceItems)
+            .where(and(eq(govComplianceItems.opportunityId, doc.opportunityId), eq(govComplianceItems.requirement, item))).limit(1);
+          if (!existing) {
+            await fastify.db.insert(govComplianceItems).values({
+              tenantId: request.tenantId, opportunityId: doc.opportunityId,
+              requirement: item, category: 'content', status: 'pending',
+            });
+          }
+        }
+      }
+
+      // Calculate win probability
+      const oppData = await fastify.db.select().from(govOpportunities).where(eq(govOpportunities.id, doc.opportunityId)).limit(1);
+      if (oppData[0]) {
+        const winResult = await calculateWinProbability(fastify.db, request.tenantId, oppData[0] as any);
+        await fastify.db.update(govOpportunities).set({ winProbability: winResult.score })
+          .where(eq(govOpportunities.id, doc.opportunityId));
+      }
+    }
+
+    return analysis;
+  });
+
+  // ── AI Analysis: Analyze RFP (from opportunity notes) ───────────
 
   fastify.post('/api/v1/gov/opportunities/:id/analyze', {
     preHandler: [fastify.authenticate, requirePermission('tickets:write')],

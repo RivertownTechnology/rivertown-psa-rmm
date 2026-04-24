@@ -55,10 +55,12 @@ interface GovDocument {
   id: string;
   fileName: string;
   fileType: string;
+  documentType: string;
+  mimeType: string;
   uploadedAt: string;
-  aiAnalysisStatus: string | null;
+  createdAt: string;
   aiSummary: string | null;
-  extractedData: Record<string, unknown> | null;
+  aiExtractedData: Record<string, unknown> | null;
 }
 
 interface ProposalSection {
@@ -1256,11 +1258,28 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                       <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
                       <div className="min-w-0">
                         <div className="text-sm font-medium truncate">{doc.fileName}</div>
-                        <div className="text-xs text-muted-foreground">{new Date(doc.uploadedAt).toLocaleDateString()}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {new Date(doc.createdAt || doc.uploadedAt).toLocaleDateString()}
+                          {doc.aiSummary && <span className="ml-2 text-green-600">AI analyzed</span>}
+                        </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant="secondary" className="text-[10px]">{doc.fileType || doc.fileName?.split('.').pop()}</Badge>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Badge variant="secondary" className="text-[10px]">{doc.documentType || doc.fileName?.split('.').pop()}</Badge>
+                      <Button variant="ghost" size="sm" className="h-7 text-xs gap-1"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            const result = await api<any>(`/gov/documents/${doc.id}/analyze`, { method: 'POST' });
+                            if (result.error) { alert(result.error); return; }
+                            alert('Document analyzed! Check Overview for results.');
+                            fetchDocuments();
+                            fetchOpp();
+                            fetchCompliance();
+                          } catch (err: any) { alert(`Analysis failed: ${err.message}`); }
+                        }}>
+                        <Sparkles className="h-3 w-3" /> Analyze
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
                         onClick={async (e) => {
                           e.stopPropagation();
@@ -1294,11 +1313,11 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                       {selectedDoc.aiSummary ? (
                         <>
                           <div><strong>AI Summary:</strong><p className="mt-1">{selectedDoc.aiSummary}</p></div>
-                          {selectedDoc.extractedData && (
+                          {selectedDoc.aiExtractedData && (
                             <div>
                               <strong>Extracted Data:</strong>
                               <pre className="mt-1 text-xs bg-muted p-2 rounded overflow-auto max-h-48">
-                                {JSON.stringify(selectedDoc.extractedData, null, 2)}
+                                {JSON.stringify(selectedDoc.aiExtractedData, null, 2)}
                               </pre>
                             </div>
                           )}
