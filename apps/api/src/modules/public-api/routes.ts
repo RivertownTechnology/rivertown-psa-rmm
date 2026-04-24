@@ -650,7 +650,7 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
         subject,
         description,
         priority,
-        source: 'agent_alert',
+        source: 'ncentral',
         status: 'new',
       }).returning();
 

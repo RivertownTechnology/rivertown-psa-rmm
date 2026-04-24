@@ -3242,6 +3242,8 @@ function NCentralCard() {
     isEnabled: false,
     serverUrl: '',
     jwtToken: '',
+    psaUsername: '',
+    psaPassword: '',
     syncFrequency: '15min',
   });
   const [loaded, setLoaded] = useState(false);
@@ -3259,6 +3261,8 @@ function NCentralCard() {
           isEnabled: data.isEnabled,
           serverUrl: data.serverUrl || '',
           jwtToken: data.jwtToken || '',
+          psaUsername: (data as any).psaUsername || '',
+          psaPassword: (data as any).psaPassword || '',
           syncFrequency: data.syncFrequency || '15min',
         });
         setLastSync(data.lastSyncAt);
@@ -3328,10 +3332,27 @@ function NCentralCard() {
         </div>
 
         <div className="space-y-2">
-          <Label>JWT Token</Label>
+          <Label>JWT Token (for device sync)</Label>
           <Input type="password" value={config.jwtToken} onChange={e => setConfig({ ...config, jwtToken: e.target.value })} placeholder="JWT token from N-central" />
           <p className="text-xs text-muted-foreground">Generate in N-central: Administration &rarr; User Management &rarr; Users &rarr; [User] &rarr; API Access &rarr; Generate JSON Web Token</p>
         </div>
+
+        <Separator />
+
+        <div className="text-sm font-medium">N-central PSA API Credentials</div>
+        <p className="text-xs text-muted-foreground">These are the credentials N-central provides to access their API. Found in N-central: Administration &rarr; PSA Integration &rarr; PSA Configuration (Username shown as "custompsa/XXXX").</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <Label>PSA Username</Label>
+            <Input value={config.psaUsername} onChange={e => setConfig({ ...config, psaUsername: e.target.value })} placeholder="custompsa/1473" />
+          </div>
+          <div className="space-y-2">
+            <Label>PSA Password</Label>
+            <Input type="password" value={config.psaPassword} onChange={e => setConfig({ ...config, psaPassword: e.target.value })} placeholder="N-central PSA password" />
+          </div>
+        </div>
+
+        <Separator />
 
         <div className="space-y-2">
           <Label>Sync Frequency</Label>

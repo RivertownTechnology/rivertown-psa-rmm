@@ -658,13 +658,15 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       const [config] = await fastify.db.select().from(integrationConfigs)
         .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'ncentral')))
         .limit(1);
-      if (!config) return { isEnabled: false, serverUrl: '', jwtToken: '', syncFrequency: 'hourly', lastSyncAt: null, syncStatus: 'idle' };
+      if (!config) return { isEnabled: false, serverUrl: '', jwtToken: '', psaUsername: '', psaPassword: '', syncFrequency: 'hourly', lastSyncAt: null, syncStatus: 'idle' };
       const creds = readCredentials(config.credentials) as Record<string, string>;
       const settings = (config.settings ?? {}) as Record<string, string>;
       return {
         isEnabled: config.isEnabled,
         serverUrl: settings.serverUrl || '',
         jwtToken: creds.jwtToken ? '••••••••' + String(creds.jwtToken).slice(-4) : '',
+        psaUsername: settings.psaUsername || '',
+        psaPassword: creds.psaPassword ? '••••••••' : '',
         syncFrequency: settings.syncFrequency || 'hourly',
         lastSyncAt: config.lastSyncAt,
         syncStatus: config.syncStatus || 'idle',
@@ -677,7 +679,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     { preHandler: [fastify.authenticate, requirePermission('*')] },
     async (request) => {
       const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
-      const body = request.body as { isEnabled: boolean; serverUrl?: string; jwtToken?: string; syncFrequency?: string };
+      const body = request.body as { isEnabled: boolean; serverUrl?: string; jwtToken?: string; psaUsername?: string; psaPassword?: string; syncFrequency?: string };
 
       const [existing] = await fastify.db.select().from(integrationConfigs)
         .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'ncentral')))
@@ -688,10 +690,12 @@ export async function settingsRoutes(fastify: FastifyInstance) {
 
       const credentials = writeCredentials({
         jwtToken: body.jwtToken?.startsWith('••') ? prevCreds.jwtToken : (body.jwtToken || prevCreds.jwtToken || ''),
+        psaPassword: body.psaPassword?.startsWith('••') ? prevCreds.psaPassword : (body.psaPassword || prevCreds.psaPassword || ''),
       });
 
       const settings = {
         serverUrl: body.serverUrl || prevSettings.serverUrl || '',
+        psaUsername: body.psaUsername || prevSettings.psaUsername || '',
         syncFrequency: body.syncFrequency || prevSettings.syncFrequency || 'hourly',
       };
 
