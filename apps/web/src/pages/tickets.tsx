@@ -36,6 +36,7 @@ interface TicketRow {
   slaBreached: boolean | null;
   slaPausedAt: string | null;
   slaTotalPausedMs: number | null;
+  queueId: string | null;
 }
 
 interface Customer {
@@ -219,6 +220,8 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
   const [showBulkStatus, setShowBulkStatus] = useState(false);
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [showBulkQueue, setShowBulkQueue] = useState(false);
+  const [bulkQueueId, setBulkQueueId] = useState('');
   const [showBulkMerge, setShowBulkMerge] = useState(false);
   const [mergeTargetId, setMergeTargetId] = useState('');
   const [merging, setMerging] = useState(false);
@@ -711,6 +714,11 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
                       {sla.text}
                     </Badge>
                   )}
+                  {t.queueId && queueOptions.find(q => q.id === t.queueId) && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 leading-4">
+                      {queueOptions.find(q => q.id === t.queueId)!.name}
+                    </Badge>
+                  )}
                 </div>
                 </div>
               </div>
@@ -753,6 +761,9 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
           </Button>
           <Button size="sm" variant="outline" onClick={() => setShowBulkStatus(true)}>
             <ArrowRight className="h-3.5 w-3.5 mr-1" />Change Status
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setShowBulkQueue(true)}>
+            Queue
           </Button>
           <Button size="sm" variant="outline" onClick={bulkClose}>
             Close
@@ -818,6 +829,29 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
               </Button>
             </DialogFooter>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Queue Dialog */}
+      <Dialog open={showBulkQueue} onOpenChange={setShowBulkQueue}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Change Queue for {selectedIds.size} tickets</DialogTitle></DialogHeader>
+          <Combobox
+            options={[{ value: '', label: 'No queue' }, ...queueOptions.map(q => ({ value: q.id, label: q.name }))]}
+            value={bulkQueueId}
+            onValueChange={setBulkQueueId}
+            placeholder="Select queue..."
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkQueue(false)}>Cancel</Button>
+            <Button onClick={async () => {
+              await api('/tickets/bulk-update', { method: 'POST', body: JSON.stringify({ ids: [...selectedIds], update: { queueId: bulkQueueId || null } }) }).catch(() => {});
+              setShowBulkQueue(false);
+              setBulkQueueId('');
+              setSelectedIds(new Set());
+              fetchTickets();
+            }}>Apply</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
