@@ -549,13 +549,22 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
 <meta charset="utf-8">
 <title>${currentProposal.title || 'Proposal'}</title>
 <style>
-  @page { size: letter; margin: 1in 1in 1.2in 1in; }
-  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  @page { size: letter; margin: 0.75in 1in 1in 1in; }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .no-print { display: none !important; }
+    /* Running footer via fixed positioning */
+    .page-footer { position: fixed; bottom: 0; left: 0; right: 0; height: 30px; font-size: 7.5pt; color: #999; display: flex; justify-content: space-between; align-items: center; padding: 0 1in; border-top: 1px solid #ddd; }
+    /* Reserve space at bottom so content doesn't overlap footer */
+    .page-content { padding-bottom: 40px; }
+    /* Hide footer on cover page */
+    .cover ~ .page-footer { display: flex; }
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #1a1a1a; }
 
   /* Cover page */
-  .cover { page-break-after: always; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 85vh; text-align: center; padding: 2in 1in; }
+  .cover { page-break-after: always; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 90vh; text-align: center; padding: 2in 1in; }
   .cover-logo { width: 180px; margin-bottom: 40px; }
   .cover-title { font-size: 28pt; font-weight: 700; color: #1e3a5f; margin-bottom: 12px; line-height: 1.2; }
   .cover-subtitle { font-size: 16pt; color: #4a6f8a; margin-bottom: 40px; }
@@ -583,16 +592,14 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   .section-content th { background: #f0f4f8; font-weight: 600; color: #1e3a5f; }
   .section-content strong { color: #1e3a5f; }
 
-  /* Footer */
-  @media print {
-    .footer { position: fixed; bottom: 0; left: 0; right: 0; height: 40px; font-size: 8pt; color: #888; border-top: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; padding: 0 1in; }
-  }
-  .footer { font-size: 8pt; color: #888; border-top: 1px solid #ddd; padding: 8px 0; display: flex; justify-content: space-between; margin-top: 40px; }
+  /* Screen-only footer (non-print preview) */
+  .screen-footer { font-size: 8pt; color: #888; border-top: 1px solid #ddd; padding: 8px 0; display: flex; justify-content: space-between; margin-top: 40px; }
+  @media print { .screen-footer { display: none; } }
+  .page-footer { display: none; }
 
   .no-print { margin: 20px; text-align: center; }
   .no-print button { padding: 10px 24px; background: #1e3a5f; color: white; border: none; border-radius: 6px; font-size: 12pt; cursor: pointer; margin: 0 8px; }
   .no-print button:hover { background: #2a5a7f; }
-  @media print { .no-print { display: none; } }
 </style>
 </head>
 <body>
@@ -602,7 +609,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   <button onclick="window.close()">Close</button>
 </div>
 
-<!-- Cover Page -->
+<!-- Cover Page (no footer) -->
 <div class="cover">
   <img src="/logo.png" class="cover-logo" alt="Rivertown Technology" onerror="this.style.display='none'" />
   <div class="cover-title">${currentProposal.title || `Proposal for ${opp.title}`}</div>
@@ -618,6 +625,15 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   </div>
 </div>
 
+<!-- Page footer (prints on all pages after cover) -->
+<div class="page-footer">
+  <span>Rivertown Technology Group — Confidential</span>
+  <span>${opp.title}</span>
+</div>
+
+<!-- Content area with bottom padding for footer clearance -->
+<div class="page-content">
+
 <!-- Table of Contents -->
 <div class="toc">
   <h1>Table of Contents</h1>
@@ -632,7 +648,9 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
 <!-- Sections -->
 ${sectionsHtml}
 
-<div class="footer">
+</div>
+
+<div class="screen-footer">
   <span>Rivertown Technology Group — Confidential</span>
   <span>${opp.title}</span>
 </div>
