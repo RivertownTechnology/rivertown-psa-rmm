@@ -13,12 +13,16 @@ interface NCentralDevice {
 }
 
 interface NCentralAssetDetail {
+  // Flat fields (legacy/alternative format)
   serialnumber?: string;
   manufacturer?: string;
   model?: string;
   ipaddress?: string;
   macaddress?: string;
-  os?: { name?: string; version?: string };
+  os?: { name?: string; version?: string; reportedos?: string };
+  // Nested fields (actual N-central API format)
+  computersystem?: { serialnumber?: string; manufacturer?: string; model?: string; netbiosname?: string };
+  networkadapter?: { ipaddress?: string; macaddress?: string };
 }
 
 const SYNC_INTERVALS_MS: Record<string, number> = {
@@ -195,12 +199,20 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
       };
 
       if (detail) {
-        if (detail.ipaddress) assetFields.ipAddress = detail.ipaddress;
-        if (detail.serialnumber) assetFields.serialNumber = detail.serialnumber;
-        if (detail.manufacturer) assetFields.manufacturer = detail.manufacturer;
-        if (detail.model) assetFields.model = detail.model;
-        if (detail.os?.name) assetFields.osName = detail.os.name;
-        if (detail.os?.version) assetFields.osVersion = detail.os.version;
+        // Handle both nested (actual API) and flat formats
+        const ip = detail.networkadapter?.ipaddress ?? detail.ipaddress;
+        const serial = detail.computersystem?.serialnumber ?? detail.serialnumber;
+        const mfr = detail.computersystem?.manufacturer ?? detail.manufacturer;
+        const mdl = detail.computersystem?.model ?? detail.model;
+        const osName = detail.os?.reportedos ?? detail.os?.name;
+        const osVer = detail.os?.version;
+
+        if (ip) assetFields.ipAddress = ip;
+        if (serial) assetFields.serialNumber = serial;
+        if (mfr) assetFields.manufacturer = mfr;
+        if (mdl) assetFields.model = mdl;
+        if (osName) assetFields.osName = osName;
+        if (osVer) assetFields.osVersion = osVer;
       }
 
       // Fallback: use supportedOs from the device list if no detail OS
