@@ -822,6 +822,7 @@ export async function govContractRoutes(fastify: FastifyInstance) {
   }, async (request) => {
     const { id, sectionIndex: sectionIndexStr } = request.params as { id: string; sectionIndex: string };
     const sectionIndex = parseInt(sectionIndexStr, 10);
+    const body = (request.body || {}) as { instructions?: string };
 
     const [proposal] = await fastify.db.select().from(govProposals)
       .where(and(eq(govProposals.id, id), eq(govProposals.tenantId, request.tenantId)))
@@ -848,7 +849,32 @@ export async function govContractRoutes(fastify: FastifyInstance) {
       .limit(20);
     const libraryContent = libraryItems.map(item => `[${item.category}] ${item.title}:\n${item.content}`).join('\n\n---\n\n');
 
-    // Get other sections for context (so AI knows what's been written)
+    // Get pricing items for this opportunity (important for pricing sections)
+    let pricingContext = '';
+    if (opp) {
+      const pricing = await fastify.db.select().from(govPricingItems)
+        .where(eq(govPricingItems.opportunityId, opp.id))
+        .orderBy(asc(govPricingItems.sortOrder));
+
+      if (pricing.length > 0) {
+        const pricingLines = pricing.map(p => {
+          const price = ((p.unitPriceCents ?? 0) / 100).toFixed(2);
+          const cost = ((p.unitCostCents ?? 0) / 100).toFixed(2);
+          const margin = p.unitPriceCents && p.unitCostCents ? (((p.unitPriceCents - p.unitCostCents) / p.unitPriceCents) * 100).toFixed(0) : 'N/A';
+          const linked = p.linkedToId ? ' (included in another item)' : '';
+          return `- ${p.catalogItemName || p.need}: $${price}/${p.frequency} x${p.quantity} (cost: $${cost}, margin: ${margin}%)${linked}${p.notes ? ` — ${p.notes}` : ''}`;
+        });
+        pricingContext = `\nPricing items for this opportunity (${pricing.length}):\n${pricingLines.join('\n')}\n`;
+
+        // Calculate totals
+        const monthlyItems = pricing.filter(p => p.frequency === 'monthly' && !p.linkedToId);
+        const monthlyTotal = monthlyItems.reduce((s, p) => s + (p.unitPriceCents ?? 0) * parseFloat(p.quantity ?? '1'), 0);
+        const monthlyCost = monthlyItems.reduce((s, p) => s + (p.unitCostCents ?? 0) * parseFloat(p.quantity ?? '1'), 0);
+        pricingContext += `Monthly recurring total: $${(monthlyTotal / 100).toFixed(2)} (cost: $${(monthlyCost / 100).toFixed(2)}, margin: ${monthlyTotal ? (((monthlyTotal - monthlyCost) / monthlyTotal) * 100).toFixed(0) : 'N/A'}%)\n`;
+      }
+    }
+
+    // Get other sections for context
     const otherSections = sections
       .filter((_, i) => i !== sectionIndex && _.content?.trim())
       .map(s => `## ${s.title}\n${s.content}`)
@@ -866,10 +892,13 @@ Opportunity details:
 ${oppContext}
 
 ${rfpContext ? `RFP Analysis:\n${rfpContext}\n` : ''}
+${pricingContext}
 ${libraryContent ? `Company library content:\n${libraryContent}\n` : ''}
 ${otherSections ? `Other proposal sections already written:\n${otherSections}\n` : ''}
+${body.instructions ? `User instructions: ${body.instructions}\n` : ''}
 
-Write a comprehensive, professional "${section.title}" section. Use markdown formatting. Be specific and detailed. Do not include other sections — only generate content for "${section.title}".`;
+Write a comprehensive, professional "${section.title}" section. Use markdown formatting. Be specific and detailed. Do not include other sections — only generate content for "${section.title}".
+${section.title.toLowerCase().includes('pricing') ? '\nIMPORTANT: Include specific dollar amounts and service bundle pricing from the pricing items above. Create a clear pricing table or breakdown that the agency can evaluate.' : ''}`;
 
     const content = await callAI(ai, systemPrompt, `Generate the "${section.title}" section for this government proposal.`, 3000);
 

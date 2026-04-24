@@ -217,6 +217,12 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
 
+  // Section generation dialog
+  const [sectionGenDialog, setSectionGenDialog] = useState<{ proposalId: string; sectionIndex: number; sectionTitle: string } | null>(null);
+  const [sectionGenInstructions, setSectionGenInstructions] = useState('');
+  const [sectionGenStatus, setSectionGenStatus] = useState<'idle' | 'generating' | 'done' | 'error'>('idle');
+  const [sectionGenError, setSectionGenError] = useState('');
+
   // Pricing
   const [pricingItems, setPricingItems] = useState<any[]>([]);
   const [catalogItems, setCatalogItems] = useState<Array<{id: string; name: string; category: string; defaultUnitPriceCents: number; defaultUnitCostCents: number | null}>>([]);
@@ -452,15 +458,28 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
     finally { setGeneratingProposal(false); }
   }
 
-  async function handleGenerateSection(proposalId: string, sectionIndex: number) {
-    setImprovingSection(String(sectionIndex));
+  function openSectionGenDialog(proposalId: string, sectionIndex: number, sectionTitle: string) {
+    setSectionGenDialog({ proposalId, sectionIndex, sectionTitle });
+    setSectionGenInstructions('');
+    setSectionGenStatus('idle');
+    setSectionGenError('');
+  }
+
+  async function runSectionGeneration() {
+    if (!sectionGenDialog) return;
+    setSectionGenStatus('generating');
+    setSectionGenError('');
     try {
-      await api(`/gov/proposals/${proposalId}/sections/${sectionIndex}/generate`, { method: 'POST' });
-      fetchProposals();
+      await api(`/gov/proposals/${sectionGenDialog.proposalId}/sections/${sectionGenDialog.sectionIndex}/generate`, {
+        method: 'POST',
+        body: JSON.stringify({ instructions: sectionGenInstructions || undefined }),
+      });
+      await fetchProposals();
+      setSectionGenStatus('done');
     } catch (err: any) {
-      alert(`Section generation failed: ${err.message || 'Unknown error'}`);
+      setSectionGenStatus('error');
+      setSectionGenError(err.message || 'Generation failed');
     }
-    finally { setImprovingSection(null); }
   }
 
   async function handleUpdateProposalSection(proposalId: string, sectionIndex: number, updates: Partial<ProposalSection>) {
@@ -1636,14 +1655,9 @@ ${sectionsHtml}
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleGenerateSection(currentProposal.id, section.order - 1)}
-                              disabled={improvingSection === String(section.order - 1)}
+                              onClick={() => openSectionGenDialog(currentProposal.id, sectionIdx, section.title)}
                             >
-                              {improvingSection === String(section.order - 1) ? (
-                                <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Generating...</>
-                              ) : (
-                                <><Sparkles className="h-4 w-4 mr-1" /> AI Generate</>
-                              )}
+                              <Sparkles className="h-4 w-4 mr-1" /> AI Generate
                             </Button>
                           )}
                           {section.content && section.content.trim().length >= 20 && (
@@ -1905,6 +1919,103 @@ ${sectionsHtml}
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Section Generation Dialog */}
+      <Dialog open={!!sectionGenDialog} onOpenChange={(open) => { if (sectionGenStatus !== 'generating') { if (!open) setSectionGenDialog(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5" />
+              Generate: {sectionGenDialog?.sectionTitle}
+            </DialogTitle>
+          </DialogHeader>
+
+          {sectionGenStatus === 'idle' && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                AI will generate the <strong>{sectionGenDialog?.sectionTitle}</strong> section using the opportunity details
+                {sectionGenDialog?.sectionTitle?.toLowerCase().includes('pricing') && pricingItems.length > 0 && ', your pricing items,'}
+                {' '}and any uploaded RFP analysis.
+              </p>
+
+              {sectionGenDialog?.sectionTitle?.toLowerCase().includes('pricing') && pricingItems.length > 0 && (
+                <div className="rounded-md border p-3 space-y-1.5 max-h-40 overflow-y-auto bg-muted/30">
+                  <div className="text-xs font-semibold text-muted-foreground uppercase">Pricing items to include</div>
+                  {pricingItems.filter(p => !p.linkedToId).map((p: any) => (
+                    <div key={p.id} className="text-xs flex justify-between">
+                      <span>{p.catalogItemName || p.need}</span>
+                      <span className="text-muted-foreground">
+                        ${((p.unitPriceCents || 0) / 100).toFixed(2)} x{p.quantity} /{p.frequency}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>Additional instructions <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                <textarea
+                  className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[80px] resize-y"
+                  value={sectionGenInstructions}
+                  onChange={e => setSectionGenInstructions(e.target.value)}
+                  placeholder={`e.g. "Focus on our CJIS compliance experience" or "Include specific product pricing from the pricing tab"`}
+                />
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSectionGenDialog(null)}>Cancel</Button>
+                <Button onClick={runSectionGeneration}>
+                  <Sparkles className="h-4 w-4 mr-1" /> Generate Section
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+
+          {sectionGenStatus === 'generating' && (
+            <div className="py-8 text-center space-y-4">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+              <div>
+                <p className="font-medium">Generating {sectionGenDialog?.sectionTitle}...</p>
+                <p className="text-sm text-muted-foreground mt-1">This may take 15-30 seconds</p>
+              </div>
+              <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                <div className="bg-primary h-full rounded-full animate-pulse" style={{ width: '60%' }} />
+              </div>
+            </div>
+          )}
+
+          {sectionGenStatus === 'done' && (
+            <div className="space-y-4">
+              <div className="rounded-lg bg-green-50 dark:bg-green-900/20 p-4 flex items-center gap-3">
+                <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+                <div>
+                  <p className="font-medium text-green-800 dark:text-green-300">Section generated successfully</p>
+                  <p className="text-sm text-muted-foreground mt-0.5">Review the content and use "AI Improve" to refine it further.</p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => setSectionGenDialog(null)}>Done</Button>
+              </DialogFooter>
+            </div>
+          )}
+
+          {sectionGenStatus === 'error' && (
+            <div className="space-y-4">
+              <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 flex items-center gap-3">
+                <XCircle className="h-5 w-5 text-red-600 shrink-0" />
+                <div>
+                  <p className="font-medium text-red-800 dark:text-red-300">Generation failed</p>
+                  <p className="text-sm text-muted-foreground mt-0.5">{sectionGenError}</p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSectionGenDialog(null)}>Close</Button>
+                <Button onClick={() => { setSectionGenStatus('idle'); }}>Try Again</Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
