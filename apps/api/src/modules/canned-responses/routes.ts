@@ -17,7 +17,8 @@ export async function cannedResponseRoutes(fastify: FastifyInstance) {
           eq(cannedResponses.createdBy, request.user.sub),
         ),
       ))
-      .orderBy(cannedResponses.sortOrder, desc(cannedResponses.updatedAt));
+      .orderBy(cannedResponses.sortOrder, desc(cannedResponses.updatedAt))
+      .limit(200);
   });
 
   // Get by ID

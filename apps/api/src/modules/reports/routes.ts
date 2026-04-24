@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and, sql, count, gte, lte, desc } from 'drizzle-orm';
+import { eq, and, sql, count, gte, lte, desc, inArray } from 'drizzle-orm';
 import { tickets, ticketTimeEntries, users, customers, contracts, contractLineItems, invoices, csatRatings, assets, tenants } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
@@ -295,13 +295,11 @@ export async function reportRoutes(fastify: FastifyInstance) {
     let totalLaborMinutes = 0;
     let billableMinutes = 0;
     if (ticketIds.length > 0) {
-      for (const tid of ticketIds) {
-        const entries = await fastify.db.select({ durationMinutes: ticketTimeEntries.durationMinutes, isBillable: ticketTimeEntries.isBillable })
-          .from(ticketTimeEntries).where(eq(ticketTimeEntries.ticketId, tid));
-        for (const e of entries) {
-          totalLaborMinutes += e.durationMinutes ?? 0;
-          if (e.isBillable) billableMinutes += e.durationMinutes ?? 0;
-        }
+      const allEntries = await fastify.db.select({ durationMinutes: ticketTimeEntries.durationMinutes, isBillable: ticketTimeEntries.isBillable, ticketId: ticketTimeEntries.ticketId })
+        .from(ticketTimeEntries).where(inArray(ticketTimeEntries.ticketId, ticketIds));
+      for (const e of allEntries) {
+        totalLaborMinutes += e.durationMinutes ?? 0;
+        if (e.isBillable) billableMinutes += e.durationMinutes ?? 0;
       }
     }
 
@@ -319,14 +317,12 @@ export async function reportRoutes(fastify: FastifyInstance) {
     // CSAT
     let csatHappy = 0, csatNeutral = 0, csatUnhappy = 0;
     if (ticketIds.length > 0) {
-      for (const tid of ticketIds) {
-        const ratings = await fastify.db.select({ rating: csatRatings.rating })
-          .from(csatRatings).where(and(eq(csatRatings.ticketId, tid), sql`${csatRatings.rating} IS NOT NULL AND ${csatRatings.rating} > 0`));
-        for (const r of ratings) {
-          if (r.rating === 3) csatHappy++;
-          else if (r.rating === 2) csatNeutral++;
-          else if (r.rating === 1) csatUnhappy++;
-        }
+      const allRatings = await fastify.db.select({ rating: csatRatings.rating })
+        .from(csatRatings).where(and(inArray(csatRatings.ticketId, ticketIds), sql`${csatRatings.rating} IS NOT NULL AND ${csatRatings.rating} > 0`));
+      for (const r of allRatings) {
+        if (r.rating === 3) csatHappy++;
+        else if (r.rating === 2) csatNeutral++;
+        else if (r.rating === 1) csatUnhappy++;
       }
     }
     const csatTotal = csatHappy + csatNeutral + csatUnhappy;
@@ -346,14 +342,16 @@ export async function reportRoutes(fastify: FastifyInstance) {
     }
 
     // Top tickets by time spent
-    const topTickets: Array<{ ticketNumber: number; subject: string; status: string; minutesSpent: number }> = [];
-    for (const t of periodTickets.slice(0, 50)) {
-      const entries = await fastify.db.select({ durationMinutes: ticketTimeEntries.durationMinutes })
-        .from(ticketTimeEntries).where(eq(ticketTimeEntries.ticketId, t.id));
-      const mins = entries.reduce((s, e) => s + (e.durationMinutes ?? 0), 0);
-      topTickets.push({ ticketNumber: t.ticketNumber, subject: t.subject, status: t.status, minutesSpent: mins });
-    }
-    topTickets.sort((a, b) => b.minutesSpent - a.minutesSpent);
+    const allTimeByTicket = await fastify.db.select({
+      ticketId: ticketTimeEntries.ticketId,
+      totalMinutes: sql<number>`COALESCE(SUM(${ticketTimeEntries.durationMinutes}), 0)::int`,
+    }).from(ticketTimeEntries).where(inArray(ticketTimeEntries.ticketId, ticketIds.slice(0, 50)))
+      .groupBy(ticketTimeEntries.ticketId);
+    const minutesByTicket = new Map(allTimeByTicket.map(r => [r.ticketId, r.totalMinutes]));
+    const topTickets = periodTickets.map(t => ({
+      ticketNumber: t.ticketNumber, subject: t.subject, status: t.status,
+      minutesSpent: minutesByTicket.get(t.id) ?? 0,
+    })).sort((a, b) => b.minutesSpent - a.minutesSpent);
 
     // Report template settings
     const [tenant] = await fastify.db.select({ settings: tenants.settings }).from(tenants)
@@ -383,9 +381,9 @@ export async function reportRoutes(fastify: FastifyInstance) {
       },
       sla: { tracked: slaTracked.length, met: slaMet, breached: slaBreached, compliance: slaCompliance },
       labor: {
-        totalHours: Math.round(totalLaborMinutes / 6) / 10,
-        billableHours: Math.round(billableMinutes / 6) / 10,
-        nonBillableHours: Math.round((totalLaborMinutes - billableMinutes) / 6) / 10,
+        totalHours: Math.round((totalLaborMinutes / 60) * 10) / 10,
+        billableHours: Math.round((billableMinutes / 60) * 10) / 10,
+        nonBillableHours: Math.round(((totalLaborMinutes - billableMinutes) / 60) * 10) / 10,
       },
       contracts: activeContracts.map(c => ({ name: c.name, type: c.contractType })),
       assets: { total: customerAssets.length, online: onlineAssets, types: customerAssets.reduce((acc: Record<string, number>, a) => { acc[a.assetType] = (acc[a.assetType] ?? 0) + 1; return acc; }, {}) },

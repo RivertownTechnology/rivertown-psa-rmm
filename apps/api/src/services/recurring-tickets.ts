@@ -37,7 +37,15 @@ export function startRecurringTicketScheduler(db: any) {
 
           const ticketNumber = parseInt(seqResult.value, 10);
 
-          // Create the ticket from the rule template
+          // First: update nextRunAt to prevent duplicate runs
+          const nextRunAt = calculateNextRun(rule.frequency, rule.dayOfWeek, rule.dayOfMonth);
+          await db.update(recurringTicketRules).set({
+            lastRunAt: now,
+            nextRunAt,
+            updatedAt: now,
+          }).where(eq(recurringTicketRules.id, rule.id));
+
+          // Then: create the ticket from the rule template
           await db.insert(tickets).values({
             tenantId: rule.tenantId,
             ticketNumber,
@@ -50,16 +58,6 @@ export function startRecurringTicketScheduler(db: any) {
             queueId: rule.queueId,
             source: 'recurring',
           });
-
-          // Calculate next run
-          const nextRunAt = calculateNextRun(rule.frequency, rule.dayOfWeek, rule.dayOfMonth);
-
-          // Update rule tracking
-          await db.update(recurringTicketRules).set({
-            lastRunAt: now,
-            nextRunAt,
-            updatedAt: now,
-          }).where(eq(recurringTicketRules.id, rule.id));
 
           console.log(`[recurring-tickets] Created ticket #${ticketNumber} from rule "${rule.name}" (tenant ${rule.tenantId})`);
         } catch (err) {

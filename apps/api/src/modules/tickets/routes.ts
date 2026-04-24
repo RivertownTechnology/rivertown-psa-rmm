@@ -665,6 +665,9 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate, requirePermission('tickets:write')]
   }, async (request) => {
     const { ids, update } = request.body as { ids: string[]; update: Record<string, unknown> };
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 500) {
+      throw new ValidationError('ids must be an array of 1-500 items');
+    }
     const updateData: Record<string, unknown> = { ...update, updatedAt: new Date() };
     for (const id of ids) {
       await fastify.db.update(tickets).set(updateData)
@@ -678,7 +681,17 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate, requirePermission('tickets:write')]
   }, async (request, reply) => {
     const { ids } = request.body as { ids: string[] };
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 500) {
+      throw new ValidationError('ids must be an array of 1-500 items');
+    }
+    let deletedCount = 0;
     for (const id of ids) {
+      // Verify ticket belongs to tenant first
+      const [ticket] = await fastify.db.select({ id: tickets.id }).from(tickets)
+        .where(and(eq(tickets.id, id), eq(tickets.tenantId, request.tenantId))).limit(1);
+      if (!ticket) continue; // Skip tickets that don't belong to this tenant
+
+      // Now safe to delete children
       await fastify.db.delete(csatRatings).where(eq(csatRatings.ticketId, id));
       await fastify.db.delete(ticketTagAssignments).where(eq(ticketTagAssignments.ticketId, id));
       await fastify.db.delete(ticketExpenses).where(eq(ticketExpenses.ticketId, id));
@@ -687,8 +700,9 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       await fastify.db.update(calendarEvents).set({ ticketId: null }).where(eq(calendarEvents.ticketId, id));
       await fastify.db.update(emailMessages).set({ ticketId: null }).where(eq(emailMessages.ticketId, id));
       await fastify.db.delete(tickets).where(and(eq(tickets.id, id), eq(tickets.tenantId, request.tenantId)));
+      deletedCount++;
     }
-    return { deleted: ids.length };
+    return { deleted: deletedCount };
   });
 
   // Merge ticket into another
@@ -702,6 +716,10 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     const [source] = await fastify.db.select().from(tickets).where(and(eq(tickets.id, id), eq(tickets.tenantId, request.tenantId))).limit(1);
     const [target] = await fastify.db.select().from(tickets).where(and(eq(tickets.id, targetTicketId), eq(tickets.tenantId, request.tenantId))).limit(1);
     if (!source || !target) throw new NotFoundError('Ticket', !source ? id : targetTicketId);
+
+    if (id === targetTicketId) throw new ValidationError('Cannot merge a ticket into itself');
+    if (source.mergedIntoId) throw new ValidationError('Source ticket is already merged');
+    if (target.mergedIntoId) throw new ValidationError('Target ticket is already merged');
 
     // Move comments from source to target
     await fastify.db.update(ticketComments).set({ ticketId: targetTicketId }).where(eq(ticketComments.ticketId, id));

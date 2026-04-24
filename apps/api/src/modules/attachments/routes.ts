@@ -80,7 +80,8 @@ export async function attachmentRoutes(fastify: FastifyInstance) {
         eq(attachments.entityType, entityType),
         eq(attachments.entityId, entityId),
       ))
-      .orderBy(attachments.createdAt);
+      .orderBy(attachments.createdAt)
+      .limit(500);
   });
 
   // Delete attachment
