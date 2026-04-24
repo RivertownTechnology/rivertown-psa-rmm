@@ -3406,6 +3406,16 @@ function NCentralCard() {
           <Button variant="outline" onClick={testNCentral} disabled={testing || !config.isEnabled}>
             {testing ? 'Testing...' : 'Test Connection'}
           </Button>
+          <Button variant="outline" onClick={async () => {
+            setTesting(true); setTestResult('');
+            try {
+              const res = await api<any>('/settings/ncentral/sync', { method: 'POST' });
+              setTestResult(res.success ? `Sync complete: ${res.synced ?? 0} synced, ${res.created ?? 0} created` : `Sync failed: ${res.error}`);
+            } catch (e: any) { setTestResult(e.message || 'Sync failed'); }
+            finally { setTesting(false); }
+          }} disabled={testing || !config.isEnabled}>
+            {testing ? 'Syncing...' : 'Sync Now'}
+          </Button>
         </div>
       </CardContent>
     </Card>

@@ -744,6 +744,22 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // Manual N-central sync trigger
+  fastify.post(
+    '/api/v1/settings/ncentral/sync',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      try {
+        const { runNCentralSync } = await import('../../services/ncentral-sync.js');
+        const result = await runNCentralSync(fastify.db, request.tenantId);
+        return { success: true, ...result };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Sync failed';
+        return { success: false, error: message };
+      }
+    },
+  );
+
   // ===== STORAGE (Cloudflare R2) =====
 
   fastify.get(
