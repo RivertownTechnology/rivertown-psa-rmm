@@ -201,7 +201,7 @@ export async function fetchNCentralDevicesForTest(
 
 // ── Sync runner ──────────────────────────────────────────────────────
 
-export async function runNCentralSync(db: any, tenantId: string): Promise<{ synced: number; created: number; devices?: number; unmatchedCustomers?: string[]; debug?: string }> {
+export async function runNCentralSync(db: any, tenantId: string): Promise<{ synced: number; created: number; devices?: number; unmatchedCustomers?: string[]; ncCustomerNames?: string[]; debug?: string }> {
   const [config] = await db
     .select()
     .from(integrationConfigs)
