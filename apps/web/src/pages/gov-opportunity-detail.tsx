@@ -261,39 +261,40 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
 
   const fetchDocuments = useCallback(async () => {
     try {
-      const res = await api<{ data: GovDocument[] }>(`/gov/opportunities/${opportunityId}/documents`);
-      setDocuments(res.data ?? []);
+      const res = await api<any>(`/gov/opportunities/${opportunityId}/documents`);
+      setDocuments(Array.isArray(res) ? res : (res.data ?? []));
     } catch { setDocuments([]); }
   }, [opportunityId]);
 
   const fetchProposals = useCallback(async () => {
     try {
-      const res = await api<{ data: Proposal[] }>(`/gov/opportunities/${opportunityId}/proposals`);
-      setProposals(res.data ?? []);
-      if (res.data?.length && !selectedProposalVersion) {
-        setSelectedProposalVersion(res.data[0].version);
+      const res = await api<any>(`/gov/opportunities/${opportunityId}/proposals`);
+      const list = Array.isArray(res) ? res : (res.data ?? []);
+      setProposals(list);
+      if (list.length && !selectedProposalVersion) {
+        setSelectedProposalVersion(list[0].version);
       }
     } catch { setProposals([]); }
   }, [opportunityId, selectedProposalVersion]);
 
   const fetchCompliance = useCallback(async () => {
     try {
-      const res = await api<{ data: ComplianceItem[] }>(`/gov/opportunities/${opportunityId}/compliance`);
-      setCompliance(res.data ?? []);
+      const res = await api<any>(`/gov/opportunities/${opportunityId}/compliance`);
+      setCompliance(Array.isArray(res) ? res : (res.data ?? []));
     } catch { setCompliance([]); }
   }, [opportunityId]);
 
   const fetchSubmissions = useCallback(async () => {
     try {
-      const res = await api<{ data: Submission[] }>(`/gov/opportunities/${opportunityId}/submissions`);
-      setSubmissions(res.data ?? []);
+      const res = await api<any>(`/gov/opportunities/${opportunityId}/submissions`);
+      setSubmissions(Array.isArray(res) ? res : (res.data ?? []));
     } catch { setSubmissions([]); }
   }, [opportunityId]);
 
   const fetchActivities = useCallback(async () => {
     try {
-      const res = await api<{ data: ActivityItem[] }>(`/gov/opportunities/${opportunityId}/activities`);
-      setActivities(res.data ?? []);
+      const res = await api<any>(`/gov/opportunities/${opportunityId}/activities`);
+      setActivities(Array.isArray(res) ? res : (res.data ?? []));
     } catch { setActivities([]); }
   }, [opportunityId]);
 
@@ -406,8 +407,10 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
     setGeneratingProposal(true);
     try {
       await api(`/gov/opportunities/${opportunityId}/proposals`, { method: 'POST', body: JSON.stringify({ aiGenerate: true }) });
-      fetchProposals();
-    } catch { /* ignore */ }
+      await fetchProposals();
+    } catch (err: any) {
+      alert(`Proposal generation failed: ${err.message || 'Unknown error. The AI may have timed out — try again.'}`);
+    }
     finally { setGeneratingProposal(false); }
   }
 
