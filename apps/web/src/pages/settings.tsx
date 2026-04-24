@@ -2190,7 +2190,14 @@ function AISettingsTab() {
   const models = config.provider === 'anthropic' ? anthropicModels : openaiModels;
 
   useEffect(() => {
-    api<typeof config>('/settings/ai').then(data => setConfig({ ...data, name: data.name || 'Atlas' })).catch(() => {});
+    api<typeof config>('/settings/ai').then(data => setConfig({
+      isEnabled: data.isEnabled ?? false,
+      provider: (data.provider as 'anthropic' | 'openai') || 'anthropic',
+      apiKey: data.apiKey || '',
+      model: data.model || 'claude-sonnet-4-20250514',
+      personality: data.personality || '',
+      name: data.name || 'Atlas',
+    })).catch(() => {});
   }, []);
 
   function changeProvider(provider: 'anthropic' | 'openai') {
@@ -2204,7 +2211,14 @@ function AISettingsTab() {
       await api('/settings/ai', { method: 'PUT', body: JSON.stringify(config) });
       setMessage('AI settings saved');
       const updated = await api<typeof config>('/settings/ai');
-      setConfig(updated);
+      setConfig({
+        isEnabled: updated.isEnabled ?? false,
+        provider: (updated.provider as 'anthropic' | 'openai') || 'anthropic',
+        apiKey: updated.apiKey || '',
+        model: updated.model || 'claude-sonnet-4-20250514',
+        personality: updated.personality || '',
+        name: updated.name || 'Atlas',
+      });
     } catch (err: unknown) { setMessage(err instanceof Error ? err.message : 'Save failed'); }
     finally { setSaving(false); }
   }

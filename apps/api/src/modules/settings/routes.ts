@@ -249,7 +249,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         .limit(1);
 
       if (!config) {
-        return { isEnabled: false, apiKey: '', model: 'claude-sonnet-4-20250514' };
+        return { isEnabled: false, apiKey: '', model: 'claude-sonnet-4-20250514', provider: 'anthropic', personality: '', name: 'Atlas' };
       }
 
       const creds = readCredentials(config.credentials);
@@ -258,6 +258,9 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         isEnabled: config.isEnabled,
         apiKey: creds.apiKey ? '••••••••' + String(creds.apiKey).slice(-4) : '',
         model: settings.model || 'claude-sonnet-4-20250514',
+        provider: settings.provider || 'anthropic',
+        personality: settings.personality || '',
+        name: settings.name || 'Atlas',
       };
     },
   );
