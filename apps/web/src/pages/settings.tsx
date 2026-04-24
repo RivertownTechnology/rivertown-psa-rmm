@@ -3412,16 +3412,12 @@ function NCentralCard() {
               const res = await api<any>('/settings/ncentral/sync', { method: 'POST' });
               if (res.success) {
                 let msg = `Sync complete: ${res.devices ?? 0} devices found, ${res.synced ?? 0} synced, ${res.created ?? 0} created`;
-                if (res.debug) msg += `\n⚠ ${res.debug}`;
                 if (res.ncCustomerNames?.length) {
                   msg += `\nN-central customers: ${res.ncCustomerNames.join(', ')}`;
                 }
                 if (res.unmatchedCustomers?.length) {
                   msg += `\n❌ Unmatched: ${res.unmatchedCustomers.join(', ')}`;
                   msg += `\nGo to each customer → Edit → set "N-central Name" to the exact name above.`;
-                }
-                if (res.debugDevices?.length) {
-                  msg += `\n\nDevice matching:\n${res.debugDevices.join('\n')}`;
                 }
                 setTestResult(msg);
               } else {

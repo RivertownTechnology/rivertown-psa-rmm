@@ -44,11 +44,7 @@ async function getNCentralAccessToken(serverUrl: string, jwtToken: string): Prom
   });
   if (!res.ok) throw new Error(`N-central auth failed (${res.status})`);
   const data = await res.json() as any;
-  const token = data.tokens?.access?.token ?? '';
-  if (!token) {
-    console.log('[ncentral-sync] Auth response keys:', Object.keys(data), 'tokens keys:', data.tokens ? Object.keys(data.tokens) : 'none');
-  }
-  return token;
+  return data.tokens?.access?.token ?? '';
 }
 
 async function fetchNCentralDevices(serverUrl: string, accessToken: string): Promise<NCentralDevice[]> {
@@ -61,9 +57,6 @@ async function fetchNCentralDevices(serverUrl: string, accessToken: string): Pro
     });
     if (!res.ok) throw new Error(`N-central devices API error (${res.status})`);
     const data = await res.json() as any;
-    if (page === 1) {
-      console.log('[ncentral-sync] Devices response keys:', Object.keys(data), 'data is array?', Array.isArray(data.data), 'totalItems:', data.totalItems);
-    }
     if (!data.data || !Array.isArray(data.data)) break;
     allDevices.push(...data.data);
     if (allDevices.length >= (data.totalItems || 0)) break;
@@ -201,21 +194,21 @@ export async function fetchNCentralDevicesForTest(
 
 // ── Sync runner ──────────────────────────────────────────────────────
 
-export async function runNCentralSync(db: any, tenantId: string): Promise<{ synced: number; created: number; devices?: number; unmatchedCustomers?: string[]; ncCustomerNames?: string[]; debugDevices?: string[]; debug?: string }> {
+export async function runNCentralSync(db: any, tenantId: string): Promise<{ synced: number; created: number; devices?: number; unmatchedCustomers?: string[]; ncCustomerNames?: string[] }> {
   const [config] = await db
     .select()
     .from(integrationConfigs)
     .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'ncentral')))
     .limit(1);
 
-  if (!config?.isEnabled) return { synced: 0, created: 0, debug: 'Config not found or not enabled' };
+  if (!config?.isEnabled) return { synced: 0, created: 0 };
 
   const creds = readCredentials(config.credentials) as Record<string, string>;
   const settings = (config.settings ?? {}) as Record<string, string>;
 
   const serverUrl = settings.serverUrl;
   const jwtToken = creds.jwtToken;
-  if (!serverUrl || !jwtToken) return { synced: 0, created: 0, debug: `Missing: serverUrl=${!!serverUrl} jwtToken=${!!jwtToken}` };
+  if (!serverUrl || !jwtToken) return { synced: 0, created: 0 };
 
   // Mark syncing
   await db.update(integrationConfigs).set({
@@ -242,7 +235,6 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
     let totalSynced = 0;
     let totalCreated = 0;
     const unmatchedSet = new Set<string>();
-    const debugDevices: string[] = [];
 
     console.log(`[ncentral-sync] Found ${devices.length} devices, ${ncCustomers.length} N-central customers, ${allCustomers.length} PSA customers`);
 
@@ -324,8 +316,6 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
           c.name.toLowerCase() === ncCustomerName.toLowerCase()
         );
 
-        debugDevices.push(`${hostname} → ncCustId=${device.customerId} → "${ncCustomerName}" → ${matchedCustomer ? 'MATCHED ' + matchedCustomer.name : 'NO MATCH'}`);
-
         if (matchedCustomer) {
           // Create new asset
           await db.insert(assets).values({
@@ -352,7 +342,7 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
     }).where(eq(integrationConfigs.id, config.id));
 
     const ncCustomerNames = [...new Set(ncCustomers.map(c => c.customerName))];
-    return { synced: totalSynced, created: totalCreated, devices: devices.length, unmatchedCustomers: [...unmatchedSet], ncCustomerNames, debugDevices };
+    return { synced: totalSynced, created: totalCreated, devices: devices.length, unmatchedCustomers: [...unmatchedSet], ncCustomerNames };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Sync failed';
     await db.update(integrationConfigs).set({
