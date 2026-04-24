@@ -486,9 +486,149 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
     finally { setImprovingSection(null); }
   }
 
+  function exportProposalPDF() {
+    if (!currentProposal || !opp) return;
+    const sections = (currentProposal.sections ?? []).sort((a: ProposalSection, b: ProposalSection) => a.order - b.order);
+
+    // Convert markdown-like content to basic HTML
+    function mdToHtml(md: string): string {
+      return md
+        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/^- (.+)$/gm, '<li>$1</li>')
+        .replace(/(<li>.*<\/li>\n?)+/g, (m) => `<ul>${m}</ul>`)
+        .replace(/\|(.+)\|/g, (row) => {
+          const cells = row.split('|').filter(c => c.trim());
+          if (cells.every(c => /^[\s-:]+$/.test(c))) return '';
+          const tag = cells.some(c => /^\*\*/.test(c.trim())) ? 'th' : 'td';
+          return `<tr>${cells.map(c => `<${tag}>${c.trim().replace(/\*\*/g, '')}</${tag}>`).join('')}</tr>`;
+        })
+        .replace(/(<tr>.*<\/tr>\n?)+/g, (m) => `<table>${m}</table>`)
+        .replace(/\n{2,}/g, '</p><p>')
+        .replace(/\n/g, '<br>')
+        ;
+    }
+
+    const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const deadline = opp.submissionDeadline ? new Date(opp.submissionDeadline).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '';
+
+    const sectionsHtml = sections.map((s: ProposalSection) => `
+      <div class="section">
+        <h1 class="section-title">${s.title}</h1>
+        <div class="section-content"><p>${mdToHtml(s.content || '')}</p></div>
+      </div>
+    `).join('');
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${currentProposal.title || 'Proposal'}</title>
+<style>
+  @page { size: letter; margin: 1in 1in 1.2in 1in; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #1a1a1a; }
+
+  /* Cover page */
+  .cover { page-break-after: always; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 85vh; text-align: center; padding: 2in 1in; }
+  .cover-logo { width: 180px; margin-bottom: 40px; }
+  .cover-title { font-size: 28pt; font-weight: 700; color: #1e3a5f; margin-bottom: 12px; line-height: 1.2; }
+  .cover-subtitle { font-size: 16pt; color: #4a6f8a; margin-bottom: 40px; }
+  .cover-meta { font-size: 11pt; color: #555; line-height: 2; }
+  .cover-meta strong { color: #1a1a1a; }
+  .cover-divider { width: 80px; height: 3px; background: #1e3a5f; margin: 30px auto; }
+
+  /* Table of Contents */
+  .toc { page-break-after: always; padding-top: 40px; }
+  .toc h1 { font-size: 20pt; color: #1e3a5f; margin-bottom: 24px; border-bottom: 2px solid #1e3a5f; padding-bottom: 8px; }
+  .toc-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dotted #ccc; font-size: 12pt; }
+  .toc-item span:first-child { color: #1a1a1a; }
+  .toc-item span:last-child { color: #888; }
+
+  /* Sections */
+  .section { page-break-before: always; }
+  .section-title { font-size: 20pt; color: #1e3a5f; border-bottom: 2px solid #1e3a5f; padding-bottom: 8px; margin-bottom: 20px; }
+  .section-content h2 { font-size: 14pt; color: #1e3a5f; margin: 20px 0 8px; }
+  .section-content h3 { font-size: 12pt; color: #2a5a7f; margin: 16px 0 6px; }
+  .section-content p { margin-bottom: 10px; }
+  .section-content ul { margin: 8px 0 12px 24px; }
+  .section-content li { margin-bottom: 4px; }
+  .section-content table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 10pt; }
+  .section-content th, .section-content td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
+  .section-content th { background: #f0f4f8; font-weight: 600; color: #1e3a5f; }
+  .section-content strong { color: #1e3a5f; }
+
+  /* Footer */
+  @media print {
+    .footer { position: fixed; bottom: 0; left: 0; right: 0; height: 40px; font-size: 8pt; color: #888; border-top: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; padding: 0 1in; }
+  }
+  .footer { font-size: 8pt; color: #888; border-top: 1px solid #ddd; padding: 8px 0; display: flex; justify-content: space-between; margin-top: 40px; }
+
+  .no-print { margin: 20px; text-align: center; }
+  .no-print button { padding: 10px 24px; background: #1e3a5f; color: white; border: none; border-radius: 6px; font-size: 12pt; cursor: pointer; margin: 0 8px; }
+  .no-print button:hover { background: #2a5a7f; }
+  @media print { .no-print { display: none; } }
+</style>
+</head>
+<body>
+
+<div class="no-print">
+  <button onclick="window.print()">Print / Save as PDF</button>
+  <button onclick="window.close()">Close</button>
+</div>
+
+<!-- Cover Page -->
+<div class="cover">
+  <img src="/logo.png" class="cover-logo" alt="Rivertown Technology" onerror="this.style.display='none'" />
+  <div class="cover-title">${currentProposal.title || `Proposal for ${opp.title}`}</div>
+  <div class="cover-subtitle">Information Technology Services Proposal</div>
+  <div class="cover-divider"></div>
+  <div class="cover-meta">
+    <strong>Prepared for:</strong> ${opp.agency}<br>
+    <strong>Prepared by:</strong> Rivertown Technology Group<br>
+    <strong>Date:</strong> ${today}<br>
+    ${deadline ? `<strong>Submission Deadline:</strong> ${deadline}<br>` : ''}
+    ${opp.samNumber ? `<strong>SAM Number:</strong> ${opp.samNumber}<br>` : ''}
+    <strong>Status:</strong> ${currentProposal.status.replace(/_/g, ' ').toUpperCase()}
+  </div>
+</div>
+
+<!-- Table of Contents -->
+<div class="toc">
+  <h1>Table of Contents</h1>
+  ${sections.map((s: ProposalSection, i: number) => `
+    <div class="toc-item">
+      <span>${s.title}</span>
+      <span>${i + 1}</span>
+    </div>
+  `).join('')}
+</div>
+
+<!-- Sections -->
+${sectionsHtml}
+
+<div class="footer">
+  <span>Rivertown Technology Group — Confidential</span>
+  <span>${opp.title}</span>
+</div>
+
+</body>
+</html>`;
+
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+    }
+  }
+
   async function handleUpdateProposalStatus(proposalId: string, status: string) {
     try {
-      await api(`/gov/opportunities/${opportunityId}/proposals/${proposalId}`, {
+      await api(`/gov/proposals/${proposalId}`, {
         method: 'PATCH',
         body: JSON.stringify({ status }),
       });
@@ -1456,6 +1596,9 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                   </div>
                   {currentProposal && (
                     <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => exportProposalPDF()}>
+                        <FileText className="h-4 w-4 mr-1" /> Export Document
+                      </Button>
                       {currentProposal.status === 'draft' && (
                         <Button variant="outline" size="sm" onClick={() => handleUpdateProposalStatus(currentProposal.id, 'in_review')}>Move to Review</Button>
                       )}
