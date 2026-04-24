@@ -560,34 +560,49 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
       const decoded = Buffer.from(authHeader.slice(6), 'base64').toString();
       const [username, password] = decoded.split(':');
 
-      // Check credentials against integration config
-      const { readCredentials } = await import('../../common/credentials.js');
-      const allConfigs = await fastify.db.select().from(integrationConfigs)
-        .where(and(eq(integrationConfigs.provider, 'ncentral'), eq(integrationConfigs.isEnabled, true)));
-
       let tenantId: string | null = null;
-      for (const config of allConfigs) {
-        const creds = readCredentials(config.credentials);
-        // N-central provides the username/password configured in PSA settings
-        // We match against stored ncentral config credentials
-        const storedUser = (config.settings as any)?.psaUsername || 'ncentral';
-        const storedPass = (creds as any).psaPassword || (creds as any).jwtToken || '';
-        if (username === storedUser && password === storedPass) {
-          tenantId = config.tenantId;
+
+      // Method 1: Check against generated API keys (password = rt_... key)
+      const { compare } = await import('bcryptjs');
+      const allApiKeys = await fastify.db.select().from(apiKeys)
+        .where(eq(apiKeys.isActive, true));
+      for (const key of allApiKeys) {
+        if (key.expiresAt && new Date(key.expiresAt) < new Date()) continue;
+        const match = await compare(password, key.keyHash);
+        if (match) {
+          tenantId = key.tenantId;
+          fastify.db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id)).catch(() => {});
           break;
         }
       }
 
+      // Method 2: Check env var fallback
       if (!tenantId) {
-        // Fallback to env vars
         const expectedKey = process.env.PUBLIC_API_KEY;
         const defaultTenant = process.env.DEFAULT_TENANT_ID;
         if (expectedKey && password === expectedKey && defaultTenant) {
           tenantId = defaultTenant;
-        } else {
-          reply.code(401);
-          return { error: 'Invalid credentials' };
         }
+      }
+
+      // Method 3: Check N-central integration config credentials
+      if (!tenantId) {
+        const { readCredentials } = await import('../../common/credentials.js');
+        const ncConfigs = await fastify.db.select().from(integrationConfigs)
+          .where(and(eq(integrationConfigs.provider, 'ncentral'), eq(integrationConfigs.isEnabled, true)));
+        for (const config of ncConfigs) {
+          const creds = readCredentials(config.credentials);
+          const storedPass = (creds as any).psaApiPassword || (creds as any).psaPassword || (creds as any).jwtToken || '';
+          if (storedPass && password === storedPass) {
+            tenantId = config.tenantId;
+            break;
+          }
+        }
+      }
+
+      if (!tenantId) {
+        reply.code(401);
+        return { error: 'Invalid credentials. Use an API key from Settings > API Keys as the password.' };
       }
 
       // Parse N-central ticket format
