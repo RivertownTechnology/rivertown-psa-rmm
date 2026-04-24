@@ -58,6 +58,8 @@ export const createCustomerSchema = z.object({
   website: z.string().max(200).optional(),
   notes: z.string().optional(),
   slaPolicyId: z.string().uuid().nullable().optional(),
+  ncentralName: z.string().max(200).nullable().optional(),
+  screenconnectCompany: z.string().max(200).nullable().optional(),
 });
 
 export const updateCustomerSchema = createCustomerSchema.partial();
