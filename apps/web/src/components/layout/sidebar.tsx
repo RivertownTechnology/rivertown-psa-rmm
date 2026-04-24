@@ -18,6 +18,7 @@ import {
   Target,
   Archive,
   FolderOpen,
+  Monitor,
 } from 'lucide-react';
 
 interface NavItem {
@@ -41,6 +42,7 @@ const navGroups: NavGroup[] = [
       { label: 'Dispatch', icon: Calendar, href: '/dispatch' },
       { label: 'Reports', icon: BarChart3, href: '/reports' },
       { label: 'Customers', icon: Building2, href: '/customers' },
+      { label: 'Assets', icon: Monitor, href: '/assets' },
       { label: 'Business Docs', icon: FolderOpen, href: '/business-documents' },
       { label: 'Knowledge Base', icon: BookOpen, href: '/knowledge-base' },
     ],

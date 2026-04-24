@@ -7,6 +7,7 @@ import { LoginPage } from '@/pages/login';
 import { DashboardPage } from '@/pages/dashboard';
 import { CustomersPage } from '@/pages/customers';
 import { CustomerDetailPage } from '@/pages/customer-detail';
+import { AssetsPage } from '@/pages/assets';
 import { TicketsPage } from '@/pages/tickets';
 import { TicketDetailPage } from '@/pages/ticket-detail';
 import { ContractsPage } from '@/pages/contracts';
@@ -119,6 +120,9 @@ function AppRouter() {
   if (customerMatch) {
     title = 'Customer'; currentNav = '/customers';
     content = <CustomerDetailPage customerId={customerMatch[1]} onBack={() => navigate('/customers')} />;
+  } else if (pathname === '/assets') {
+    title = 'Assets';
+    content = <AssetsPage onNavigateToCustomer={navigateToCustomer} />;
   } else if (pathname === '/customers') {
     title = 'Customers';
     content = <CustomersPage onSelectCustomer={navigateToCustomer} />;
