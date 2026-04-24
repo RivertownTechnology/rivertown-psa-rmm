@@ -766,6 +766,66 @@ export async function govContractRoutes(fastify: FastifyInstance) {
     return updated;
   });
 
+  // ── Proposals: Generate/revoke share link ───────────────────────
+
+  fastify.post('/api/v1/gov/proposals/:id/share', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const { randomBytes } = await import('crypto');
+
+    const [existing] = await fastify.db.select().from(govProposals)
+      .where(and(eq(govProposals.id, id), eq(govProposals.tenantId, request.tenantId)))
+      .limit(1);
+    if (!existing) throw new NotFoundError('Proposal', id);
+
+    const shareToken = randomBytes(24).toString('hex');
+    await fastify.db.update(govProposals)
+      .set({ shareToken, updatedAt: new Date() })
+      .where(eq(govProposals.id, id));
+
+    return { shareToken };
+  });
+
+  fastify.delete('/api/v1/gov/proposals/:id/share', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.update(govProposals)
+      .set({ shareToken: null, updatedAt: new Date() })
+      .where(and(eq(govProposals.id, id), eq(govProposals.tenantId, request.tenantId)));
+    return { success: true };
+  });
+
+  // ── Public proposal view (no auth) ────────────────────────────
+
+  fastify.get('/api/public/proposals/:token', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    if (!token || token.length < 10) return reply.code(404).send({ error: 'Not found' });
+
+    const [proposal] = await fastify.db.select().from(govProposals)
+      .where(eq(govProposals.shareToken, token))
+      .limit(1);
+    if (!proposal) return reply.code(404).send({ error: 'Not found' });
+
+    const [opp] = await fastify.db.select().from(govOpportunities)
+      .where(eq(govOpportunities.id, proposal.opportunityId))
+      .limit(1);
+
+    const sections = ((proposal.sections || []) as Array<{ title: string; content: string; order: number }>)
+      .sort((a, b) => a.order - b.order);
+
+    return {
+      title: proposal.title,
+      status: proposal.status,
+      agency: opp?.agency || '',
+      opportunityTitle: opp?.title || '',
+      samNumber: (opp as any)?.samNumber || '',
+      submissionDeadline: opp?.submissionDeadline,
+      sections,
+    };
+  });
+
   // ── Proposals: AI Improve Section ────────────────────────────────
 
   fastify.post('/api/v1/gov/proposals/:id/ai-improve', {

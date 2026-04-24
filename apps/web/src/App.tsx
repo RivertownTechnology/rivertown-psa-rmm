@@ -33,6 +33,7 @@ import { GovOpportunityDetailPage } from '@/pages/gov-opportunity-detail';
 import { GovLibraryPage } from '@/pages/gov-library';
 import { GovAnalyticsPage } from '@/pages/gov-analytics';
 import { BusinessDocumentsPage } from '@/pages/business-documents';
+import { PublicProposalPage } from '@/pages/public-proposal';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { CommandPalette } from '@/components/command-palette';
 import { AIChat } from '@/components/ai-chat';
@@ -97,6 +98,12 @@ function AppRouter() {
         </div>
       );
     }
+  }
+
+  // Public proposal view (no auth required)
+  const proposalShareMatch = pathname.match(/^\/proposal\/([a-f0-9]+)$/);
+  if (proposalShareMatch) {
+    return <PublicProposalPage token={proposalShareMatch[1]} />;
   }
 
   if (!user) return <LoginPage />;

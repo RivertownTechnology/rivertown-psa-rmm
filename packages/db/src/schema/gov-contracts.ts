@@ -88,6 +88,7 @@ export const govProposals = pgTable('gov_proposals', {
   sections: jsonb('sections'), // [{title, content, order, isComplete}]
   createdBy: uuid('created_by').references(() => users.id),
   reviewedBy: uuid('reviewed_by').references(() => users.id),
+  shareToken: text('share_token'),
   submittedAt: timestamp('submitted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

@@ -17,7 +17,7 @@ import {
 import {
   ArrowLeft, Clock, Upload, FileText, Sparkles, ChevronDown,
   CheckCircle2, Circle, AlertTriangle, Minus, Plus, Send, X, Loader2,
-  DollarSign, Pencil, Trash2,
+  DollarSign, Pencil, Trash2, XCircle,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -77,6 +77,7 @@ interface Proposal {
   title: string;
   version: number;
   status: string;
+  shareToken: string | null;
   sections: ProposalSection[];
 }
 
@@ -536,8 +537,8 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
     const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const deadline = opp.submissionDeadline ? new Date(opp.submissionDeadline).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '';
 
-    const sectionsHtml = sections.map((s: ProposalSection) => `
-      <div class="section">
+    const sectionsHtml = sections.map((s: ProposalSection, i: number) => `
+      <div class="section" id="section-${i + 1}">
         <h1 class="section-title">${s.title}</h1>
         <div class="section-content"><p>${mdToHtml(s.content || '')}</p></div>
       </div>
@@ -575,7 +576,8 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   /* Table of Contents */
   .toc { page-break-after: always; padding-top: 40px; }
   .toc h1 { font-size: 20pt; color: #1e3a5f; margin-bottom: 24px; border-bottom: 2px solid #1e3a5f; padding-bottom: 8px; }
-  .toc-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dotted #ccc; font-size: 12pt; }
+  .toc-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dotted #ccc; font-size: 12pt; text-decoration: none; color: inherit; transition: color 0.15s; }
+  .toc-item:hover { color: #1e3a5f; }
   .toc-item span:first-child { color: #1a1a1a; }
   .toc-item span:last-child { color: #888; }
 
@@ -638,10 +640,10 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
 <div class="toc">
   <h1>Table of Contents</h1>
   ${sections.map((s: ProposalSection, i: number) => `
-    <div class="toc-item">
+    <a href="#section-${i + 1}" class="toc-item">
       <span>${s.title}</span>
       <span>${i + 1}</span>
-    </div>
+    </a>
   `).join('')}
 </div>
 
@@ -1637,6 +1639,23 @@ ${sectionsHtml}
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => exportProposalPDF()}>
                         <FileText className="h-4 w-4 mr-1" /> Export Document
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={async () => {
+                        if (currentProposal.shareToken) {
+                          // Copy existing link
+                          const url = `${window.location.origin}/proposal/${currentProposal.shareToken}`;
+                          await navigator.clipboard.writeText(url);
+                          alert('Link copied to clipboard');
+                        } else {
+                          // Generate new share link
+                          const res = await api<{ shareToken: string }>(`/gov/proposals/${currentProposal.id}/share`, { method: 'POST' });
+                          const url = `${window.location.origin}/proposal/${res.shareToken}`;
+                          await navigator.clipboard.writeText(url);
+                          fetchProposals();
+                          alert('Share link created and copied to clipboard');
+                        }
+                      }}>
+                        <Send className="h-4 w-4 mr-1" /> {currentProposal.shareToken ? 'Copy Link' : 'Share Link'}
                       </Button>
                       {currentProposal.status === 'draft' && (
                         <Button variant="outline" size="sm" onClick={() => handleUpdateProposalStatus(currentProposal.id, 'in_review')}>Move to Review</Button>
