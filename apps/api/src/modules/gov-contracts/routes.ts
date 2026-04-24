@@ -15,6 +15,7 @@ import { uploadFile, deleteFile, isR2Configured } from '../../services/r2-storag
 import { randomUUID } from 'crypto';
 import {
   analyzeRFP,
+  extractOpportunityFromRFP,
   calculateWinProbability,
   generateProposalDraft,
   improveProposalSection,
@@ -142,6 +143,83 @@ export async function govContractRoutes(fastify: FastifyInstance) {
 
     reply.code(201);
     return opp;
+  });
+
+  // ── Opportunities: Create from RFP (AI auto-populate) ────────────
+
+  fastify.post('/api/v1/gov/opportunities/from-rfp', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } } as any,
+  }, async (request, reply) => {
+    const { text } = request.body as { text: string };
+    if (!text || text.length < 50) throw new NotFoundError('RFP text', 'too short — paste the full RFP content');
+
+    // Step 1: Extract opportunity metadata with AI
+    const extracted = await extractOpportunityFromRFP(fastify.db, request.tenantId, text);
+
+    // Step 2: Create the opportunity
+    const [opp] = await fastify.db.insert(govOpportunities).values({
+      tenantId: request.tenantId,
+      title: extracted.title,
+      agency: extracted.agency,
+      agencyType: extracted.agencyType || 'federal',
+      source: 'manual',
+      naicsCodes: extracted.naicsCodes?.length ? extracted.naicsCodes : null,
+      setAsideType: extracted.setAsideType || 'none',
+      estimatedValue: extracted.estimatedValue,
+      contractType: extracted.contractType,
+      submissionDeadline: extracted.submissionDeadline ? new Date(extracted.submissionDeadline) : null,
+      questionDeadline: extracted.questionDeadline ? new Date(extracted.questionDeadline) : null,
+      contactName: extracted.contactName,
+      contactEmail: extracted.contactEmail,
+      contactPhone: extracted.contactPhone,
+      requiredCertifications: extracted.requiredCertifications?.length ? extracted.requiredCertifications : null,
+      status: 'discovered',
+    }).returning();
+
+    // Step 3: Analyze the RFP for detailed breakdown
+    const analysis = await analyzeRFP(fastify.db, request.tenantId, text);
+
+    // Step 4: Store analysis on opportunity
+    await fastify.db.update(govOpportunities).set({
+      aiAnalysis: analysis as any,
+      notes: analysis.summary,
+      updatedAt: new Date(),
+    }).where(eq(govOpportunities.id, opp.id));
+
+    // Step 5: Auto-generate compliance checklist
+    if (analysis.complianceItems?.length) {
+      for (let i = 0; i < analysis.complianceItems.length; i++) {
+        await fastify.db.insert(govComplianceItems).values({
+          tenantId: request.tenantId,
+          opportunityId: opp.id,
+          requirement: analysis.complianceItems[i],
+          category: 'content',
+          status: 'pending',
+          sortOrder: i,
+        });
+      }
+    }
+
+    // Step 6: Calculate win probability
+    const winResult = await calculateWinProbability(fastify.db, request.tenantId, {
+      ...opp, aiAnalysis: analysis,
+    });
+    await fastify.db.update(govOpportunities).set({
+      winProbability: winResult.score,
+    }).where(eq(govOpportunities.id, opp.id));
+
+    // Log activity
+    await logActivity(fastify.db, request.tenantId, opp.id, request.user.sub, 'ai_analysis',
+      `Opportunity auto-created from RFP. AI extracted: ${extracted.title} (${extracted.agency}). Win probability: ${winResult.score}%.`);
+
+    reply.code(201);
+    return {
+      opportunity: { ...opp, aiAnalysis: analysis, winProbability: winResult.score },
+      analysis,
+      winProbability: winResult,
+      complianceItems: analysis.complianceItems?.length ?? 0,
+    };
   });
 
   // ── Opportunities: Update ────────────────────────────────────────

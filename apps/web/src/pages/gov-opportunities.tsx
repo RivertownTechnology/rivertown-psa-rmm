@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/select';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import {
-  Plus, LayoutGrid, List, Search, Calendar, DollarSign,
+  Plus, LayoutGrid, List, Search, Calendar, DollarSign, Sparkles, Loader2,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -143,6 +143,12 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
   // Create dialog
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  // Paste RFP dialog
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [rfpText, setRfpText] = useState('');
+  const [pasting, setPasting] = useState(false);
+  const [pasteResult, setPasteResult] = useState<string | null>(null);
   const [form, setForm] = useState({
     title: '',
     agency: '',
@@ -401,6 +407,10 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
           >
             <List className="h-4 w-4" />
           </Button>
+          <Button size="sm" variant="outline" onClick={() => setPasteOpen(true)}>
+            <Sparkles className="h-4 w-4 mr-1" />
+            Paste RFP
+          </Button>
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4 mr-1" />
             New
@@ -640,6 +650,67 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
               {creating ? 'Creating...' : 'Create Opportunity'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Paste RFP Dialog */}
+      <Dialog open={pasteOpen} onOpenChange={(open) => { setPasteOpen(open); if (!open) { setRfpText(''); setPasteResult(null); } }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              Create Opportunity from RFP
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Paste the full RFP/solicitation text below. River will automatically extract the opportunity details, analyze requirements, generate a compliance checklist, and calculate your win probability.
+            </p>
+            <textarea
+              rows={12}
+              value={rfpText}
+              onChange={e => setRfpText(e.target.value)}
+              placeholder="Paste the full RFP, solicitation, or bid document text here..."
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y font-mono"
+              disabled={pasting}
+            />
+            {pasteResult && (
+              <div className="bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 text-sm p-3 rounded-md border border-green-200 dark:border-green-800">
+                {pasteResult}
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPasteOpen(false)} disabled={pasting}>Cancel</Button>
+              <Button disabled={pasting || rfpText.length < 50} onClick={async () => {
+                setPasting(true);
+                setPasteResult(null);
+                try {
+                  const res = await api<{ opportunity: { id: string; title: string }; complianceItems: number; winProbability: { score: number } }>('/gov/opportunities/from-rfp', {
+                    method: 'POST',
+                    body: JSON.stringify({ text: rfpText }),
+                  });
+                  setPasteResult(`Created: "${res.opportunity.title}" — ${res.complianceItems} compliance items generated, ${res.winProbability.score}% win probability`);
+                  fetchOpportunities();
+                  setTimeout(() => {
+                    setPasteOpen(false);
+                    setRfpText('');
+                    setPasteResult(null);
+                    if (onNavigate) onNavigate(`/gov/opportunities/${res.opportunity.id}`);
+                  }, 2000);
+                } catch (err: any) {
+                  setPasteResult(`Error: ${err.message || 'Failed to process RFP'}`);
+                } finally {
+                  setPasting(false);
+                }
+              }}>
+                {pasting ? (
+                  <><Loader2 className="h-4 w-4 mr-1 animate-spin" />Analyzing...</>
+                ) : (
+                  <><Sparkles className="h-4 w-4 mr-1" />Create from RFP</>
+                )}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
