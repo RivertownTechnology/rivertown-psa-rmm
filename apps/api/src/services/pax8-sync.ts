@@ -6,6 +6,7 @@ import {
   contractLineItems,
   serviceCatalogItems,
 } from '@rivertown/db';
+import { readCredentials } from '../common/credentials.js';
 
 // ── Pax8 API helpers (shared with routes) ─────────────────────────────
 
@@ -130,7 +131,7 @@ export async function runPax8SyncForTenant(db: any, tenantId: string): Promise<{
 
   if (!config?.isEnabled) return { synced: 0, prorations: 0 };
 
-  const creds = (config.credentials ?? {}) as Record<string, string>;
+  const creds = readCredentials(config.credentials) as Record<string, string>;
   if (!creds.clientId || !creds.clientSecret) return { synced: 0, prorations: 0 };
 
   // Mark syncing

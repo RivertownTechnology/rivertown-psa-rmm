@@ -2,6 +2,7 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, Head
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { eq, and } from 'drizzle-orm';
 import { integrationConfigs } from '@rivertown/db';
+import { readCredentials } from '../common/credentials.js';
 
 interface R2Config {
   accountId: string;
@@ -17,7 +18,7 @@ async function getR2Config(db: any, tenantId: string): Promise<R2Config> {
     .limit(1);
 
   if (config?.isEnabled) {
-    const creds = (config.credentials ?? {}) as Record<string, string>;
+    const creds = readCredentials(config.credentials) as Record<string, string>;
     const settings = (config.settings ?? {}) as Record<string, string>;
     if (creds.accessKeyId && creds.secretAccessKey && settings.accountId) {
       return {

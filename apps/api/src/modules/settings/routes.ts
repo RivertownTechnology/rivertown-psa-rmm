@@ -3,6 +3,7 @@ import { eq, and, sql, desc, count } from 'drizzle-orm';
 import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues, ticketQueues, ticketTags, ticketTagAssignments, ticketCategories, ticketSubcategories, recurringTicketRules, workflowRules, businessDocuments, apiKeys } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
+import { readCredentials } from '../../common/credentials.js';
 
 export async function settingsRoutes(fastify: FastifyInstance) {
   // ===== PROFILE =====
@@ -145,7 +146,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         };
       }
 
-      const creds = config.credentials as Record<string, unknown>;
+      const creds = readCredentials(config.credentials) as Record<string, unknown>;
       return {
         isEnabled: config.isEnabled,
         smtpHost: creds.smtpHost ?? '',
@@ -937,7 +938,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         };
       }
 
-      const creds = config.credentials as Record<string, unknown>;
+      const creds = readCredentials(config.credentials) as Record<string, unknown>;
       return {
         isEnabled: config.isEnabled,
         smtpHost: creds.smtpHost ?? 'in-v3.mailjet.com',

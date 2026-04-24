@@ -4,6 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import { integrationConfigs, contacts, customers, tickets, ticketComments, emailMessages, tenantSequences, tenants } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import { stripQuotedReply, sendTicketCreatedEmail } from './email-notifications.js';
+import { readCredentials } from '../common/credentials.js';
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -15,7 +16,7 @@ export async function processInboundEmails(db: Database, tenantId: string): Prom
 
   if (!config?.isEnabled) return { processed: 0, tickets: 0, comments: 0, blocked: 0 };
 
-  const creds = config.credentials as Record<string, unknown>;
+  const creds = readCredentials(config.credentials) as Record<string, unknown>;
 
   // Use Gmail API if Google email is connected, otherwise IMAP
   if (creds.provider === 'google-email') {
@@ -368,7 +369,7 @@ async function getBlockedEmails(db: Database, tenantId: string): Promise<string[
     .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'email')))
     .limit(1);
   if (!config) return [];
-  const creds = config.credentials as Record<string, unknown>;
+  const creds = readCredentials(config.credentials) as Record<string, unknown>;
   const blocked = creds.blockedEmails as string[] | undefined;
   return blocked ?? [];
 }

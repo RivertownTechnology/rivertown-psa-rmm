@@ -9,6 +9,7 @@ import {
   contracts,
 } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
+import { readCredentials } from '../../common/credentials.js';
 
 // ── Proration helper ──────────────────────────────────────────────────
 
@@ -218,7 +219,7 @@ async function pax8Fetch<T>(token: string, path: string): Promise<T> {
 async function getAuthenticatedPax8(db: any, tenantId: string) {
   const config = await getPax8Config(db, tenantId);
   if (!config?.isEnabled) throw new Error('Pax8 integration is not enabled. Configure it in Settings → Integrations.');
-  const creds = (config.credentials ?? {}) as Record<string, string>;
+  const creds = readCredentials(config.credentials) as Record<string, string>;
   if (!creds.clientId || !creds.clientSecret) throw new Error('Pax8 credentials are not configured.');
   const token = await getPax8Token({ clientId: creds.clientId, clientSecret: creds.clientSecret });
   return { token, config };
@@ -768,7 +769,7 @@ export async function pax8Routes(fastify: FastifyInstance) {
     }).where(eq(integrationConfigs.id, config.id));
 
     try {
-      const creds = (config.credentials ?? {}) as Record<string, string>;
+      const creds = readCredentials(config.credentials) as Record<string, string>;
       const token = await getPax8Token({ clientId: creds.clientId, clientSecret: creds.clientSecret });
 
       // Get all mapped customers

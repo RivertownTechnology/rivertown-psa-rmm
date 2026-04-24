@@ -1,5 +1,6 @@
 import { eq, and } from 'drizzle-orm';
 import { integrationConfigs, assets, customers } from '@rivertown/db';
+import { readCredentials } from '../common/credentials.js';
 import { TOTP } from 'otpauth';
 
 interface ScreenConnectSession {
@@ -161,7 +162,7 @@ export async function runScreenConnectSync(db: any, tenantId: string): Promise<{
 
   if (!config?.isEnabled) return { synced: 0, created: 0 };
 
-  const creds = (config.credentials ?? {}) as Record<string, string>;
+  const creds = readCredentials(config.credentials) as Record<string, string>;
   const settings = (config.settings ?? {}) as Record<string, string>;
 
   const serverUrl = settings.serverUrl;

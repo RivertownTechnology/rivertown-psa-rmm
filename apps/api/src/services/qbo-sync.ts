@@ -1,6 +1,7 @@
 import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { integrationConfigs, customers, invoices, invoiceLineItems, payments, serviceCatalogItems } from '@rivertown/db';
 import { getQBOAuth, qboFetch } from '../modules/integrations/quickbooks.js';
+import { readCredentials } from '../common/credentials.js';
 
 const SYNC_INTERVALS_MS: Record<string, number> = {
   '15min': 15 * 60 * 1000,
@@ -500,7 +501,7 @@ export function startQBOSyncScheduler(db: any) {
         if (Date.now() - lastSync < intervalMs) continue;
         if (config.syncStatus === 'syncing') continue;
 
-        const creds = (config.credentials ?? {}) as Record<string, string>;
+        const creds = readCredentials(config.credentials) as Record<string, string>;
         if (!creds.accessToken || !creds.realmId) continue;
 
         // Derive env from process.env for scheduler context

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { eq, and } from 'drizzle-orm';
 import { integrationConfigs } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
+import { readCredentials } from '../../common/credentials.js';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -206,7 +207,7 @@ export async function googleEmailRoutes(fastify: FastifyInstance) {
       .limit(1);
 
     if (config) {
-      const creds = (config.credentials ?? {}) as Record<string, unknown>;
+      const creds = readCredentials(config.credentials) as Record<string, unknown>;
       let mailboxes = getMailboxes(creds);
 
       if (targetEmail) {
