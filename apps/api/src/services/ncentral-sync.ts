@@ -201,7 +201,7 @@ export async function fetchNCentralDevicesForTest(
 
 // ── Sync runner ──────────────────────────────────────────────────────
 
-export async function runNCentralSync(db: any, tenantId: string): Promise<{ synced: number; created: number; devices?: number; unmatchedCustomers?: string[]; ncCustomerNames?: string[]; debug?: string }> {
+export async function runNCentralSync(db: any, tenantId: string): Promise<{ synced: number; created: number; devices?: number; unmatchedCustomers?: string[]; ncCustomerNames?: string[]; debugDevices?: string[]; debug?: string }> {
   const [config] = await db
     .select()
     .from(integrationConfigs)
@@ -228,9 +228,9 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
 
     // Fetch N-central customer list to map customerId → name
     const ncCustomers = await fetchNCentralCustomers(serverUrl, accessToken);
-    const ncCustomerMap = new Map<number, string>();
+    const ncCustomerMap = new Map<string, string>();
     for (const c of ncCustomers) {
-      ncCustomerMap.set(c.customerId, c.customerName);
+      ncCustomerMap.set(String(c.customerId), c.customerName);
     }
 
     // Pre-fetch all customers for this tenant for name matching
@@ -242,6 +242,7 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
     let totalSynced = 0;
     let totalCreated = 0;
     const unmatchedSet = new Set<string>();
+    const debugDevices: string[] = [];
 
     console.log(`[ncentral-sync] Found ${devices.length} devices, ${ncCustomers.length} N-central customers, ${allCustomers.length} PSA customers`);
 
@@ -261,7 +262,7 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
 
       // 2. If no match, try by hostname within same customer
       if (!existingAsset && hostname) {
-        const ncCustomerName = ncCustomerMap.get(device.customerId) || '';
+        const ncCustomerName = ncCustomerMap.get(String(device.customerId)) || '';
         const matchedCustomer = allCustomers.find((c: any) =>
           (c.ncentralName && c.ncentralName.toLowerCase() === ncCustomerName.toLowerCase()) ||
           c.name.toLowerCase() === ncCustomerName.toLowerCase()
@@ -317,11 +318,13 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
         totalSynced++;
       } else {
         // Find customer by N-central customer name
-        const ncCustomerName = ncCustomerMap.get(device.customerId) || '';
+        const ncCustomerName = ncCustomerMap.get(String(device.customerId)) || '';
         const matchedCustomer = allCustomers.find((c: any) =>
           (c.ncentralName && c.ncentralName.toLowerCase() === ncCustomerName.toLowerCase()) ||
           c.name.toLowerCase() === ncCustomerName.toLowerCase()
         );
+
+        debugDevices.push(`${hostname} → ncCustId=${device.customerId} → "${ncCustomerName}" → ${matchedCustomer ? 'MATCHED ' + matchedCustomer.name : 'NO MATCH'}`);
 
         if (matchedCustomer) {
           // Create new asset
@@ -338,7 +341,7 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
         else {
           // No matching customer — log and skip
           if (ncCustomerName) unmatchedSet.add(ncCustomerName);
-          console.log(`[ncentral-sync] Skipped device "${hostname}" — no matching customer for N-central customer "${ncCustomerName}"`);
+          console.log(`[ncentral-sync] Skipped device "${hostname}" — no matching customer for N-central customer "${ncCustomerName}" (customerId=${device.customerId})`);
         }
       }
     }
@@ -349,7 +352,7 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
     }).where(eq(integrationConfigs.id, config.id));
 
     const ncCustomerNames = [...new Set(ncCustomers.map(c => c.customerName))];
-    return { synced: totalSynced, created: totalCreated, devices: devices.length, unmatchedCustomers: [...unmatchedSet], ncCustomerNames };
+    return { synced: totalSynced, created: totalCreated, devices: devices.length, unmatchedCustomers: [...unmatchedSet], ncCustomerNames, debugDevices };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Sync failed';
     await db.update(integrationConfigs).set({

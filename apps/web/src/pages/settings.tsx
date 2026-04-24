@@ -3420,6 +3420,9 @@ function NCentralCard() {
                   msg += `\n❌ Unmatched: ${res.unmatchedCustomers.join(', ')}`;
                   msg += `\nGo to each customer → Edit → set "N-central Name" to the exact name above.`;
                 }
+                if (res.debugDevices?.length) {
+                  msg += `\n\nDevice matching:\n${res.debugDevices.join('\n')}`;
+                }
                 setTestResult(msg);
               } else {
                 setTestResult(`Sync failed: ${res.error}`);
