@@ -25,6 +25,7 @@ export const customers = pgTable(
     stripeCustomerId: text('stripe_customer_id'),
     pax8CompanyId: text('pax8_company_id'),
     screenconnectCompany: text('screenconnect_company'),
+    ncentralName: text('ncentral_name'), // N-central customer name (for mapping when names differ)
     slaPolicyId: uuid('sla_policy_id'),
     rmmPolicyId: uuid('rmm_policy_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

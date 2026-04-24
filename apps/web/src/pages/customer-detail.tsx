@@ -268,6 +268,25 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
           placeholder="Select SLA..."
           className="w-44"
         />
+        <div className="flex items-center gap-1.5">
+          <Label className="text-xs text-muted-foreground whitespace-nowrap">N-central Name:</Label>
+          <Input
+            className="w-48 h-8 text-sm"
+            value={(customer as any).ncentralName ?? ''}
+            placeholder="Name in N-central"
+            onBlur={async (e) => {
+              const val = e.target.value.trim();
+              if (val !== ((customer as any).ncentralName ?? '')) {
+                await api(`/customers/${customerId}`, { method: 'PATCH', body: JSON.stringify({ ncentralName: val || null }) });
+                load();
+              }
+            }}
+            onChange={(e) => {
+              // Local state update for controlled input
+              setCustomer((c: any) => c ? { ...c, ncentralName: e.target.value } : c);
+            }}
+          />
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>

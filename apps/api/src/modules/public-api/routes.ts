@@ -630,12 +630,20 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
       };
       const priority = severityMap[body.severity] || severityMap[body.priority] || 'medium';
 
-      // Try to match customer
+      // Try to match customer — check ncentralName mapping first, then exact name
       let customerId: string | null = null;
       if (body.customerName) {
-        const [customer] = await fastify.db.select().from(customers)
-          .where(and(eq(customers.tenantId, tenantId), ilike(customers.name, body.customerName))).limit(1);
-        if (customer) customerId = customer.id;
+        // Check ncentralName field first (for names that differ between systems)
+        const [mappedCustomer] = await fastify.db.select().from(customers)
+          .where(and(eq(customers.tenantId, tenantId), ilike(customers.ncentralName, body.customerName))).limit(1);
+        if (mappedCustomer) {
+          customerId = mappedCustomer.id;
+        } else {
+          // Fall back to matching by PSA customer name
+          const [customer] = await fastify.db.select().from(customers)
+            .where(and(eq(customers.tenantId, tenantId), ilike(customers.name, body.customerName))).limit(1);
+          if (customer) customerId = customer.id;
+        }
       }
 
       // If no customer match, use first customer or create a default
