@@ -676,7 +676,16 @@ export async function govContractRoutes(fastify: FastifyInstance) {
       .limit(1);
     if (!opp) throw new NotFoundError('Opportunity', id);
 
-    let sections = body.sections || null;
+    const defaultSections = [
+      { title: 'Executive Summary', content: '', order: 1, isComplete: false },
+      { title: 'Technical Approach', content: '', order: 2, isComplete: false },
+      { title: 'Past Performance', content: '', order: 3, isComplete: false },
+      { title: 'Staffing Plan', content: '', order: 4, isComplete: false },
+      { title: 'Pricing Narrative', content: '', order: 5, isComplete: false },
+      { title: 'Compliance Matrix', content: '', order: 6, isComplete: false },
+    ];
+
+    let sections = body.sections || defaultSections;
 
     // Optionally AI-generate the proposal
     if (body.aiGenerate) {
@@ -803,6 +812,73 @@ export async function govContractRoutes(fastify: FastifyInstance) {
       .where(and(eq(govProposals.id, id), eq(govProposals.tenantId, request.tenantId)));
 
     return { sectionIndex, improvedContent };
+  });
+
+  // ── Proposals: Generate single section ────────────────────────────
+
+  fastify.post('/api/v1/gov/proposals/:id/sections/:sectionIndex/generate', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } } as any,
+  }, async (request) => {
+    const { id, sectionIndex: sectionIndexStr } = request.params as { id: string; sectionIndex: string };
+    const sectionIndex = parseInt(sectionIndexStr, 10);
+
+    const [proposal] = await fastify.db.select().from(govProposals)
+      .where(and(eq(govProposals.id, id), eq(govProposals.tenantId, request.tenantId)))
+      .limit(1);
+    if (!proposal) throw new NotFoundError('Proposal', id);
+
+    const sections = (proposal.sections || []) as Array<{ title: string; content: string; order: number; isComplete?: boolean }>;
+    if (sectionIndex < 0 || sectionIndex >= sections.length) {
+      throw new NotFoundError('Section');
+    }
+
+    const section = sections[sectionIndex];
+
+    // Get opportunity context
+    const [opp] = await fastify.db.select().from(govOpportunities)
+      .where(and(eq(govOpportunities.id, proposal.opportunityId), eq(govOpportunities.tenantId, request.tenantId)))
+      .limit(1);
+
+    const rfpContext = opp?.aiAnalysis ? JSON.stringify(opp.aiAnalysis) : '';
+
+    // Gather library content
+    const libraryItems = await fastify.db.select().from(govDocumentLibrary)
+      .where(eq(govDocumentLibrary.tenantId, request.tenantId))
+      .limit(20);
+    const libraryContent = libraryItems.map(item => `[${item.category}] ${item.title}:\n${item.content}`).join('\n\n---\n\n');
+
+    // Get other sections for context (so AI knows what's been written)
+    const otherSections = sections
+      .filter((_, i) => i !== sectionIndex && _.content?.trim())
+      .map(s => `## ${s.title}\n${s.content}`)
+      .join('\n\n');
+
+    const { callAI, getAIConfig } = await import('../../services/ai.js');
+    const ai = await getAIConfig(fastify.db, request.tenantId);
+    if (!ai) throw new Error('AI is not configured');
+
+    const oppContext = opp ? `Title: ${opp.title}\nAgency: ${opp.agency} (${opp.agencyType})\nContract Type: ${opp.contractType || 'N/A'}\nSet-Aside: ${opp.setAsideType || 'none'}\nNotes: ${opp.notes || 'None'}` : '';
+
+    const systemPrompt = `You are a government proposal writer for Rivertown Technology Group, an MSP. Generate the "${section.title}" section for a government IT services proposal.
+
+Opportunity details:
+${oppContext}
+
+${rfpContext ? `RFP Analysis:\n${rfpContext}\n` : ''}
+${libraryContent ? `Company library content:\n${libraryContent}\n` : ''}
+${otherSections ? `Other proposal sections already written:\n${otherSections}\n` : ''}
+
+Write a comprehensive, professional "${section.title}" section. Use markdown formatting. Be specific and detailed. Do not include other sections — only generate content for "${section.title}".`;
+
+    const content = await callAI(ai, systemPrompt, `Generate the "${section.title}" section for this government proposal.`, 3000);
+
+    sections[sectionIndex] = { ...section, content };
+    await fastify.db.update(govProposals)
+      .set({ sections, updatedAt: new Date() })
+      .where(and(eq(govProposals.id, id), eq(govProposals.tenantId, request.tenantId)));
+
+    return { sectionIndex, content };
   });
 
   // ── Compliance: List ─────────────────────────────────────────────

@@ -439,10 +439,10 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
     finally { setAnalyzingDocs(false); }
   }
 
-  async function handleGenerateProposal() {
+  async function handleGenerateProposal(aiGenerate = false) {
     setGeneratingProposal(true);
     try {
-      await api(`/gov/opportunities/${opportunityId}/proposals`, { method: 'POST', body: JSON.stringify({ aiGenerate: true }) });
+      await api(`/gov/opportunities/${opportunityId}/proposals`, { method: 'POST', body: JSON.stringify({ aiGenerate }) });
       await fetchProposals();
     } catch (err: any) {
       alert(`Proposal generation failed: ${err.message || 'Unknown error. The AI may have timed out — try again.'}`);
@@ -450,22 +450,39 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
     finally { setGeneratingProposal(false); }
   }
 
-  async function handleUpdateProposalSection(proposalId: string, sectionId: string, updates: Partial<ProposalSection>) {
+  async function handleGenerateSection(proposalId: string, sectionIndex: number) {
+    setImprovingSection(String(sectionIndex));
     try {
-      await api(`/gov/opportunities/${opportunityId}/proposals/${proposalId}/sections/${sectionId}`, {
-        method: 'PATCH',
-        body: JSON.stringify(updates),
-      });
+      await api(`/gov/proposals/${proposalId}/sections/${sectionIndex}/generate`, { method: 'POST' });
       fetchProposals();
+    } catch (err: any) {
+      alert(`Section generation failed: ${err.message || 'Unknown error'}`);
+    }
+    finally { setImprovingSection(null); }
+  }
+
+  async function handleUpdateProposalSection(proposalId: string, sectionIndex: number, updates: Partial<ProposalSection>) {
+    if (!currentProposal) return;
+    const updatedSections = [...currentProposal.sections];
+    updatedSections[sectionIndex] = { ...updatedSections[sectionIndex], ...updates };
+    // Optimistic update
+    setProposals(prev => prev.map(p => p.id === proposalId ? { ...p, sections: updatedSections } : p));
+    try {
+      await api(`/gov/proposals/${proposalId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ sections: updatedSections }),
+      });
     } catch { /* ignore */ }
   }
 
-  async function handleImproveSection(proposalId: string, sectionId: string) {
-    setImprovingSection(sectionId);
+  async function handleImproveSection(proposalId: string, sectionIndex: number) {
+    setImprovingSection(`improve-${sectionIndex}`);
     try {
-      await api(`/gov/opportunities/${opportunityId}/proposals/${proposalId}/sections/${sectionId}/improve`, { method: 'POST' });
+      await api(`/gov/proposals/${proposalId}/ai-improve`, { method: 'POST', body: JSON.stringify({ sectionIndex }) });
       fetchProposals();
-    } catch { /* ignore */ }
+    } catch (err: any) {
+      alert(`Section improvement failed: ${err.message || 'Unknown error'}`);
+    }
     finally { setImprovingSection(null); }
   }
 
@@ -1400,9 +1417,14 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                 <CardContent className="py-12 text-center">
                   <Sparkles className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
                   <p className="text-muted-foreground mb-4">No proposals yet for this opportunity.</p>
-                  <Button onClick={handleGenerateProposal} disabled={generatingProposal}>
-                    {generatingProposal ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Generating...</> : <><Sparkles className="h-4 w-4 mr-1" /> Generate Proposal with AI</>}
-                  </Button>
+                  <div className="flex items-center justify-center gap-3">
+                    <Button variant="outline" onClick={() => handleGenerateProposal(false)} disabled={generatingProposal}>
+                      Create Empty Draft
+                    </Button>
+                    <Button onClick={() => handleGenerateProposal(true)} disabled={generatingProposal}>
+                      {generatingProposal ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Generating...</> : <><Sparkles className="h-4 w-4 mr-1" /> Generate All with AI</>}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ) : (
@@ -1447,13 +1469,13 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                   )}
                 </div>
 
-                {(currentProposal?.sections ?? []).sort((a, b) => a.order - b.order).map(section => (
-                  <Card key={section.id}>
+                {(currentProposal?.sections ?? []).sort((a, b) => a.order - b.order).map((section, sectionIdx) => (
+                  <Card key={sectionIdx}>
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => handleUpdateProposalSection(currentProposal.id, section.id, { isComplete: !section.isComplete })}
+                            onClick={() => handleUpdateProposalSection(currentProposal.id, sectionIdx, { isComplete: !section.isComplete })}
                             className="shrink-0"
                           >
                             {section.isComplete ? (
@@ -1464,25 +1486,43 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                           </button>
                           <CardTitle className="text-sm">{section.title}</CardTitle>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleImproveSection(currentProposal.id, section.id)}
-                          disabled={improvingSection === section.id}
-                        >
-                          {improvingSection === section.id ? (
-                            <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Improving...</>
-                          ) : (
-                            <><Sparkles className="h-4 w-4 mr-1" /> AI Improve</>
+                        <div className="flex gap-1">
+                          {(!section.content || section.content.trim().length < 20) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleGenerateSection(currentProposal.id, section.order - 1)}
+                              disabled={improvingSection === String(section.order - 1)}
+                            >
+                              {improvingSection === String(section.order - 1) ? (
+                                <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Generating...</>
+                              ) : (
+                                <><Sparkles className="h-4 w-4 mr-1" /> AI Generate</>
+                              )}
+                            </Button>
                           )}
-                        </Button>
+                          {section.content && section.content.trim().length >= 20 && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleImproveSection(currentProposal.id, sectionIdx)}
+                              disabled={improvingSection === `improve-${sectionIdx}`}
+                            >
+                              {improvingSection === `improve-${sectionIdx}` ? (
+                                <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Improving...</>
+                              ) : (
+                                <><Sparkles className="h-4 w-4 mr-1" /> AI Improve</>
+                              )}
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent>
                       <textarea
                         className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[120px] resize-y"
                         value={section.content}
-                        onChange={e => handleUpdateProposalSection(currentProposal.id, section.id, { content: e.target.value })}
+                        onChange={e => handleUpdateProposalSection(currentProposal.id, sectionIdx, { content: e.target.value })}
                       />
                     </CardContent>
                   </Card>
