@@ -153,6 +153,7 @@ export async function govContractRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     const { text } = request.body as { text: string };
     if (!text || text.length < 50) throw new NotFoundError('RFP text', 'too short — paste the full RFP content');
+    if (text.length > 100000) throw new NotFoundError('RFP text', 'too long — maximum 100,000 characters');
 
     // Step 1: Extract opportunity metadata with AI
     const extracted = await extractOpportunityFromRFP(fastify.db, request.tenantId, text);
@@ -189,16 +190,16 @@ export async function govContractRoutes(fastify: FastifyInstance) {
 
     // Step 5: Auto-generate compliance checklist
     if (analysis.complianceItems?.length) {
-      for (let i = 0; i < analysis.complianceItems.length; i++) {
-        await fastify.db.insert(govComplianceItems).values({
+      await fastify.db.insert(govComplianceItems).values(
+        analysis.complianceItems.map((item, i) => ({
           tenantId: request.tenantId,
           opportunityId: opp.id,
-          requirement: analysis.complianceItems[i],
+          requirement: item,
           category: 'content',
           status: 'pending',
           sortOrder: i,
-        });
-      }
+        }))
+      );
     }
 
     // Step 6: Calculate win probability
@@ -520,7 +521,8 @@ export async function govContractRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     return fastify.db.select().from(govProposals)
       .where(and(eq(govProposals.opportunityId, id), eq(govProposals.tenantId, request.tenantId)))
-      .orderBy(desc(govProposals.updatedAt));
+      .orderBy(desc(govProposals.updatedAt))
+      .limit(50);
   });
 
   // ── Proposals: Create ────────────────────────────────────────────

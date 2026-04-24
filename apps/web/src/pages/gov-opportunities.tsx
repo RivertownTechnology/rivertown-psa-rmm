@@ -28,7 +28,7 @@ interface Opportunity {
   agency: string;
   agencyType: string;
   status: string;
-  estimatedValueCents: number;
+  estimatedValue: number;
   submissionDeadline: string | null;
   winProbability: number | null;
   setAsideType: string | null;
@@ -222,8 +222,9 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
         method: 'PATCH',
         body: JSON.stringify({ status: newStatus }),
       });
-    } catch {
-      fetchOpportunities();
+    } catch (err) {
+      console.error('Status update failed:', err);
+      fetchOpportunities(); // Revert optimistic update
     }
   }
 
@@ -244,7 +245,7 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
           source: form.source || undefined,
           naicsCodes: form.naicsCodes || undefined,
           setAsideType: form.setAsideType || undefined,
-          estimatedValueCents: form.estimatedValueCents,
+          estimatedValue: form.estimatedValueCents,
           contractType: form.contractType || undefined,
           submissionDeadline: form.submissionDeadline || undefined,
           questionDeadline: form.questionDeadline || undefined,
@@ -299,7 +300,7 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
         <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
           <span className="flex items-center gap-1">
             <DollarSign className="h-3 w-3" />
-            {formatDollars(opp.estimatedValueCents)}
+            {formatDollars(opp.estimatedValue)}
           </span>
           {days !== null && (
             <span className={`flex items-center gap-1 ${
@@ -505,7 +506,7 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
                             {COLUMNS.find(c => c.status === opp.status)?.label ?? opp.status}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3 text-right">{formatDollars(opp.estimatedValueCents)}</td>
+                        <td className="px-4 py-3 text-right">{formatDollars(opp.estimatedValue)}</td>
                         <td className="px-4 py-3">
                           {opp.submissionDeadline ? (
                             <span className={days !== null && days <= 7 ? 'text-red-600 font-medium' : ''}>

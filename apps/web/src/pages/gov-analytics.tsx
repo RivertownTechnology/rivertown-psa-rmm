@@ -12,11 +12,12 @@ import {
 // ---------------------------------------------------------------------------
 
 interface AnalyticsData {
-  winLoss: { awarded: number; lost: number };
-  revenueByMonth: Array<{ month: string; revenueCents: number }>;
+  winLoss?: { awarded: number; lost: number };
+  revenueByMonth?: Array<{ month: string; revenueCents: number }>;
+  monthlyRevenue?: Array<{ month: string; revenueCents: number }>;
   avgBidValueCents: number;
-  byAgencyType: Array<{ agencyType: string; count: number; awardedCount: number; totalValueCents: number }>;
-  bySetAside: Array<{ setAsideType: string; count: number; awardedCount: number; winRate: number }>;
+  byAgencyType?: Array<{ agencyType: string; count: number; awardedCount: number; totalValueCents: number }>;
+  bySetAside?: Array<{ setAsideType: string; count: number; awardedCount: number; winRate: number }>;
   totalPipelineValueCents: number;
   totalAwardedValueCents: number;
 }
@@ -87,18 +88,18 @@ export function GovAnalyticsPage() {
   }
 
   const pieData = [
-    { name: 'Awarded', value: data.winLoss.awarded },
-    { name: 'Lost', value: data.winLoss.lost },
+    { name: 'Awarded', value: (data.winLoss?.awarded ?? 0) },
+    { name: 'Lost', value: (data.winLoss?.lost ?? 0) },
   ];
-  const hasPieData = data.winLoss.awarded > 0 || data.winLoss.lost > 0;
-  const winRate = hasPieData ? Math.round((data.winLoss.awarded / (data.winLoss.awarded + data.winLoss.lost)) * 100) : 0;
+  const hasPieData = (data.winLoss?.awarded ?? 0) > 0 || (data.winLoss?.lost ?? 0) > 0;
+  const winRate = hasPieData ? Math.round(((data.winLoss?.awarded ?? 0) / ((data.winLoss?.awarded ?? 0) + (data.winLoss?.lost ?? 0))) * 100) : 0;
 
-  const revenueChartData = data.revenueByMonth.map(r => ({
+  const revenueChartData = (data.monthlyRevenue ?? data.revenueByMonth ?? []).map(r => ({
     month: r.month,
     revenue: r.revenueCents / 100,
   }));
 
-  const agencyChartData = data.byAgencyType.map(a => ({
+  const agencyChartData = (data.byAgencyType ?? []).map(a => ({
     name: a.agencyType.charAt(0).toUpperCase() + a.agencyType.slice(1),
     total: a.count,
     awarded: a.awardedCount,
@@ -168,11 +169,11 @@ export function GovAnalyticsPage() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <span className="h-3 w-3 rounded-full bg-green-500" />
-                    <span className="text-sm">Awarded: {data.winLoss.awarded}</span>
+                    <span className="text-sm">Awarded: {(data.winLoss?.awarded ?? 0)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="h-3 w-3 rounded-full bg-red-500" />
-                    <span className="text-sm">Lost: {data.winLoss.lost}</span>
+                    <span className="text-sm">Lost: {(data.winLoss?.lost ?? 0)}</span>
                   </div>
                   <div className="text-3xl font-bold mt-2">{winRate}%</div>
                   <div className="text-xs text-muted-foreground">win rate</div>
@@ -268,7 +269,7 @@ export function GovAnalyticsPage() {
           <CardTitle className="text-sm font-medium text-muted-foreground">Performance by Set-Aside Type</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          {data.bySetAside.length > 0 ? (
+          {(data.bySetAside ?? []).length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -280,7 +281,7 @@ export function GovAnalyticsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.bySetAside.map(row => (
+                  {(data.bySetAside ?? []).map(row => (
                     <tr key={row.setAsideType} className="border-b">
                       <td className="px-4 py-3 capitalize">{row.setAsideType.replace(/_/g, ' ')}</td>
                       <td className="px-4 py-3 text-right">{row.count}</td>

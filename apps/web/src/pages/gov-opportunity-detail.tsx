@@ -29,7 +29,7 @@ interface Opportunity {
   agency: string;
   agencyType: string;
   status: string;
-  estimatedValueCents: number;
+  estimatedValue: number;
   submissionDeadline: string | null;
   questionDeadline: string | null;
   winProbability: number | null;
@@ -647,7 +647,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                     <div><span className="text-muted-foreground">Contract Type:</span> <span className="font-medium capitalize">{opp.contractType?.replace(/_/g, ' ') ?? '-'}</span></div>
                     <div>
                       <span className="text-muted-foreground">Certifications:</span>{' '}
-                      {opp.certifications?.length ? opp.certifications.map((c, i) => (
+                      {(opp as any).requiredCertifications?.length ? ((opp as any).requiredCertifications ?? []).map((c: string, i: number) => (
                         <Badge key={i} variant="secondary" className="text-[10px] mr-1">{c}</Badge>
                       )) : <span className="font-medium">-</span>}
                     </div>
@@ -668,23 +668,23 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                 <CardContent>
                   {analysisResult ? (
                     <div className="space-y-3 text-sm">
-                      <div><strong>Summary:</strong> <p className="mt-1">{analysisResult.summary}</p></div>
-                      {analysisResult.keyRequirements.length > 0 && (
+                      <div><strong>Summary:</strong> <p className="mt-1">{analysisResult.summary || (analysisResult as any).scopeOfWork || 'No summary available'}</p></div>
+                      {((analysisResult.keyRequirements ?? (analysisResult as any).technicalRequirements) || []).length > 0 && (
                         <div>
                           <strong>Key Requirements:</strong>
-                          <ul className="list-disc ml-4 mt-1 space-y-0.5">{analysisResult.keyRequirements.map((r, i) => <li key={i}>{r}</li>)}</ul>
+                          <ul className="list-disc ml-4 mt-1 space-y-0.5">{(analysisResult.keyRequirements ?? (analysisResult as any).technicalRequirements ?? []).map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
                         </div>
                       )}
-                      {analysisResult.risks.length > 0 && (
+                      {((analysisResult.risks ?? (analysisResult as any).risks) || []).length > 0 && (
                         <div>
                           <strong>Risks:</strong>
-                          <ul className="list-disc ml-4 mt-1 space-y-0.5">{analysisResult.risks.map((r, i) => <li key={i} className="text-red-600">{r}</li>)}</ul>
+                          <ul className="list-disc ml-4 mt-1 space-y-0.5">{(analysisResult.risks ?? []).map((r: string, i: number) => <li key={i} className="text-red-600">{r}</li>)}</ul>
                         </div>
                       )}
-                      {analysisResult.recommendations.length > 0 && (
+                      {((analysisResult.recommendations ?? (analysisResult as any).differentiators) || []).length > 0 && (
                         <div>
                           <strong>Recommendations:</strong>
-                          <ul className="list-disc ml-4 mt-1 space-y-0.5">{analysisResult.recommendations.map((r, i) => <li key={i}>{r}</li>)}</ul>
+                          <ul className="list-disc ml-4 mt-1 space-y-0.5">{(analysisResult.recommendations ?? (analysisResult as any).differentiators ?? []).map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
                         </div>
                       )}
                     </div>
@@ -712,7 +712,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
               <Card>
                 <CardHeader className="pb-2"><CardTitle className="text-sm">Estimated Value</CardTitle></CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{formatDollars(opp.estimatedValueCents)}</div>
+                  <div className="text-2xl font-bold">{formatDollars(opp.estimatedValue)}</div>
                 </CardContent>
               </Card>
 
@@ -733,12 +733,12 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                 </CardContent>
               </Card>
 
-              {opp.tags && opp.tags.length > 0 && (
+              {(opp.tags ?? []).length > 0 && (
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Tags</CardTitle></CardHeader>
                   <CardContent>
                     <div className="flex flex-wrap gap-1">
-                      {opp.tags.map((tag, i) => (
+                      {(opp.tags ?? []).map((tag, i) => (
                         <Badge key={i} variant="outline" className="text-xs">{tag}</Badge>
                       ))}
                     </div>
@@ -895,7 +895,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                   )}
                 </div>
 
-                {currentProposal?.sections.sort((a, b) => a.order - b.order).map(section => (
+                {(currentProposal?.sections ?? []).sort((a, b) => a.order - b.order).map(section => (
                   <Card key={section.id}>
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
