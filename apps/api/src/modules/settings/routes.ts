@@ -2221,6 +2221,96 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     const url = await getFileUrl(fastify.db, request.tenantId, doc.storageKey);
     reply.redirect(url);
   });
+
+  // ===== USER MANAGEMENT =====
+
+  // List all users for tenant
+  fastify.get('/api/v1/settings/users', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    return fastify.db.select({
+      id: users.id,
+      email: users.email,
+      displayName: users.displayName,
+      role: users.role,
+      isActive: users.isActive,
+      createdAt: users.createdAt,
+    }).from(users)
+      .where(eq(users.tenantId, request.tenantId))
+      .orderBy(users.displayName);
+  });
+
+  // Invite/create user
+  fastify.post('/api/v1/settings/users', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const body = request.body as { email: string; displayName: string; role: string; password?: string };
+    if (!body.email || !body.displayName) throw new ValidationError('Email and display name are required');
+
+    // Check if user already exists in tenant
+    const [existing] = await fastify.db.select({ id: users.id }).from(users)
+      .where(and(eq(users.tenantId, request.tenantId), eq(users.email, body.email.toLowerCase()))).limit(1);
+    if (existing) throw new ValidationError('A user with this email already exists');
+
+    // Hash password if provided, otherwise generate a random one
+    const { hash } = await import('bcryptjs');
+    const password = body.password || Math.random().toString(36).slice(-12);
+    const passwordHash = await hash(password, 12);
+
+    const [user] = await fastify.db.insert(users).values({
+      tenantId: request.tenantId,
+      email: body.email.toLowerCase(),
+      displayName: body.displayName,
+      role: body.role || 'tech',
+      passwordHash,
+      isActive: true,
+    }).returning();
+
+    reply.code(201);
+    return { id: user.id, email: user.email, displayName: user.displayName, role: user.role, tempPassword: body.password ? undefined : password };
+  });
+
+  // Update user
+  fastify.patch('/api/v1/settings/users/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { displayName?: string; role?: string; isActive?: boolean };
+
+    const [updated] = await fastify.db.update(users).set({ ...body, updatedAt: new Date() })
+      .where(and(eq(users.id, id), eq(users.tenantId, request.tenantId))).returning();
+
+    return { id: updated.id, email: updated.email, displayName: updated.displayName, role: updated.role, isActive: updated.isActive };
+  });
+
+  // Reset user password
+  fastify.post('/api/v1/settings/users/:id/reset-password', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const { hash } = await import('bcryptjs');
+    const newPassword = Math.random().toString(36).slice(-12);
+    const passwordHash = await hash(newPassword, 12);
+
+    await fastify.db.update(users).set({ passwordHash, updatedAt: new Date() })
+      .where(and(eq(users.id, id), eq(users.tenantId, request.tenantId)));
+
+    return { tempPassword: newPassword };
+  });
+
+  // Deactivate user (soft delete)
+  fastify.delete('/api/v1/settings/users/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    // Don't allow deactivating yourself
+    if (id === request.user.sub) throw new ValidationError('Cannot deactivate your own account');
+
+    await fastify.db.update(users).set({ isActive: false, updatedAt: new Date() })
+      .where(and(eq(users.id, id), eq(users.tenantId, request.tenantId)));
+
+    reply.code(204).send();
+  });
 }
 
 function calculateNextRun(frequency: string, dayOfWeek?: number, dayOfMonth?: number): Date {
