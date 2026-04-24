@@ -30,3 +30,4 @@ export * from './recurring-tickets.js';
 export * from './workflow-rules.js';
 export * from './ticket-expenses.js';
 export * from './csat-ratings.js';
+export * from './gov-contracts.js';

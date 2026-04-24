@@ -3,7 +3,7 @@ import { tickets, ticketComments, integrationConfigs, customers, contacts, contr
 import type { Database } from '@rivertown/db';
 import { readCredentials } from '../common/credentials.js';
 
-interface AIConfig {
+export interface AIConfig {
   apiKey: string;
   model: string;
   provider: 'anthropic' | 'openai';
@@ -11,7 +11,7 @@ interface AIConfig {
   name: string;
 }
 
-async function getAIConfig(db: Database, tenantId: string): Promise<AIConfig | null> {
+export async function getAIConfig(db: Database, tenantId: string): Promise<AIConfig | null> {
   const [config] = await db.select().from(integrationConfigs)
     .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'ai')))
     .limit(1);
@@ -35,7 +35,7 @@ async function getAIConfig(db: Database, tenantId: string): Promise<AIConfig | n
   return null;
 }
 
-async function callAI(config: AIConfig, systemPrompt: string, userMessage: string, maxTokens = 1000): Promise<string> {
+export async function callAI(config: AIConfig, systemPrompt: string, userMessage: string, maxTokens = 1000): Promise<string> {
   if (config.provider === 'openai') {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
