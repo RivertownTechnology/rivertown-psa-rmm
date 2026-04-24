@@ -37,6 +37,7 @@ interface Opportunity {
   setAsideType: string | null;
   assignedTo: string | null;
   source: string | null;
+  samNumber: string | null;
   naicsCodes: string | null;
   contractType: string | null;
   contactName: string | null;
@@ -73,6 +74,7 @@ interface ProposalSection {
 
 interface Proposal {
   id: string;
+  title: string;
   version: number;
   status: string;
   sections: ProposalSection[];
