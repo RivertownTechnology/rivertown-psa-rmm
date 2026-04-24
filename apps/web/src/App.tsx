@@ -26,6 +26,11 @@ import { KnowledgeBasePage } from '@/pages/knowledge-base';
 import { KBArticlePage } from '@/pages/kb-article';
 import { TicketKanbanPage } from '@/pages/ticket-kanban';
 import { SearchResultsPage } from '@/pages/search';
+import { GovDashboardPage } from '@/pages/gov-dashboard';
+import { GovOpportunitiesPage } from '@/pages/gov-opportunities';
+import { GovOpportunityDetailPage } from '@/pages/gov-opportunity-detail';
+import { GovLibraryPage } from '@/pages/gov-library';
+import { GovAnalyticsPage } from '@/pages/gov-analytics';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { CommandPalette } from '@/components/command-palette';
 import { AIChat } from '@/components/ai-chat';
@@ -105,6 +110,7 @@ function AppRouter() {
   const invoiceMatch = pathname.match(/^\/billing\/invoices\/([a-f0-9-]+)$/);
   const quoteMatch = pathname.match(/^\/billing\/quotes\/([a-f0-9-]+)$/);
   const kbArticleMatch = pathname.match(/^\/knowledge-base\/(.+)$/);
+  const govOppDetailMatch = pathname.match(/^\/gov\/opportunities\/([a-f0-9-]+)$/);
   let title = 'Dashboard';
   let currentNav = pathname;
   let content: React.ReactNode;
@@ -190,6 +196,21 @@ function AppRouter() {
   } else if (pathname === '/catalog') {
     title = 'Product Catalog'; currentNav = '/catalog';
     content = <ProductCatalogPage />;
+  } else if (govOppDetailMatch) {
+    title = 'Opportunity'; currentNav = '/gov/opportunities';
+    content = <GovOpportunityDetailPage opportunityId={govOppDetailMatch[1]} onBack={() => navigate('/gov/opportunities')} />;
+  } else if (pathname === '/gov/opportunities') {
+    title = 'Opportunities'; currentNav = '/gov/opportunities';
+    content = <GovOpportunitiesPage onNavigate={navigate} />;
+  } else if (pathname === '/gov/library') {
+    title = 'Gov Library'; currentNav = '/gov/library';
+    content = <GovLibraryPage />;
+  } else if (pathname === '/gov/analytics') {
+    title = 'Gov Analytics'; currentNav = '/gov/analytics';
+    content = <GovAnalyticsPage />;
+  } else if (pathname === '/gov') {
+    title = 'Gov Dashboard'; currentNav = '/gov';
+    content = <GovDashboardPage />;
   } else {
     title = 'Dashboard'; currentNav = '/';
     content = <DashboardPage />;

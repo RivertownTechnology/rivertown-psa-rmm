@@ -14,6 +14,9 @@ import {
   ChevronRight,
   BarChart3,
   BookOpen,
+  Landmark,
+  Target,
+  Archive,
 } from 'lucide-react';
 
 interface NavItem {
@@ -53,6 +56,15 @@ const navGroups: NavGroup[] = [
     label: 'Catalog',
     items: [
       { label: 'Product Catalog', icon: Package, href: '/catalog' },
+    ],
+  },
+  {
+    label: 'Gov Contracts',
+    items: [
+      { label: 'Dashboard', icon: Landmark, href: '/gov' },
+      { label: 'Opportunities', icon: Target, href: '/gov/opportunities' },
+      { label: 'Library', icon: Archive, href: '/gov/library' },
+      { label: 'Analytics', icon: BarChart3, href: '/gov/analytics' },
     ],
   },
 ];
