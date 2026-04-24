@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Pencil, Trash2, Package, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, Package, Search, Copy } from 'lucide-react';
 
 interface CatalogItem {
   id: string; name: string; description: string | null; sku: string | null;
@@ -92,6 +92,27 @@ export function ProductCatalogPage() {
       pax8ProductName: item.pax8ProductName ?? '',
       pax8ProductId: item.pax8ProductId ?? '',
       pax8VendorName: item.pax8VendorName ?? '',
+      qboIncomeAccountId: item.qboIncomeAccountId ?? '',
+      qboCogAccountId: item.qboCogAccountId ?? '',
+    });
+    setShowForm(true);
+  }
+
+  function cloneItem(item: CatalogItem) {
+    setEditingId(null); // Creates a new item, not editing
+    setForm({
+      name: `${item.name} (Copy)`,
+      description: item.description ?? '',
+      sku: item.sku ? `${item.sku}-COPY` : '',
+      vendor: item.vendor ?? '',
+      category: item.category,
+      itemType: item.itemType,
+      defaultUnitCostCents: item.defaultUnitCostCents ? (item.defaultUnitCostCents / 100).toString() : '',
+      defaultUnitPriceCents: (item.defaultUnitPriceCents / 100).toString(),
+      taxable: item.taxable ?? true,
+      pax8ProductName: '',
+      pax8ProductId: '',
+      pax8VendorName: '',
       qboIncomeAccountId: item.qboIncomeAccountId ?? '',
       qboCogAccountId: item.qboCogAccountId ?? '',
     });
@@ -220,7 +241,8 @@ export function ProductCatalogPage() {
                     </td>
                     <td className="p-3">
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(item)}><Pencil className="h-3 w-3" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Clone" onClick={() => cloneItem(item)}><Copy className="h-3 w-3" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit" onClick={() => openEdit(item)}><Pencil className="h-3 w-3" /></Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(item.id, item.name)}><Trash2 className="h-3 w-3" /></Button>
                       </div>
                     </td>
