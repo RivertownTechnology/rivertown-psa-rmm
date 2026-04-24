@@ -468,29 +468,46 @@ export async function govContractRoutes(fastify: FastifyInstance) {
 
     // Extract text from the document
     let docText = '';
-    if (doc.storageKey && await isR2Configured(fastify.db, request.tenantId)) {
+    let extractError = '';
+    if (!doc.storageKey) {
+      extractError = 'No storage key — document was not uploaded to storage';
+    } else if (!await isR2Configured(fastify.db, request.tenantId)) {
+      extractError = 'Cloud storage (R2) is not configured';
+    } else {
       try {
         const { getFileUrl } = await import('../../services/r2-storage.js');
         const url = await getFileUrl(fastify.db, request.tenantId, doc.storageKey);
         const res = await fetch(url);
-        const buffer = Buffer.from(await res.arrayBuffer());
-
-        if (doc.mimeType === 'application/pdf' || doc.fileName.endsWith('.pdf')) {
-          const pdfParseModule = await import('pdf-parse');
-          const pdfParse = (pdfParseModule as any).default || pdfParseModule;
-          const pdfData = await pdfParse(buffer);
-          docText = pdfData.text;
+        if (!res.ok) {
+          extractError = `Failed to download file from storage (${res.status})`;
         } else {
-          docText = buffer.toString('utf-8');
+          const buffer = Buffer.from(await res.arrayBuffer());
+
+          if (doc.mimeType === 'application/pdf' || doc.fileName.endsWith('.pdf')) {
+            try {
+              const pdfParseModule = await import('pdf-parse');
+              const pdfParse = (pdfParseModule as any).default || pdfParseModule;
+              const pdfData = await pdfParse(buffer);
+              docText = pdfData.text || '';
+              if (!docText || docText.trim().length < 10) {
+                extractError = 'PDF appears to be scanned/image-based with no extractable text. OCR is not currently supported.';
+              }
+            } catch (pdfErr) {
+              console.error('[GOV-DOC] pdf-parse error:', pdfErr);
+              extractError = `PDF parsing failed: ${pdfErr instanceof Error ? pdfErr.message : 'Unknown error'}`;
+            }
+          } else {
+            docText = buffer.toString('utf-8');
+          }
         }
       } catch (err) {
         console.error('[GOV-DOC] Failed to extract text:', err);
-        docText = `[Could not extract text from ${doc.fileName}]`;
+        extractError = `File retrieval failed: ${err instanceof Error ? err.message : 'Unknown error'}`;
       }
     }
 
     if (!docText || docText.length < 10) {
-      return { error: 'Could not extract text from this document' };
+      return { error: extractError || 'Could not extract text from this document' };
     }
 
     // Run AI analysis
