@@ -2092,11 +2092,23 @@ function ApiKeysTab() {
                         {new Date(k.createdAt).toLocaleDateString()}
                       </td>
                       <td className="py-2">
-                        {k.isActive && (
-                          <Button size="sm" variant="destructive" onClick={() => revokeKey(k.id)}>
-                            Revoke
-                          </Button>
-                        )}
+                        <div className="flex items-center gap-1">
+                          <Button size="sm" variant="ghost" onClick={async () => {
+                            const newName = prompt('Rename API key:', k.name);
+                            if (newName && newName !== k.name) {
+                              await api(`/settings/api-keys/${k.id}`, { method: 'PATCH', body: JSON.stringify({ name: newName }) }).catch(() => {});
+                              loadKeys();
+                            }
+                          }}>Rename</Button>
+                          {k.isActive && (
+                            <Button size="sm" variant="outline" onClick={() => revokeKey(k.id)}>Revoke</Button>
+                          )}
+                          <Button size="sm" variant="destructive" onClick={async () => {
+                            if (!confirm(`Permanently delete API key "${k.name}"? This cannot be undone.`)) return;
+                            await api(`/settings/api-keys/${k.id}/permanent`, { method: 'DELETE' }).catch(() => {});
+                            loadKeys();
+                          }}>Delete</Button>
+                        </div>
                       </td>
                     </tr>
                   ))}

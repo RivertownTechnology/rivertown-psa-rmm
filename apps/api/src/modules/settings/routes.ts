@@ -2376,6 +2376,17 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     reply.code(204).send();
   });
 
+  // Rename API key
+  fastify.patch('/api/v1/settings/api-keys/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const { name } = request.body as { name: string };
+    const [updated] = await fastify.db.update(apiKeys).set({ name })
+      .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, request.tenantId))).returning();
+    return updated;
+  });
+
   // Delete API key permanently
   fastify.delete('/api/v1/settings/api-keys/:id/permanent', {
     preHandler: [fastify.authenticate, requirePermission('*')]
