@@ -176,6 +176,7 @@ export async function govContractRoutes(fastify: FastifyInstance) {
       contactPhone: extracted.contactPhone,
       requiredCertifications: extracted.requiredCertifications?.length ? extracted.requiredCertifications : null,
       status: 'discovered',
+      notes: text.substring(0, 50000), // Save the full RFP text for future analysis
     }).returning();
 
     // Step 3: Analyze the RFP for detailed breakdown

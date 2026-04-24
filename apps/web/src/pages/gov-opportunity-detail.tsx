@@ -338,10 +338,21 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
 
   async function handleAnalyze() {
     setAnalyzing(true);
+    setAnalysisResult(null);
     try {
-      const result = await api<AIAnalysisResult>(`/gov/opportunities/${opportunityId}/analyze`, { method: 'POST' });
-      setAnalysisResult(result);
-    } catch { /* ignore */ }
+      const result = await api<any>(`/gov/opportunities/${opportunityId}/analyze`, { method: 'POST' });
+      // The API returns the full analysis object — normalize field names
+      setAnalysisResult({
+        summary: result.summary || result.scopeOfWork || 'Analysis complete',
+        keyRequirements: result.keyRequirements || result.technicalRequirements || [],
+        risks: result.risks || [],
+        recommendations: result.recommendations || result.differentiators || [],
+      });
+      // Refresh opportunity to get updated winProbability
+      fetchOpp();
+    } catch (err: any) {
+      alert(`AI Analysis failed: ${err.message || 'Unknown error'}`);
+    }
     finally { setAnalyzing(false); }
   }
 
@@ -355,12 +366,18 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
           ? `${(import.meta as any).env.VITE_API_URL}/api/v1`
           : '/api/v1';
         const token = getAccessToken();
-        await fetch(`${API_BASE}/gov/opportunities/${opportunityId}/documents`, {
+        const res = await fetch(`${API_BASE}/gov/opportunities/${opportunityId}/documents`, {
           method: 'POST',
           headers: token ? { 'Authorization': `Bearer ${token}` } : {},
           body: formData,
         });
-      } catch { /* ignore */ }
+        if (!res.ok) {
+          const err = await res.text();
+          alert(`Upload failed: ${err.substring(0, 200)}`);
+        }
+      } catch (err: any) {
+        alert(`Upload error: ${err.message || 'Failed'}`);
+      }
     }
     fetchDocuments();
   }
@@ -368,9 +385,12 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   async function handleAnalyzeAllDocs() {
     setAnalyzingDocs(true);
     try {
-      await api(`/gov/opportunities/${opportunityId}/documents/analyze-all`, { method: 'POST' });
+      await api(`/gov/opportunities/${opportunityId}/analyze`, { method: 'POST' });
       fetchDocuments();
-    } catch { /* ignore */ }
+      fetchOpp();
+    } catch (err: any) {
+      alert(`Analysis failed: ${err.message || 'Unknown error'}`);
+    }
     finally { setAnalyzingDocs(false); }
   }
 
