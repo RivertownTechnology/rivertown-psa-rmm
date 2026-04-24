@@ -398,7 +398,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   async function handleGenerateProposal() {
     setGeneratingProposal(true);
     try {
-      await api(`/gov/opportunities/${opportunityId}/proposals/generate`, { method: 'POST' });
+      await api(`/gov/opportunities/${opportunityId}/proposals`, { method: 'POST', body: JSON.stringify({ aiGenerate: true }) });
       fetchProposals();
     } catch { /* ignore */ }
     finally { setGeneratingProposal(false); }
@@ -641,7 +641,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                   {editingNotes ? (
                     <div className="space-y-2">
                       <textarea
-                        className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[120px] resize-y"
+                        className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[120px] max-h-[400px] resize-y"
                         value={notesValue}
                         onChange={e => setNotesValue(e.target.value)}
                       />
@@ -651,7 +651,9 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
                       </div>
                     </div>
                   ) : (
-                    <p className="text-sm whitespace-pre-wrap">{opp.notes || opp.description || 'No description or notes yet.'}</p>
+                    <div className="max-h-[300px] overflow-y-auto">
+                      <p className="text-sm whitespace-pre-wrap">{opp.notes || opp.description || 'No description or notes yet.'}</p>
+                    </div>
                   )}
                 </CardContent>
               </Card>
