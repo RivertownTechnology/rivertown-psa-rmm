@@ -47,6 +47,7 @@ interface Opportunity {
   tags: string[] | null;
   notes: string | null;
   description: string | null;
+  aiAnalysis: Record<string, any> | null;
 }
 
 interface GovDocument {
@@ -252,6 +253,17 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
       const data = await api<Opportunity>(`/gov/opportunities/${opportunityId}`);
       setOpp(data);
       setNotesValue(data.notes ?? '');
+      // Load saved AI analysis if available
+      if (data.aiAnalysis && !analysisResult) {
+        const ai = data.aiAnalysis;
+        setAnalysisResult({
+          summary: ai.summary || ai.scopeOfWork || '',
+          keyRequirements: ai.keyRequirements || ai.technicalRequirements || [],
+          risks: ai.risks || [],
+          recommendations: ai.recommendations || ai.differentiators || [],
+          ...ai, // preserve all extra fields like itemsToPriceOut, businessRequirements, staffingNeeds
+        } as any);
+      }
     } catch {
       // leave null
     } finally {
