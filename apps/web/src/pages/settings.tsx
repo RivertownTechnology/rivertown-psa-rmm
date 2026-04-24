@@ -3163,9 +3163,25 @@ function NCentralCard() {
           </select>
         </div>
 
+        <Separator />
+
+        <div className="space-y-2">
+          <div className="text-sm font-medium">N-central PSA Ticketing Integration</div>
+          <p className="text-xs text-muted-foreground">Configure these values in N-central under Administration &rarr; PSA Integration &rarr; PSA Configuration &rarr; Custom PSA:</p>
+          <div className="bg-muted/50 rounded-lg p-3 space-y-2 text-xs font-mono">
+            <div><span className="text-muted-foreground">Base Endpoint URL:</span> <span className="select-all font-semibold">{window.location.origin.replace('psa.', 'api.').replace(':5173', ':3000')}</span></div>
+            <div><span className="text-muted-foreground">Ticketing Endpoint:</span> <span className="select-all font-semibold">/api/ncentral/ticketRequests</span></div>
+            <div><span className="text-muted-foreground">User Name:</span> <span className="select-all font-semibold">ncentral</span></div>
+            <div><span className="text-muted-foreground">Password:</span> <span className="text-muted-foreground italic">Use the same JWT token above, or set PUBLIC_API_KEY env var</span></div>
+          </div>
+          <p className="text-xs text-muted-foreground">When N-central generates a ticket, it will be created in your PSA with source "agent_alert". Alerts map to priorities: Critical/Failed &rarr; Critical, Warning &rarr; High, Normal &rarr; Medium, Information &rarr; Low.</p>
+        </div>
+
         {lastSync && (
           <p className="text-xs text-muted-foreground">Last synced: {new Date(lastSync).toLocaleString()}</p>
         )}
+
+        <p className="text-xs text-muted-foreground">Credentials stored encrypted. Device sync is available — configure and enable to start syncing assets.</p>
 
         <div className="flex gap-2">
           <Button onClick={saveNCentral} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>

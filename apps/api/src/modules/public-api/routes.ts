@@ -518,4 +518,129 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
       }));
     },
   );
+
+  // ----------------------------------------------------------------
+  // N-central Custom PSA ticket endpoint
+  // N-central sends tickets via POST with Basic Auth
+  // Configure in N-central: Base URL = https://your-api/api/ncentral
+  //                         Ticketing Endpoint = /ticketRequests
+  // ----------------------------------------------------------------
+
+  fastify.post(
+    '/api/ncentral/ticketRequests',
+    { config: { public: true } as any },
+    async (request, reply) => {
+      // Basic Auth
+      const authHeader = request.headers.authorization;
+      if (!authHeader?.startsWith('Basic ')) {
+        reply.code(401);
+        return { error: 'Basic authentication required' };
+      }
+
+      const decoded = Buffer.from(authHeader.slice(6), 'base64').toString();
+      const [username, password] = decoded.split(':');
+
+      // Check credentials against integration config
+      const { readCredentials } = await import('../../common/credentials.js');
+      const allConfigs = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.provider, 'ncentral'), eq(integrationConfigs.isEnabled, true)));
+
+      let tenantId: string | null = null;
+      for (const config of allConfigs) {
+        const creds = readCredentials(config.credentials);
+        // N-central provides the username/password configured in PSA settings
+        // We match against stored ncentral config credentials
+        const storedUser = (config.settings as any)?.psaUsername || 'ncentral';
+        const storedPass = (creds as any).psaPassword || (creds as any).jwtToken || '';
+        if (username === storedUser && password === storedPass) {
+          tenantId = config.tenantId;
+          break;
+        }
+      }
+
+      if (!tenantId) {
+        // Fallback to env vars
+        const expectedKey = process.env.PUBLIC_API_KEY;
+        const defaultTenant = process.env.DEFAULT_TENANT_ID;
+        if (expectedKey && password === expectedKey && defaultTenant) {
+          tenantId = defaultTenant;
+        } else {
+          reply.code(401);
+          return { error: 'Invalid credentials' };
+        }
+      }
+
+      // Parse N-central ticket format
+      const body = request.body as Record<string, any>;
+
+      // N-central sends: customerName, deviceName, description, priority, etc.
+      const subject = body.subject || body.description?.substring(0, 100) || body.deviceName
+        ? `[N-central] ${body.deviceName || 'Alert'}: ${(body.description || body.subject || 'N-central alert').substring(0, 80)}`
+        : body.title || 'N-central Alert';
+
+      const description = [
+        body.description || '',
+        body.deviceName ? `Device: ${body.deviceName}` : '',
+        body.customerName ? `Customer: ${body.customerName}` : '',
+        body.severity ? `Severity: ${body.severity}` : '',
+        body.taskName ? `Task: ${body.taskName}` : '',
+        body.serviceName ? `Service: ${body.serviceName}` : '',
+      ].filter(Boolean).join('\n');
+
+      // Map N-central severity to PSA priority
+      const severityMap: Record<string, string> = {
+        Critical: 'critical', Failed: 'critical',
+        Warning: 'high',
+        Normal: 'medium', Information: 'low',
+      };
+      const priority = severityMap[body.severity] || severityMap[body.priority] || 'medium';
+
+      // Try to match customer
+      let customerId: string | null = null;
+      if (body.customerName) {
+        const [customer] = await fastify.db.select().from(customers)
+          .where(and(eq(customers.tenantId, tenantId), ilike(customers.name, body.customerName))).limit(1);
+        if (customer) customerId = customer.id;
+      }
+
+      // If no customer match, use first customer or create a default
+      if (!customerId) {
+        const [first] = await fastify.db.select({ id: customers.id }).from(customers)
+          .where(eq(customers.tenantId, tenantId)).limit(1);
+        customerId = first?.id ?? null;
+      }
+
+      if (!customerId) {
+        reply.code(400);
+        return { error: 'No customers found in tenant' };
+      }
+
+      // Get next ticket number
+      const [seq] = await fastify.db.select().from(tenantSequences)
+        .where(and(eq(tenantSequences.tenantId, tenantId), eq(tenantSequences.sequenceName, 'ticket'))).limit(1);
+      const nextNum = parseInt(seq?.currentValue ?? '0', 10) + 1;
+      await fastify.db.update(tenantSequences).set({ currentValue: String(nextNum) })
+        .where(and(eq(tenantSequences.tenantId, tenantId), eq(tenantSequences.sequenceName, 'ticket')));
+
+      // Create ticket
+      const [ticket] = await fastify.db.insert(tickets).values({
+        tenantId,
+        ticketNumber: nextNum,
+        customerId,
+        subject,
+        description,
+        priority,
+        source: 'agent_alert',
+        status: 'new',
+      }).returning();
+
+      // Return N-central expected response
+      reply.code(201);
+      return {
+        ticketId: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        status: 'created',
+      };
+    },
+  );
 }

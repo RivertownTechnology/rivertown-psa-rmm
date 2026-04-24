@@ -167,6 +167,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     if (request.url === '/health') return;
     if (request.url.startsWith('/api/v1/auth/google')) return;
     if (request.url.startsWith('/api/public/')) return;
+    if (request.url.startsWith('/api/ncentral/')) return; // N-central PSA integration (Basic Auth)
     if (request.url.startsWith('/api/v1/csat/')) return; // CSAT rating pages are public (customer clicks from email)
     if (request.url.startsWith('/api/v1/invoices/') && request.url.includes('/view')) return; // Public invoice view
     if (request.url.startsWith('/api/v1/invoices/') && request.url.includes('/html')) return; // Public invoice HTML
