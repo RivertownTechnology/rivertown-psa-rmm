@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { eq, and, sql, desc, count } from 'drizzle-orm';
-import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues, ticketQueues, ticketTags, ticketTagAssignments, ticketCategories, ticketSubcategories, recurringTicketRules, workflowRules } from '@rivertown/db';
+import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues, ticketQueues, ticketTags, ticketTagAssignments, ticketCategories, ticketSubcategories, recurringTicketRules, workflowRules, businessDocuments } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
 
@@ -2089,6 +2089,137 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     const settings = { ...((tenant?.settings ?? {}) as Record<string, unknown>), ...body };
     await fastify.db.update(tenants).set({ settings, updatedAt: new Date() }).where(eq(tenants.id, request.tenantId));
     return { success: true };
+  });
+
+  // ===== BUSINESS DOCUMENTS =====
+
+  // List business documents
+  fastify.get('/api/v1/business-documents', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { category, search } = request.query as { category?: string; search?: string };
+    const conditions: any[] = [eq(businessDocuments.tenantId, request.tenantId)];
+    if (category) conditions.push(eq(businessDocuments.category, category));
+    const docs = await fastify.db.select().from(businessDocuments)
+      .where(and(...conditions))
+      .orderBy(businessDocuments.category, businessDocuments.name)
+      .limit(200);
+    if (search) {
+      const q = search.toLowerCase();
+      return docs.filter(d => d.name.toLowerCase().includes(q) || (d.subcategory ?? '').toLowerCase().includes(q) || (d.tags ?? '').toLowerCase().includes(q));
+    }
+    return docs;
+  });
+
+  // Get single business document
+  fastify.get('/api/v1/business-documents/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [doc] = await fastify.db.select().from(businessDocuments)
+      .where(and(eq(businessDocuments.id, id), eq(businessDocuments.tenantId, request.tenantId))).limit(1);
+    if (!doc) throw new ValidationError('Document not found');
+    return doc;
+  });
+
+  // Upload/create business document
+  fastify.post('/api/v1/business-documents', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const data = await request.file();
+
+    let fileName = null, fileSize = null, mimeType = null, storageKey = null;
+    let metadata: Record<string, string> = {};
+
+    if (data) {
+      const buffer = await data.toBuffer();
+      fileName = data.filename;
+      mimeType = data.mimetype;
+      fileSize = buffer.length;
+      storageKey = `${request.tenantId}/business-docs/${Date.now()}-${fileName}`;
+
+      // Get metadata fields from multipart form
+      const fields = data.fields as Record<string, any>;
+      for (const [key, val] of Object.entries(fields)) {
+        if (val && typeof val === 'object' && 'value' in val) metadata[key] = val.value;
+      }
+
+      // Upload to R2
+      const { uploadFile, isR2Configured } = await import('../../services/r2-storage.js');
+      if (await isR2Configured(fastify.db, request.tenantId)) {
+        await uploadFile(fastify.db, request.tenantId, storageKey, buffer, mimeType);
+      }
+    } else {
+      // JSON body (no file)
+      metadata = request.body as Record<string, string>;
+    }
+
+    const [doc] = await fastify.db.insert(businessDocuments).values({
+      tenantId: request.tenantId,
+      name: metadata.name || fileName || 'Untitled',
+      category: metadata.category || 'other',
+      subcategory: metadata.subcategory || null,
+      description: metadata.description || null,
+      fileName,
+      fileSize,
+      mimeType,
+      storageKey,
+      issuer: metadata.issuer || null,
+      documentNumber: metadata.documentNumber || null,
+      issueDate: metadata.issueDate || null,
+      expirationDate: metadata.expirationDate || null,
+      state: metadata.state || null,
+      tags: metadata.tags || null,
+      uploadedBy: request.user.sub,
+    }).returning();
+
+    reply.code(201);
+    return doc;
+  });
+
+  // Update business document metadata
+  fastify.patch('/api/v1/business-documents/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as Record<string, unknown>;
+    const [updated] = await fastify.db.update(businessDocuments)
+      .set({ ...body, updatedAt: new Date() })
+      .where(and(eq(businessDocuments.id, id), eq(businessDocuments.tenantId, request.tenantId)))
+      .returning();
+    return updated;
+  });
+
+  // Delete business document
+  fastify.delete('/api/v1/business-documents/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const [doc] = await fastify.db.select().from(businessDocuments)
+      .where(and(eq(businessDocuments.id, id), eq(businessDocuments.tenantId, request.tenantId))).limit(1);
+    if (doc?.storageKey) {
+      const { deleteFile, isR2Configured } = await import('../../services/r2-storage.js');
+      if (await isR2Configured(fastify.db, request.tenantId)) {
+        await deleteFile(fastify.db, request.tenantId, doc.storageKey).catch(() => {});
+      }
+    }
+    await fastify.db.delete(businessDocuments)
+      .where(and(eq(businessDocuments.id, id), eq(businessDocuments.tenantId, request.tenantId)));
+    reply.code(204).send();
+  });
+
+  // Download business document
+  fastify.get('/api/v1/business-documents/:id/download', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const [doc] = await fastify.db.select().from(businessDocuments)
+      .where(and(eq(businessDocuments.id, id), eq(businessDocuments.tenantId, request.tenantId))).limit(1);
+    if (!doc?.storageKey) { reply.code(404); return { error: 'No file' }; }
+    const { getFileUrl, isR2Configured } = await import('../../services/r2-storage.js');
+    if (!await isR2Configured(fastify.db, request.tenantId)) { reply.code(503); return { error: 'Storage not configured' }; }
+    const url = await getFileUrl(fastify.db, request.tenantId, doc.storageKey);
+    reply.redirect(url);
   });
 }
 

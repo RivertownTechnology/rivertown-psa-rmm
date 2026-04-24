@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { api, getAccessToken } from '@/lib/api';
+import { api, getAccessToken, API_BASE } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -362,9 +362,6 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
       const formData = new FormData();
       formData.append('file', file);
       try {
-        const API_BASE = (import.meta as any).env?.VITE_API_URL
-          ? `${(import.meta as any).env.VITE_API_URL}/api/v1`
-          : '/api/v1';
         const token = getAccessToken();
         const res = await fetch(`${API_BASE}/gov/opportunities/${opportunityId}/documents`, {
           method: 'POST',

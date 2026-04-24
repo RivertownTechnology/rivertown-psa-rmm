@@ -31,6 +31,7 @@ import { GovOpportunitiesPage } from '@/pages/gov-opportunities';
 import { GovOpportunityDetailPage } from '@/pages/gov-opportunity-detail';
 import { GovLibraryPage } from '@/pages/gov-library';
 import { GovAnalyticsPage } from '@/pages/gov-analytics';
+import { BusinessDocumentsPage } from '@/pages/business-documents';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { CommandPalette } from '@/components/command-palette';
 import { AIChat } from '@/components/ai-chat';
@@ -196,6 +197,9 @@ function AppRouter() {
   } else if (pathname === '/catalog') {
     title = 'Product Catalog'; currentNav = '/catalog';
     content = <ProductCatalogPage />;
+  } else if (pathname === '/business-documents') {
+    title = 'Business Documents'; currentNav = '/business-documents';
+    content = <BusinessDocumentsPage />;
   } else if (govOppDetailMatch) {
     title = 'Opportunity'; currentNav = '/gov/opportunities';
     content = <GovOpportunityDetailPage opportunityId={govOppDetailMatch[1]} onBack={() => navigate('/gov/opportunities')} />;
