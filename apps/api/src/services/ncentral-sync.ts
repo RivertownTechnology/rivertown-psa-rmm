@@ -234,6 +234,22 @@ export async function createCustomerInNCentral(
       }
     }
 
+    // Step 6: Try to enable PSA integration (may not be supported via API)
+    try {
+      const psaRes = await fetch(`${base}/api/customers/${ncentralCustomerId}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ psaIntegration: true }),
+      });
+      if (psaRes.ok) {
+        steps.push({ step: 'Enabled PSA integration', status: 'success' });
+      } else {
+        steps.push({ step: 'Enable PSA integration', status: 'error', detail: 'Not available via API — enable manually in N-central under Administration > PSA Integration' });
+      }
+    } catch {
+      steps.push({ step: 'Enable PSA integration', status: 'error', detail: 'Not available via API — enable manually in N-central' });
+    }
+
     console.log(`[ncentral] Created customer "${ncentralName}" in N-central (ID: ${ncentralCustomerId}, ${sitesCreated} sites) for PSA customer ${customerId}`);
     return { success: true, ncentralName, ncentralCustomerId, sitesCreated, steps };
   } catch (err: unknown) {
