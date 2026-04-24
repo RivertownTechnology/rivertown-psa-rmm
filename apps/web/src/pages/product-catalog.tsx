@@ -26,7 +26,7 @@ const categoryLabels: Record<string, string> = {
 };
 
 const emptyForm = {
-  name: '', description: '', sku: '', vendor: '', category: 'license', itemType: 'recurring',
+  name: '', description: '', proposalDescription: '', sku: '', vendor: '', category: 'license', itemType: 'recurring',
   defaultUnitCostCents: '', defaultUnitPriceCents: '', taxable: true,
   pax8ProductName: '', pax8ProductId: '', pax8VendorName: '',
   qboIncomeAccountId: '', qboCogAccountId: '',
@@ -82,6 +82,7 @@ export function ProductCatalogPage() {
     setForm({
       name: item.name,
       description: item.description ?? '',
+      proposalDescription: (item as any).proposalDescription ?? '',
       sku: item.sku ?? '',
       vendor: item.vendor ?? '',
       category: item.category,
@@ -99,10 +100,11 @@ export function ProductCatalogPage() {
   }
 
   function cloneItem(item: CatalogItem) {
-    setEditingId(null); // Creates a new item, not editing
+    setEditingId(null);
     setForm({
       name: `${item.name} (Copy)`,
       description: item.description ?? '',
+      proposalDescription: (item as any).proposalDescription ?? '',
       sku: item.sku ? `${item.sku}-COPY` : '',
       vendor: item.vendor ?? '',
       category: item.category,
@@ -269,8 +271,20 @@ export function ProductCatalogPage() {
               <Input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Microsoft 365 Business Premium" />
             </div>
             <div className="space-y-2">
-              <Label>Description</Label>
-              <Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Per-user cloud productivity suite" />
+              <Label>Invoice Description</Label>
+              <Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Microsoft 365 Business Premium" />
+              <p className="text-xs text-muted-foreground">Short — appears on invoices and contracts</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Proposal / RFP Description</Label>
+              <textarea
+                rows={3}
+                value={form.proposalDescription}
+                onChange={e => setForm({ ...form, proposalDescription: e.target.value })}
+                placeholder="Comprehensive cloud productivity suite including Exchange Online, SharePoint, Teams, OneDrive, and Office desktop apps. Includes advanced threat protection, data loss prevention, and compliance tools for regulated environments."
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+              />
+              <p className="text-xs text-muted-foreground">Detailed — used in quotes and government proposals</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">

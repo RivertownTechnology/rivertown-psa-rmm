@@ -9,7 +9,8 @@ export const serviceCatalogItems = pgTable(
       .notNull()
       .references(() => tenants.id),
     name: text('name').notNull(),
-    description: text('description'),
+    description: text('description'), // Short — shows on invoices
+    proposalDescription: text('proposal_description'), // Long — shows on quotes and RFP proposals
     sku: text('sku'),
     vendor: text('vendor'),
     category: text('category').notNull(),
