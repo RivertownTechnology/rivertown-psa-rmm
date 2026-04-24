@@ -204,6 +204,7 @@ interface GovOpportunityDetailPageProps {
 export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportunityDetailPageProps) {
   const [opp, setOpp] = useState<Opportunity | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('overview');
   const [techs, setTechs] = useState<Tech[]>([]);
 
   // Tab data
@@ -774,7 +775,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="overview">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="pricing">Pricing</TabsTrigger>
