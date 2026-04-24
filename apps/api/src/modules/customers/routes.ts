@@ -92,6 +92,11 @@ export async function customerRoutes(fastify: FastifyInstance) {
         ipAddress: request.ip,
       });
 
+      // Auto-create customer in N-central if integration is enabled (fire and forget)
+      import('../../services/ncentral-sync.js').then(({ createCustomerInNCentral }) => {
+        createCustomerInNCentral(fastify.db, request.tenantId, customer.id, body.name).catch(() => {});
+      });
+
       // Auto-resolve county from address (fire and forget)
       const addr = (body as any).address; const cty = (body as any).city; const st = (body as any).state; const zp = (body as any).zip;
       if (cty && st) {
@@ -201,6 +206,26 @@ export async function customerRoutes(fastify: FastifyInstance) {
       });
 
       reply.code(204).send();
+    },
+  );
+
+  // Create customer in N-central
+  fastify.post(
+    '/api/v1/customers/:id/create-in-ncentral',
+    { preHandler: [fastify.authenticate, requirePermission('customers:write')] },
+    async (request) => {
+      const { id } = request.params as { id: string };
+
+      const [customer] = await fastify.db
+        .select()
+        .from(customers)
+        .where(and(eq(customers.id, id), eq(customers.tenantId, request.tenantId)))
+        .limit(1);
+
+      if (!customer) throw new NotFoundError('Customer', id);
+
+      const { createCustomerInNCentral } = await import('../../services/ncentral-sync.js');
+      return createCustomerInNCentral(fastify.db, request.tenantId, customer.id, customer.name);
     },
   );
 }

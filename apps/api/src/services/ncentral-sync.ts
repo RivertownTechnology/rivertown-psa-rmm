@@ -100,6 +100,96 @@ async function fetchNCentralCustomers(serverUrl: string, accessToken: string): P
   }
 }
 
+// ── Sanitize customer name for N-central ────────────────────────────
+
+/** Replace characters N-central doesn't support with safe alternatives */
+function sanitizeNCentralName(name: string): string {
+  return name
+    .replace(/&/g, 'and')
+    .replace(/[<>]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+// ── Create customer in N-central ────────────────────────────────────
+
+async function fetchNCentralServiceOrgs(serverUrl: string, accessToken: string): Promise<Array<{ soId: number; soName: string }>> {
+  const base = serverUrl.replace(/\/+$/, '');
+  const res = await fetch(`${base}/api/service-orgs`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) return [];
+  const data = await res.json() as any;
+  return Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : [];
+}
+
+/**
+ * Create a customer in N-central. Sanitizes the name, creates via API,
+ * and returns the sanitized name used + N-central customer ID.
+ */
+export async function createCustomerInNCentral(
+  db: any,
+  tenantId: string,
+  customerId: string,
+  customerName: string,
+): Promise<{ success: boolean; ncentralName: string; ncentralCustomerId?: number; error?: string }> {
+  const [config] = await db
+    .select()
+    .from(integrationConfigs)
+    .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'ncentral')))
+    .limit(1);
+
+  if (!config?.isEnabled) return { success: false, ncentralName: '', error: 'N-central integration not enabled' };
+
+  const creds = (config.credentials ?? {}) as Record<string, string>;
+  const settings = (config.settings ?? {}) as Record<string, string>;
+  const serverUrl = settings.serverUrl;
+  const jwtToken = creds.jwtToken;
+  if (!serverUrl || !jwtToken) return { success: false, ncentralName: '', error: 'Missing N-central credentials' };
+
+  const ncentralName = sanitizeNCentralName(customerName);
+
+  try {
+    const accessToken = await getNCentralAccessToken(serverUrl, jwtToken);
+
+    // Get the first service org to create the customer under
+    const serviceOrgs = await fetchNCentralServiceOrgs(serverUrl, accessToken);
+    if (!serviceOrgs.length) return { success: false, ncentralName, error: 'No service organizations found in N-central' };
+    const soId = serviceOrgs[0].soId;
+
+    const base = serverUrl.replace(/\/+$/, '');
+    const res = await fetch(`${base}/api/service-orgs/${soId}/customers`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ customerName: ncentralName }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, ncentralName, error: `N-central API error (${res.status}): ${errText}` };
+    }
+
+    const data = await res.json() as any;
+    const ncentralCustomerId = data.customerId ?? data.data?.customerId;
+
+    // Update the PSA customer with the ncentralName mapping
+    const needsMapping = ncentralName !== customerName;
+    await db.update(customers).set({
+      ncentralName: needsMapping ? ncentralName : null,
+      updatedAt: new Date(),
+    }).where(eq(customers.id, customerId));
+
+    console.log(`[ncentral] Created customer "${ncentralName}" in N-central (ID: ${ncentralCustomerId}) for PSA customer ${customerId}`);
+    return { success: true, ncentralName, ncentralCustomerId };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to create customer';
+    return { success: false, ncentralName, error: message };
+  }
+}
+
 // Exported for the test endpoint
 export async function fetchNCentralDevicesForTest(
   serverUrl: string, jwtToken: string,

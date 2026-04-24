@@ -243,6 +243,18 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
         <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
         <h2 className="text-xl font-semibold">{customer.name}</h2>
         <Button variant="outline" size="sm" onClick={openEditCustomer}><Pencil className="h-3 w-3 mr-1" />Edit</Button>
+        {!(customer as any).ncentralName && (
+          <Button variant="outline" size="sm" onClick={async () => {
+            try {
+              const res = await api<any>(`/customers/${customerId}/create-in-ncentral`, { method: 'POST' });
+              if (res.success) { alert(`Created in N-central as "${res.ncentralName}"`); load(); }
+              else alert(res.error || 'Failed');
+            } catch (e: any) { alert(e.message || 'Failed'); }
+          }}>Create in N-central</Button>
+        )}
+        {(customer as any).ncentralName && (
+          <Badge variant="outline" className="text-xs">N-central: {(customer as any).ncentralName}</Badge>
+        )}
         <Combobox
           options={[
             {value: 'active', label: 'Active Client'},
