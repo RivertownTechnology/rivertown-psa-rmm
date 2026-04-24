@@ -1399,7 +1399,6 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
               <TabsTrigger value="accounting">Accounting</TabsTrigger>
               <TabsTrigger value="ai">AI</TabsTrigger>
               <TabsTrigger value="billing-email">Billing Email</TabsTrigger>
-              <TabsTrigger value="csat">CSAT</TabsTrigger>
               <TabsTrigger value="email">Email & Inbox</TabsTrigger>
               <TabsTrigger value="payments">Payments</TabsTrigger>
               <TabsTrigger value="rmm">RMM</TabsTrigger>
@@ -1409,12 +1408,6 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
             </TabsList>
 
             {/* CSAT SUB-TAB (CrewHu) */}
-            <TabsContent value="csat">
-              <div className="space-y-6 mt-4 max-w-2xl">
-                <CrewHuCard />
-              </div>
-            </TabsContent>
-
             {/* EMAIL & INBOX SUB-TAB */}
             <TabsContent value="email">
               {emailIntegrationsJsx}
