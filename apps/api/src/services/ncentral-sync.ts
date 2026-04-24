@@ -133,12 +133,14 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
 
     // Pre-fetch all customers for this tenant for name matching
     const allCustomers = await db
-      .select({ id: customers.id, name: customers.name })
+      .select({ id: customers.id, name: customers.name, ncentralName: customers.ncentralName })
       .from(customers)
       .where(eq(customers.tenantId, tenantId));
 
     let totalSynced = 0;
     let totalCreated = 0;
+
+    console.log(`[ncentral-sync] Found ${devices.length} devices, ${ncCustomers.length} N-central customers, ${allCustomers.length} PSA customers`);
 
     for (const device of devices) {
       const deviceIdStr = String(device.deviceId);
@@ -158,6 +160,7 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
       if (!existingAsset && hostname) {
         const ncCustomerName = ncCustomerMap.get(device.customerId) || '';
         const matchedCustomer = allCustomers.find((c: any) =>
+          (c.ncentralName && c.ncentralName.toLowerCase() === ncCustomerName.toLowerCase()) ||
           c.name.toLowerCase() === ncCustomerName.toLowerCase()
         );
 
@@ -205,6 +208,7 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
         // Find customer by N-central customer name
         const ncCustomerName = ncCustomerMap.get(device.customerId) || '';
         const matchedCustomer = allCustomers.find((c: any) =>
+          (c.ncentralName && c.ncentralName.toLowerCase() === ncCustomerName.toLowerCase()) ||
           c.name.toLowerCase() === ncCustomerName.toLowerCase()
         );
 
@@ -220,7 +224,10 @@ export async function runNCentralSync(db: any, tenantId: string): Promise<{ sync
           totalCreated++;
           totalSynced++;
         }
-        // If no matching customer, skip this device
+        else {
+          // No matching customer — log and skip
+          console.log(`[ncentral-sync] Skipped device "${hostname}" — no matching customer for N-central customer "${ncCustomerName}"`);
+        }
       }
     }
 
