@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { eq, and, sql, desc, count } from 'drizzle-orm';
-import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues, ticketQueues, ticketTags, ticketTagAssignments, ticketCategories, ticketSubcategories, recurringTicketRules, workflowRules, businessDocuments } from '@rivertown/db';
+import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues, ticketQueues, ticketTags, ticketTagAssignments, ticketCategories, ticketSubcategories, recurringTicketRules, workflowRules, businessDocuments, apiKeys } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
 
@@ -2309,6 +2309,76 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     await fastify.db.update(users).set({ isActive: false, updatedAt: new Date() })
       .where(and(eq(users.id, id), eq(users.tenantId, request.tenantId)));
 
+    reply.code(204).send();
+  });
+
+  // ===== API KEYS =====
+
+  // List API keys
+  fastify.get('/api/v1/settings/api-keys', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    return fastify.db.select({
+      id: apiKeys.id,
+      name: apiKeys.name,
+      keyPrefix: apiKeys.keyPrefix,
+      scopes: apiKeys.scopes,
+      isActive: apiKeys.isActive,
+      lastUsedAt: apiKeys.lastUsedAt,
+      expiresAt: apiKeys.expiresAt,
+      createdAt: apiKeys.createdAt,
+    }).from(apiKeys)
+      .where(eq(apiKeys.tenantId, request.tenantId))
+      .orderBy(desc(apiKeys.createdAt));
+  });
+
+  // Generate new API key
+  fastify.post('/api/v1/settings/api-keys', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { name, scopes, expiresAt } = request.body as { name: string; scopes?: string; expiresAt?: string };
+    if (!name) throw new ValidationError('Name is required');
+
+    const { hash } = await import('bcryptjs');
+    const crypto = await import('crypto');
+
+    // Generate a random API key: rt_<32 random hex chars>
+    const rawKey = 'rt_' + crypto.randomBytes(24).toString('hex');
+    const keyPrefix = rawKey.substring(0, 10); // "rt_abc1234" for display
+    const keyHash = await hash(rawKey, 10);
+
+    const [key] = await fastify.db.insert(apiKeys).values({
+      tenantId: request.tenantId,
+      name,
+      keyHash,
+      keyPrefix,
+      scopes: scopes || '*',
+      expiresAt: expiresAt ? new Date(expiresAt) : null,
+      createdBy: request.user.sub,
+    }).returning();
+
+    reply.code(201);
+    // Return the full key ONCE — it can never be retrieved again
+    return { ...key, key: rawKey };
+  });
+
+  // Revoke API key
+  fastify.delete('/api/v1/settings/api-keys/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.update(apiKeys).set({ isActive: false })
+      .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, request.tenantId)));
+    reply.code(204).send();
+  });
+
+  // Delete API key permanently
+  fastify.delete('/api/v1/settings/api-keys/:id/permanent', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.delete(apiKeys)
+      .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, request.tenantId)));
     reply.code(204).send();
   });
 }

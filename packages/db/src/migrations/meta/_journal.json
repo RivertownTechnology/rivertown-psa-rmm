@@ -260,6 +260,13 @@
       "when": 1745194500000,
       "tag": "0036_proposal_description",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1745194600000,
+      "tag": "0037_api_keys",
+      "breakpoints": true
     }
   ]
 }

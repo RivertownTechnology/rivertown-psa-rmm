@@ -18,6 +18,7 @@ import {
   customers,
   contacts,
   integrationConfigs,
+  apiKeys,
 } from '@rivertown/db';
 import { AppError, NotFoundError } from '../../common/errors.js';
 import { logAudit } from '../../common/audit.js';
@@ -72,18 +73,36 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
     const expectedKey = process.env.PUBLIC_API_KEY;
     const tenantId = process.env.DEFAULT_TENANT_ID;
 
-    if (!expectedKey || !tenantId) {
-      throw new AppError(503, 'Public API not configured', 'NOT_CONFIGURED');
+    // Try env var first
+    if (expectedKey && tenantId) {
+      const keyBuffer = Buffer.from(apiKey);
+      const expectedBuffer = Buffer.from(expectedKey);
+      if (keyBuffer.length === expectedBuffer.length && timingSafeEqual(keyBuffer, expectedBuffer)) {
+        (request as any).tenantId = tenantId;
+        return;
+      }
     }
 
-    // Constant-time comparison to prevent timing attacks
-    const keyBuffer = Buffer.from(apiKey);
-    const expectedBuffer = Buffer.from(expectedKey);
-    if (keyBuffer.length !== expectedBuffer.length || !timingSafeEqual(keyBuffer, expectedBuffer)) {
-      throw new AppError(401, 'Invalid API key', 'UNAUTHORIZED');
+    // Check database API keys
+    const { compare } = await import('bcryptjs');
+    const allKeys = await fastify.db.select().from(apiKeys)
+      .where(eq(apiKeys.isActive, true));
+
+    for (const key of allKeys) {
+      // Check expiration
+      if (key.expiresAt && new Date(key.expiresAt) < new Date()) continue;
+
+      const match = await compare(apiKey, key.keyHash);
+      if (match) {
+        (request as any).tenantId = key.tenantId;
+        // Update last used
+        fastify.db.update(apiKeys).set({ lastUsedAt: new Date() })
+          .where(eq(apiKeys.id, key.id)).catch(() => {});
+        return;
+      }
     }
 
-    (request as any).tenantId = tenantId;
+    throw new AppError(401, 'Invalid API key', 'UNAUTHORIZED');
   });
 
   // ----------------------------------------------------------------
