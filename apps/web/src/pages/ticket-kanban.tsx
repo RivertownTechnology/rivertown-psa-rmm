@@ -87,7 +87,7 @@ export function TicketKanbanPage() {
 
   useEffect(() => {
     fetchTickets();
-    api<{ data: Customer[] }>('/customers?limit=200').then(d => setCustomers(d.data)).catch(() => {});
+    api<{ data: Customer[] }>('/customers?limit=100').then(d => setCustomers(d.data)).catch(() => {});
     api<Tech[]>('/dispatch/techs').then(setTechs).catch(() => {});
   }, [fetchTickets]);
 

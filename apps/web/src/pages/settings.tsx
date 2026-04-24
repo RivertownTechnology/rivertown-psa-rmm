@@ -4692,7 +4692,7 @@ function RecurringTicketsTab() {
 
   useEffect(() => {
     loadRules();
-    api<{ data: Array<{ id: string; name: string }> }>('/customers?limit=200').then(d => setCustomers(d.data ?? [])).catch(() => {});
+    api<{ data: Array<{ id: string; name: string }> }>('/customers?limit=100').then(d => setCustomers(d.data ?? [])).catch(() => {});
     api<Array<{ id: string; displayName: string }>>('/dispatch/techs').then(setTechs).catch(() => {});
     api<Array<{ id: string; name: string }>>('/ticket-categories').then(setCategories).catch(() => {});
     api<Array<{ id: string; name: string }>>('/settings/ticket-queues').then(setQueuesOpts).catch(() => {});

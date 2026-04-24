@@ -364,7 +364,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
       const [contractData, contactData, assetData] = await Promise.all([
         api<{ data: Contract[] }>(`/contracts?customerId=${custId}&status=active&limit=100`),
         api<{ data: Array<{ id: string; firstName: string; lastName: string; email: string }> }>(`/contacts?customerId=${custId}&limit=100`),
-        api<{ data: Array<{ id: string; name: string; assetType: string; screenconnectOnline: boolean }> }>(`/assets?customerId=${custId}&limit=200`).catch(() => ({ data: [] })),
+        api<{ data: Array<{ id: string; name: string; assetType: string; screenconnectOnline: boolean }> }>(`/assets?customerId=${custId}&limit=100`).catch(() => ({ data: [] })),
       ]);
       setContracts(contractData.data);
       setFormContacts(contactData.data);

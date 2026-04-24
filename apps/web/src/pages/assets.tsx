@@ -83,7 +83,7 @@ export function AssetsPage({ onNavigateToCustomer }: { onNavigateToCustomer?: (i
 
   useEffect(() => { fetchAssets(); }, [fetchAssets]);
   useEffect(() => {
-    api<{ data: Customer[] }>('/customers?limit=200').then(d => setCustomers(d.data ?? [])).catch(() => {});
+    api<{ data: Customer[] }>('/customers?limit=100').then(d => setCustomers(d.data ?? [])).catch(() => {});
   }, []);
 
   const customerMap = new Map(customers.map(c => [c.id, c.name]));

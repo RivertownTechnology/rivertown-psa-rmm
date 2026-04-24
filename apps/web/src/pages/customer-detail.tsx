@@ -45,7 +45,7 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
 
   // Customer edit
   const [showEditCustomer, setShowEditCustomer] = useState(false);
-  const [custForm, setCustForm] = useState({ name: '', billingEmail: '', ccBillingEmail: '', phone: '', address: '', city: '', state: '', zip: '', website: '', notes: '' });
+  const [custForm, setCustForm] = useState({ name: '', billingEmail: '', ccBillingEmail: '', phone: '', address: '', city: '', state: '', zip: '', website: '', notes: '', ncentralName: '', screenconnectCompany: '' });
 
   // Contact form
   const [showAddContact, setShowAddContact] = useState(false);
@@ -139,6 +139,7 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
       name: customer.name, billingEmail: customer.billingEmail ?? '', ccBillingEmail: customer.ccBillingEmail ?? '',
       phone: customer.phone ?? '', address: customer.address ?? '', city: customer.city ?? '',
       state: customer.state ?? '', zip: customer.zip ?? '', website: customer.website ?? '', notes: customer.notes ?? '',
+      ncentralName: (customer as any).ncentralName ?? '', screenconnectCompany: (customer as any).screenconnectCompany ?? '',
     });
     setShowEditCustomer(true);
   }
@@ -151,6 +152,7 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
         phone: custForm.phone || undefined, address: custForm.address || undefined, city: custForm.city || undefined,
         state: custForm.state || undefined, zip: custForm.zip || undefined, website: custForm.website || undefined,
         notes: custForm.notes || undefined,
+        ncentralName: custForm.ncentralName || null, screenconnectCompany: custForm.screenconnectCompany || null,
       })});
       setShowEditCustomer(false); load();
     } finally { setSaving(false); }
@@ -268,25 +270,6 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
           placeholder="Select SLA..."
           className="w-44"
         />
-        <div className="flex items-center gap-1.5">
-          <Label className="text-xs text-muted-foreground whitespace-nowrap">N-central Name:</Label>
-          <Input
-            className="w-48 h-8 text-sm"
-            value={(customer as any).ncentralName ?? ''}
-            placeholder="Name in N-central"
-            onBlur={async (e) => {
-              const val = e.target.value.trim();
-              if (val !== ((customer as any).ncentralName ?? '')) {
-                await api(`/customers/${customerId}`, { method: 'PATCH', body: JSON.stringify({ ncentralName: val || null }) });
-                load();
-              }
-            }}
-            onChange={(e) => {
-              // Local state update for controlled input
-              setCustomer((c: any) => c ? { ...c, ncentralName: e.target.value } : c);
-            }}
-          />
-        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
@@ -628,6 +611,10 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
             <div className="space-y-2"><Label>Notes</Label>
               <textarea rows={3} value={custForm.notes} onChange={e => setCustForm({ ...custForm, notes: e.target.value })}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Internal notes..." />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2"><Label>N-central Name</Label><Input value={custForm.ncentralName} onChange={e => setCustForm({ ...custForm, ncentralName: e.target.value })} placeholder="Name in N-central (if different)" /></div>
+              <div className="space-y-2"><Label>ScreenConnect Company</Label><Input value={custForm.screenconnectCompany} onChange={e => setCustForm({ ...custForm, screenconnectCompany: e.target.value })} placeholder="Company name in ScreenConnect" /></div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowEditCustomer(false)}>Cancel</Button>

@@ -340,7 +340,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
 
   const loadAssets = useCallback(async (customerId: string) => {
     try {
-      const data = await api<{ data: Array<{ id: string; name: string; assetType: string; screenconnectSessionId: string | null; screenconnectOnline: boolean }> }>(`/assets?customerId=${customerId}&limit=200`);
+      const data = await api<{ data: Array<{ id: string; name: string; assetType: string; screenconnectSessionId: string | null; screenconnectOnline: boolean }> }>(`/assets?customerId=${customerId}&limit=100`);
       setCustomerAssets(data.data);
     } catch {
       setCustomerAssets([]);
