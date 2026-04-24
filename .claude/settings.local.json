@@ -113,7 +113,8 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:pypi.org)",
       "WebFetch(domain:help.lifecyclemanager.com)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(npx tsx *)"
     ]
   }
 }
