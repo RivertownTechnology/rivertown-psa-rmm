@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, Plus, Mail, Phone, MapPin, Monitor, Ticket, FileText, Pencil, Trash2, Globe, Key } from 'lucide-react';
+import { ArrowLeft, Plus, Mail, Phone, MapPin, Monitor, Ticket, FileText, Pencil, Trash2, Globe, Key, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { Combobox } from '@/components/ui/combobox';
 
@@ -59,6 +59,13 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
   const [portalConfirmContact, setPortalConfirmContact] = useState<{ id: string; name: string; email: string } | null>(null);
   const [portalEnabling, setPortalEnabling] = useState(false);
   const [portalMessage, setPortalMessage] = useState('');
+
+  // N-central creation dialog
+  const [showNcentralDialog, setShowNcentralDialog] = useState(false);
+  const [ncLicenseType, setNcLicenseType] = useState<'Essential' | 'Professional'>('Professional');
+  const [ncCreateSites, setNcCreateSites] = useState(true);
+  const [ncCreating, setNcCreating] = useState(false);
+  const [ncResult, setNcResult] = useState<{ success: boolean; steps: Array<{ step: string; status: string; detail?: string }>; ncentralName?: string; sitesCreated?: number; error?: string } | null>(null);
 
   const load = useCallback(async () => {
     const [c, ct, s, a, t, con, inv] = await Promise.all([
@@ -244,13 +251,9 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
         <h2 className="text-xl font-semibold">{customer.name}</h2>
         <Button variant="outline" size="sm" onClick={openEditCustomer}><Pencil className="h-3 w-3 mr-1" />Edit</Button>
         {!(customer as any).ncentralName && (
-          <Button variant="outline" size="sm" onClick={async () => {
-            try {
-              const res = await api<any>(`/customers/${customerId}/create-in-ncentral`, { method: 'POST' });
-              if (res.success) { alert(`Created in N-central as "${res.ncentralName}"`); load(); }
-              else alert(res.error || 'Failed');
-            } catch (e: any) { alert(e.message || 'Failed'); }
-          }}>Create in N-central</Button>
+          <Button variant="outline" size="sm" onClick={() => { setNcResult(null); setShowNcentralDialog(true); }}>
+            <Globe className="h-3 w-3 mr-1" /> Create in N-central
+          </Button>
         )}
         {(customer as any).ncentralName && (
           <Badge variant="outline" className="text-xs">N-central: {(customer as any).ncentralName}</Badge>
@@ -635,6 +638,157 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* N-central Creation Dialog */}
+      <Dialog open={showNcentralDialog} onOpenChange={(open) => { if (!ncCreating) setShowNcentralDialog(open); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Globe className="h-5 w-5" /> Create in N-central
+            </DialogTitle>
+          </DialogHeader>
+
+          {!ncResult ? (
+            <div className="space-y-4">
+              <div className="rounded-lg bg-muted/50 p-3 text-sm">
+                <p className="font-medium">{customer.name}</p>
+                {customer.name !== sanitizeForDisplay(customer.name) && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Will be created as: <span className="font-medium">{sanitizeForDisplay(customer.name)}</span>
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>License Type</Label>
+                <div className="flex gap-2">
+                  {(['Essential', 'Professional'] as const).map(lt => (
+                    <button
+                      key={lt}
+                      onClick={() => setNcLicenseType(lt)}
+                      className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-colors ${
+                        ncLicenseType === lt
+                          ? 'border-primary bg-primary/5 text-primary'
+                          : 'border-border hover:border-muted-foreground/50'
+                      }`}
+                    >
+                      {lt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {sites.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setNcCreateSites(!ncCreateSites)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${ncCreateSites ? 'bg-green-500' : 'bg-input'}`}
+                    >
+                      <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-lg transition-transform ${ncCreateSites ? 'translate-x-4' : 'translate-x-0'}`} />
+                    </button>
+                    <Label className="cursor-pointer" onClick={() => setNcCreateSites(!ncCreateSites)}>
+                      Create {sites.length} site{sites.length > 1 ? 's' : ''} in N-central
+                    </Label>
+                  </div>
+                  {ncCreateSites && (
+                    <div className="rounded-md border p-2 space-y-1 max-h-32 overflow-y-auto">
+                      {sites.map(s => (
+                        <div key={s.id} className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <MapPin className="h-3 w-3 shrink-0" />
+                          <span>{s.name}</span>
+                          {s.city && s.state && <span className="text-muted-foreground/60">— {s.city}, {s.state}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowNcentralDialog(false)}>Cancel</Button>
+                <Button disabled={ncCreating} onClick={async () => {
+                  setNcCreating(true);
+                  try {
+                    const res = await api<any>(`/customers/${customerId}/create-in-ncentral`, {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        licenseType: ncLicenseType,
+                        createSites: ncCreateSites && sites.length > 0,
+                        sites: ncCreateSites ? sites.map(s => ({
+                          name: s.name,
+                          addressLine1: s.addressLine1,
+                          city: s.city,
+                          state: s.state,
+                          postalCode: s.postalCode,
+                        })) : [],
+                      }),
+                    });
+                    setNcResult(res);
+                    if (res.success) load();
+                  } catch (e: any) {
+                    setNcResult({ success: false, steps: [{ step: 'Request failed', status: 'error', detail: e.message }], error: e.message });
+                  } finally {
+                    setNcCreating(false);
+                  }
+                }}>
+                  {ncCreating ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Creating...</> : 'Create Customer'}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Result */}
+              <div className={`rounded-lg p-4 ${ncResult.success ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  {ncResult.success ? (
+                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  ) : (
+                    <XCircle className="h-5 w-5 text-red-600" />
+                  )}
+                  <span className={`font-medium ${ncResult.success ? 'text-green-800 dark:text-green-300' : 'text-red-800 dark:text-red-300'}`}>
+                    {ncResult.success ? 'Customer created successfully' : 'Creation failed'}
+                  </span>
+                </div>
+                {ncResult.success && ncResult.ncentralName && (
+                  <p className="text-sm text-muted-foreground">N-central name: <span className="font-medium">{ncResult.ncentralName}</span></p>
+                )}
+                {ncResult.success && ncResult.sitesCreated != null && ncResult.sitesCreated > 0 && (
+                  <p className="text-sm text-muted-foreground">{ncResult.sitesCreated} site{ncResult.sitesCreated > 1 ? 's' : ''} created</p>
+                )}
+              </div>
+
+              {/* Step log */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase">Progress</Label>
+                {ncResult.steps.map((s, i) => (
+                  <div key={i} className="flex items-start gap-2 text-sm">
+                    {s.status === 'success' ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                    )}
+                    <div>
+                      <span>{s.step}</span>
+                      {s.detail && <span className="text-xs text-muted-foreground ml-1">— {s.detail}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <DialogFooter>
+                <Button onClick={() => { setShowNcentralDialog(false); setNcResult(null); }}>
+                  {ncResult.success ? 'Done' : 'Close'}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+function sanitizeForDisplay(name: string): string {
+  return name.replace(/&/g, 'and').replace(/[<>]/g, '').replace(/\s{2,}/g, ' ').trim();
 }

@@ -224,8 +224,13 @@ export async function customerRoutes(fastify: FastifyInstance) {
 
       if (!customer) throw new NotFoundError('Customer', id);
 
+      const body = (request.body || {}) as Record<string, any>;
       const { createCustomerInNCentral } = await import('../../services/ncentral-sync.js');
-      return createCustomerInNCentral(fastify.db, request.tenantId, customer.id, customer.name);
+      return createCustomerInNCentral(fastify.db, request.tenantId, customer.id, customer.name, {
+        licenseType: body.licenseType,
+        createSites: body.createSites,
+        sites: body.sites,
+      });
     },
   );
 }

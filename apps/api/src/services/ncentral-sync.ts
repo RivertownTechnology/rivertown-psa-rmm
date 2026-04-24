@@ -121,66 +121,125 @@ async function fetchNCentralServiceOrgs(serverUrl: string, accessToken: string):
  * Create a customer in N-central. Sanitizes the name, creates via API,
  * and returns the sanitized name used + N-central customer ID.
  */
+interface CreateInNCentralOptions {
+  licenseType?: 'Essential' | 'Professional';
+  createSites?: boolean;
+  sites?: Array<{ name: string; addressLine1?: string; city?: string; state?: string; postalCode?: string }>;
+}
+
+interface CreateInNCentralResult {
+  success: boolean;
+  ncentralName: string;
+  ncentralCustomerId?: number;
+  sitesCreated?: number;
+  steps: Array<{ step: string; status: 'success' | 'error'; detail?: string }>;
+  error?: string;
+}
+
 export async function createCustomerInNCentral(
   db: any,
   tenantId: string,
   customerId: string,
   customerName: string,
-): Promise<{ success: boolean; ncentralName: string; ncentralCustomerId?: number; error?: string }> {
+  options: CreateInNCentralOptions = {},
+): Promise<CreateInNCentralResult> {
+  const steps: CreateInNCentralResult['steps'] = [];
   const [config] = await db
     .select()
     .from(integrationConfigs)
     .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'ncentral')))
     .limit(1);
 
-  if (!config?.isEnabled) return { success: false, ncentralName: '', error: 'N-central integration not enabled' };
+  if (!config?.isEnabled) return { success: false, ncentralName: '', steps, error: 'N-central integration not enabled' };
 
   const creds = readCredentials(config.credentials) as Record<string, string>;
   const settings = (config.settings ?? {}) as Record<string, string>;
   const serverUrl = settings.serverUrl;
   const jwtToken = creds.jwtToken;
-  if (!serverUrl || !jwtToken) return { success: false, ncentralName: '', error: 'Missing N-central credentials' };
+  if (!serverUrl || !jwtToken) return { success: false, ncentralName: '', steps, error: 'Missing N-central credentials' };
 
   const ncentralName = sanitizeNCentralName(customerName);
+  const base = serverUrl.replace(/\/+$/, '');
 
   try {
+    // Step 1: Authenticate
     const accessToken = await getNCentralAccessToken(serverUrl, jwtToken);
+    steps.push({ step: 'Authenticated with N-central', status: 'success' });
 
-    // Get the first service org to create the customer under
+    // Step 2: Get service org
     const serviceOrgs = await fetchNCentralServiceOrgs(serverUrl, accessToken);
-    if (!serviceOrgs.length) return { success: false, ncentralName, error: 'No service organizations found in N-central' };
+    if (!serviceOrgs.length) {
+      steps.push({ step: 'Find service organization', status: 'error', detail: 'No service organizations found' });
+      return { success: false, ncentralName, steps, error: 'No service organizations found in N-central' };
+    }
     const soId = serviceOrgs[0].soId;
+    steps.push({ step: `Found service org: ${serviceOrgs[0].soName}`, status: 'success' });
 
-    const base = serverUrl.replace(/\/+$/, '');
+    // Step 3: Create customer
+    const customerBody: Record<string, string> = { customerName: ncentralName };
+    if (options.licenseType) customerBody.licenseType = options.licenseType;
+
     const res = await fetch(`${base}/api/service-orgs/${soId}/customers`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ customerName: ncentralName }),
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(customerBody),
     });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      return { success: false, ncentralName, error: `N-central API error (${res.status}): ${errText}` };
+      steps.push({ step: 'Create customer', status: 'error', detail: `API error (${res.status}): ${errText}` });
+      return { success: false, ncentralName, steps, error: `N-central API error (${res.status}): ${errText}` };
     }
 
     const data = await res.json() as any;
     const ncentralCustomerId = data.customerId ?? data.data?.customerId;
+    steps.push({ step: `Created customer "${ncentralName}" (ID: ${ncentralCustomerId})`, status: 'success' });
 
-    // Update the PSA customer with the ncentralName mapping
+    // Step 4: Update PSA customer with mapping
     const needsMapping = ncentralName !== customerName;
     await db.update(customers).set({
       ncentralName: needsMapping ? ncentralName : null,
       updatedAt: new Date(),
     }).where(eq(customers.id, customerId));
+    steps.push({ step: 'Updated PSA customer mapping', status: 'success' });
 
-    console.log(`[ncentral] Created customer "${ncentralName}" in N-central (ID: ${ncentralCustomerId}) for PSA customer ${customerId}`);
-    return { success: true, ncentralName, ncentralCustomerId };
+    // Step 5: Create sites if requested
+    let sitesCreated = 0;
+    if (options.createSites && options.sites?.length && ncentralCustomerId) {
+      for (const site of options.sites) {
+        try {
+          const siteBody: Record<string, string> = { siteName: sanitizeNCentralName(site.name) };
+          if (site.addressLine1) siteBody.street1 = site.addressLine1;
+          if (site.city) siteBody.city = site.city;
+          if (site.state) siteBody.stateProv = site.state;
+          if (site.postalCode) siteBody.postalCode = site.postalCode;
+          siteBody.country = 'US';
+
+          const siteRes = await fetch(`${base}/api/customers/${ncentralCustomerId}/sites`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(siteBody),
+          });
+
+          if (siteRes.ok) {
+            sitesCreated++;
+            steps.push({ step: `Created site "${site.name}"`, status: 'success' });
+          } else {
+            const errText = await siteRes.text().catch(() => '');
+            steps.push({ step: `Create site "${site.name}"`, status: 'error', detail: `(${siteRes.status}): ${errText}` });
+          }
+        } catch (siteErr) {
+          steps.push({ step: `Create site "${site.name}"`, status: 'error', detail: String(siteErr) });
+        }
+      }
+    }
+
+    console.log(`[ncentral] Created customer "${ncentralName}" in N-central (ID: ${ncentralCustomerId}, ${sitesCreated} sites) for PSA customer ${customerId}`);
+    return { success: true, ncentralName, ncentralCustomerId, sitesCreated, steps };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to create customer';
-    return { success: false, ncentralName, error: message };
+    steps.push({ step: 'Unexpected error', status: 'error', detail: message });
+    return { success: false, ncentralName, steps, error: message };
   }
 }
 
