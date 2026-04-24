@@ -313,19 +313,39 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         .limit(1);
 
       const creds = config ? readCredentials(config.credentials) : {};
+      const settings = (config?.settings ?? {}) as Record<string, string>;
       const apiKey = (creds.apiKey as string) || process.env.ANTHROPIC_API_KEY || '';
+      const provider = settings.provider || 'anthropic';
+      const model = settings.model || 'claude-sonnet-4-20250514';
       if (!apiKey) throw new ValidationError('No API key configured');
 
-      const Anthropic = (await import('@anthropic-ai/sdk')).default;
-      const client = new Anthropic({ apiKey });
-      const response = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 50,
-        messages: [{ role: 'user', content: 'Reply with "AI connection successful" and nothing else.' }],
-      });
-
-      const text = response.content[0];
-      return { success: true, message: text.type === 'text' ? text.text : 'Connected' };
+      try {
+        if (provider === 'openai') {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, max_tokens: 50, messages: [{ role: 'user', content: 'Reply with "AI connection successful" and nothing else.' }] }),
+          });
+          if (!res.ok) {
+            const err = await res.text();
+            return { success: false, message: `OpenAI error (${res.status}): ${err.substring(0, 200)}` };
+          }
+          const data = await res.json() as any;
+          return { success: true, message: data.choices?.[0]?.message?.content ?? 'Connected' };
+        } else {
+          const Anthropic = (await import('@anthropic-ai/sdk')).default;
+          const client = new Anthropic({ apiKey });
+          const response = await client.messages.create({
+            model, max_tokens: 50,
+            messages: [{ role: 'user', content: 'Reply with "AI connection successful" and nothing else.' }],
+          });
+          const text = response.content[0];
+          return { success: true, message: text.type === 'text' ? text.text : 'Connected' };
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Connection failed';
+        return { success: false, message: msg };
+      }
     },
   );
 
@@ -2038,6 +2058,34 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     await fastify.db.delete(workflowRules)
       .where(and(eq(workflowRules.id, id), eq(workflowRules.tenantId, request.tenantId)));
     reply.code(204).send();
+  });
+
+  // ===== REPORT TEMPLATE SETTINGS =====
+
+  fastify.get('/api/v1/settings/report-template', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const [tenant] = await fastify.db.select({ settings: tenants.settings }).from(tenants)
+      .where(eq(tenants.id, request.tenantId)).limit(1);
+    const s = (tenant?.settings ?? {}) as Record<string, unknown>;
+    return {
+      reportPrimaryColor: s.reportPrimaryColor ?? '#2563eb',
+      reportAccentColor: s.reportAccentColor ?? '#3b82f6',
+      reportLogoUrl: s.reportLogoUrl ?? '',
+      reportCompanyName: s.reportCompanyName ?? '',
+      reportFooterText: s.reportFooterText ?? '',
+    };
+  });
+
+  fastify.put('/api/v1/settings/report-template', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const body = request.body as Record<string, string>;
+    const [tenant] = await fastify.db.select({ settings: tenants.settings }).from(tenants)
+      .where(eq(tenants.id, request.tenantId)).limit(1);
+    const settings = { ...((tenant?.settings ?? {}) as Record<string, unknown>), ...body };
+    await fastify.db.update(tenants).set({ settings, updatedAt: new Date() }).where(eq(tenants.id, request.tenantId));
+    return { success: true };
   });
 }
 

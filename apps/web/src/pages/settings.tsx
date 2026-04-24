@@ -973,6 +973,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
             <TabsList className="flex-wrap h-auto">
               <TabsTrigger value="sla">SLA</TabsTrigger>
               <TabsTrigger value="templates">Templates</TabsTrigger>
+              <TabsTrigger value="report-template">Report Template</TabsTrigger>
             </TabsList>
             <TabsContent value="templates">
               <div className="mt-4">
@@ -1196,6 +1197,9 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
           </div>
             </TabsContent>
 
+            <TabsContent value="report-template">
+              <div className="mt-4 text-sm text-muted-foreground">Report template settings coming soon.</div>
+            </TabsContent>
 
           </Tabs>
         </TabsContent>

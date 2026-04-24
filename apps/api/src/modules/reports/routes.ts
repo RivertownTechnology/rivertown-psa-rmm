@@ -1,7 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { eq, and, sql, count, gte, lte, desc } from 'drizzle-orm';
-import { tickets, ticketTimeEntries, users, customers, contracts, contractLineItems, invoices, csatRatings } from '@rivertown/db';
+import { tickets, ticketTimeEntries, users, customers, contracts, contractLineItems, invoices, csatRatings, assets, tenants } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
+import { ValidationError } from '../../common/errors.js';
 
 export async function reportRoutes(fastify: FastifyInstance) {
   // Ticket volume over time
@@ -240,6 +241,155 @@ export async function reportRoutes(fastify: FastifyInstance) {
     return {
       happy, neutral, unhappy, total,
       satisfactionPercent: total > 0 ? Math.round((happy / total) * 1000) / 10 : 0,
+    };
+  });
+
+  // Executive Summary Report
+  fastify.get('/api/v1/reports/executive-summary', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')]
+  }, async (request) => {
+    const { customerId, startDate, endDate } = request.query as { customerId: string; startDate: string; endDate: string };
+    if (!customerId || !startDate || !endDate) throw new ValidationError('customerId, startDate, and endDate are required');
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setDate(end.getDate() + 1); // Include end date
+
+    // Customer info
+    const [customer] = await fastify.db.select().from(customers)
+      .where(and(eq(customers.id, customerId), eq(customers.tenantId, request.tenantId))).limit(1);
+    if (!customer) throw new ValidationError('Customer not found');
+
+    // Tickets in period
+    const periodTickets = await fastify.db.select()
+      .from(tickets)
+      .where(and(
+        eq(tickets.tenantId, request.tenantId),
+        eq(tickets.customerId, customerId),
+        gte(tickets.createdAt, start),
+        lte(tickets.createdAt, end),
+      ));
+
+    const totalTickets = periodTickets.length;
+    const resolvedTickets = periodTickets.filter(t => ['resolved', 'closed'].includes(t.status));
+    const openTickets = periodTickets.filter(t => !['resolved', 'closed'].includes(t.status));
+    const criticalTickets = periodTickets.filter(t => t.priority === 'critical');
+    const highTickets = periodTickets.filter(t => t.priority === 'high');
+
+    // SLA performance
+    const slaTracked = resolvedTickets.filter(t => t.slaBreached !== null);
+    const slaMet = slaTracked.filter(t => !t.slaBreached).length;
+    const slaBreached = slaTracked.filter(t => t.slaBreached).length;
+    const slaCompliance = slaTracked.length > 0 ? Math.round((slaMet / slaTracked.length) * 1000) / 10 : 100;
+
+    // Average resolution time (for resolved tickets)
+    const resolutionTimes = resolvedTickets
+      .filter(t => t.resolvedAt && t.createdAt)
+      .map(t => (new Date(t.resolvedAt!).getTime() - new Date(t.createdAt).getTime()) / 3600000); // hours
+    const avgResolutionHours = resolutionTimes.length > 0
+      ? Math.round((resolutionTimes.reduce((a, b) => a + b, 0) / resolutionTimes.length) * 10) / 10
+      : 0;
+
+    // Time entries
+    const ticketIds = periodTickets.map(t => t.id);
+    let totalLaborMinutes = 0;
+    let billableMinutes = 0;
+    if (ticketIds.length > 0) {
+      for (const tid of ticketIds) {
+        const entries = await fastify.db.select({ durationMinutes: ticketTimeEntries.durationMinutes, isBillable: ticketTimeEntries.isBillable })
+          .from(ticketTimeEntries).where(eq(ticketTimeEntries.ticketId, tid));
+        for (const e of entries) {
+          totalLaborMinutes += e.durationMinutes ?? 0;
+          if (e.isBillable) billableMinutes += e.durationMinutes ?? 0;
+        }
+      }
+    }
+
+    // Contracts
+    const activeContracts = await fastify.db.select({ id: contracts.id, name: contracts.name, contractType: contracts.contractType })
+      .from(contracts)
+      .where(and(eq(contracts.tenantId, request.tenantId), eq(contracts.customerId, customerId), eq(contracts.status, 'active')));
+
+    // Assets
+    const customerAssets = await fastify.db.select({ id: assets.id, name: assets.name, assetType: assets.assetType, screenconnectOnline: assets.screenconnectOnline })
+      .from(assets)
+      .where(and(eq(assets.tenantId, request.tenantId), eq(assets.customerId, customerId)));
+    const onlineAssets = customerAssets.filter(a => a.screenconnectOnline).length;
+
+    // CSAT
+    let csatHappy = 0, csatNeutral = 0, csatUnhappy = 0;
+    if (ticketIds.length > 0) {
+      for (const tid of ticketIds) {
+        const ratings = await fastify.db.select({ rating: csatRatings.rating })
+          .from(csatRatings).where(and(eq(csatRatings.ticketId, tid), sql`${csatRatings.rating} IS NOT NULL AND ${csatRatings.rating} > 0`));
+        for (const r of ratings) {
+          if (r.rating === 3) csatHappy++;
+          else if (r.rating === 2) csatNeutral++;
+          else if (r.rating === 1) csatUnhappy++;
+        }
+      }
+    }
+    const csatTotal = csatHappy + csatNeutral + csatUnhappy;
+    const csatScore = csatTotal > 0 ? Math.round((csatHappy / csatTotal) * 1000) / 10 : null;
+
+    // Ticket breakdown by source
+    const categoryBreakdown: Record<string, number> = {};
+    for (const t of periodTickets) {
+      const cat = t.source || 'manual';
+      categoryBreakdown[cat] = (categoryBreakdown[cat] ?? 0) + 1;
+    }
+
+    // Ticket breakdown by priority
+    const priorityBreakdown: Record<string, number> = {};
+    for (const t of periodTickets) {
+      priorityBreakdown[t.priority] = (priorityBreakdown[t.priority] ?? 0) + 1;
+    }
+
+    // Top tickets by time spent
+    const topTickets: Array<{ ticketNumber: number; subject: string; status: string; minutesSpent: number }> = [];
+    for (const t of periodTickets.slice(0, 50)) {
+      const entries = await fastify.db.select({ durationMinutes: ticketTimeEntries.durationMinutes })
+        .from(ticketTimeEntries).where(eq(ticketTimeEntries.ticketId, t.id));
+      const mins = entries.reduce((s, e) => s + (e.durationMinutes ?? 0), 0);
+      topTickets.push({ ticketNumber: t.ticketNumber, subject: t.subject, status: t.status, minutesSpent: mins });
+    }
+    topTickets.sort((a, b) => b.minutesSpent - a.minutesSpent);
+
+    // Report template settings
+    const [tenant] = await fastify.db.select({ settings: tenants.settings }).from(tenants)
+      .where(eq(tenants.id, request.tenantId)).limit(1);
+    const tenantSettings = (tenant?.settings ?? {}) as Record<string, unknown>;
+
+    return {
+      customer: { name: customer.name, email: customer.billingEmail },
+      period: { startDate, endDate },
+      template: {
+        primaryColor: tenantSettings.reportPrimaryColor ?? '#2563eb',
+        accentColor: tenantSettings.reportAccentColor ?? '#3b82f6',
+        logoUrl: tenantSettings.reportLogoUrl ?? '',
+        companyName: tenantSettings.reportCompanyName ?? '',
+        footerText: tenantSettings.reportFooterText ?? '',
+      },
+      tickets: {
+        total: totalTickets,
+        resolved: resolvedTickets.length,
+        open: openTickets.length,
+        critical: criticalTickets.length,
+        high: highTickets.length,
+        avgResolutionHours,
+        priorityBreakdown,
+        sourceBreakdown: categoryBreakdown,
+        topByTime: topTickets.slice(0, 10),
+      },
+      sla: { tracked: slaTracked.length, met: slaMet, breached: slaBreached, compliance: slaCompliance },
+      labor: {
+        totalHours: Math.round(totalLaborMinutes / 6) / 10,
+        billableHours: Math.round(billableMinutes / 6) / 10,
+        nonBillableHours: Math.round((totalLaborMinutes - billableMinutes) / 6) / 10,
+      },
+      contracts: activeContracts.map(c => ({ name: c.name, type: c.contractType })),
+      assets: { total: customerAssets.length, online: onlineAssets, types: customerAssets.reduce((acc: Record<string, number>, a) => { acc[a.assetType] = (acc[a.assetType] ?? 0) + 1; return acc; }, {}) },
+      csat: { happy: csatHappy, neutral: csatNeutral, unhappy: csatUnhappy, total: csatTotal, score: csatScore },
     };
   });
 }
