@@ -3242,8 +3242,8 @@ function NCentralCard() {
     isEnabled: false,
     serverUrl: '',
     jwtToken: '',
-    psaUsername: '',
-    psaPassword: '',
+    psaApiUsername: '',
+    psaApiPassword: '',
     syncFrequency: '15min',
   });
   const [loaded, setLoaded] = useState(false);
@@ -3261,8 +3261,8 @@ function NCentralCard() {
           isEnabled: data.isEnabled,
           serverUrl: data.serverUrl || '',
           jwtToken: data.jwtToken || '',
-          psaUsername: (data as any).psaUsername || '',
-          psaPassword: (data as any).psaPassword || '',
+          psaApiUsername: (data as any).psaApiUsername || (data as any).psaUsername || '',
+          psaApiPassword: (data as any).psaApiPassword || (data as any).psaPassword || '',
           syncFrequency: data.syncFrequency || '15min',
         });
         setLastSync(data.lastSyncAt);
@@ -3340,15 +3340,15 @@ function NCentralCard() {
         <Separator />
 
         <div className="text-sm font-medium">N-central PSA API Credentials</div>
-        <p className="text-xs text-muted-foreground">These are the credentials N-central provides to access their API. Found in N-central: Administration &rarr; PSA Integration &rarr; PSA Configuration (Username shown as "custompsa/XXXX").</p>
+        <p className="text-xs text-muted-foreground">From N-central: Administration &rarr; PSA Integration &rarr; PSA Configuration. These credentials let your PSA communicate with N-central's API.</p>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
-            <Label>PSA Username</Label>
-            <Input value={config.psaUsername} onChange={e => setConfig({ ...config, psaUsername: e.target.value })} placeholder="custompsa/1473" />
+            <Label>API Username</Label>
+            <Input value={config.psaApiUsername} onChange={e => setConfig({ ...config, psaApiUsername: e.target.value })} placeholder="custompsa/1473" />
           </div>
           <div className="space-y-2">
-            <Label>PSA Password</Label>
-            <Input type="password" value={config.psaPassword} onChange={e => setConfig({ ...config, psaPassword: e.target.value })} placeholder="N-central PSA password" />
+            <Label>API Password</Label>
+            <Input type="password" value={config.psaApiPassword} onChange={e => setConfig({ ...config, psaApiPassword: e.target.value })} placeholder="Password from N-central" />
           </div>
         </div>
 
