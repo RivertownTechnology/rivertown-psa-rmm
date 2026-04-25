@@ -237,13 +237,25 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
         return `- ${o.title} | ${o.agency} [${o.agencyType}] | Status: ${o.status} | Value: ${val} | Set-aside: ${o.setAsideType || 'none'} | Deadline: ${deadline} | Win prob: ${o.winProbability ?? 'N/A'}%${o.samNumber ? ` | SAM#: ${o.samNumber}` : ''}`;
       }).join('\n')}`);
 
-      // If user mentions a specific opportunity by name, include its full RFP notes
+      // If user mentions a specific opportunity by name, include its RFP data
       for (const o of opps) {
-        if (o.notes && o.title && msgLower.includes(o.title.toLowerCase().split(' ').slice(0, 3).join(' '))) {
-          // Include up to 8000 chars of RFP notes for the matching opportunity
-          context.push(`Full RFP/Notes for "${o.title}":\n${o.notes.substring(0, 8000)}`);
-        } else if (o.notes && o.agency && msgLower.includes(o.agency.toLowerCase())) {
-          context.push(`Full RFP/Notes for "${o.title}":\n${o.notes.substring(0, 8000)}`);
+        const titleWords = o.title?.toLowerCase().split(' ').slice(0, 3).join(' ') || '';
+        const agencyLower = o.agency?.toLowerCase() || '';
+        const mentioned = (titleWords && msgLower.includes(titleWords)) || (agencyLower && msgLower.includes(agencyLower));
+
+        if (mentioned && o.id) {
+          // First include the full structured AI analysis (compact, covers everything)
+          const [fullOpp] = await db.select({ aiAnalysis: govOpportunities.aiAnalysis })
+            .from(govOpportunities).where(eq(govOpportunities.id, o.id)).limit(1);
+          if (fullOpp?.aiAnalysis) {
+            const analysisStr = JSON.stringify(fullOpp.aiAnalysis);
+            context.push(`Detailed RFP Analysis for "${o.title}":\n${analysisStr.substring(0, 6000)}`);
+          }
+
+          // Then include raw RFP notes (the full text the AI can search through)
+          if (o.notes) {
+            context.push(`RFP Full Text for "${o.title}":\n${o.notes.substring(0, 20000)}`);
+          }
         }
       }
 
@@ -267,16 +279,19 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
       }
     }
 
-    // Include AI analysis from opportunities
+    // Include AI analysis summaries for non-mentioned opportunities
     for (const o of opps) {
-      if (o.id) {
+      const titleWords = o.title?.toLowerCase().split(' ').slice(0, 3).join(' ') || '';
+      const agencyLower = o.agency?.toLowerCase() || '';
+      const alreadyIncluded = (titleWords && msgLower.includes(titleWords)) || (agencyLower && msgLower.includes(agencyLower));
+      if (!alreadyIncluded && o.id) {
         const [fullOpp] = await db.select({ aiAnalysis: govOpportunities.aiAnalysis })
           .from(govOpportunities).where(eq(govOpportunities.id, o.id)).limit(1);
         if (fullOpp?.aiAnalysis) {
           const analysis = fullOpp.aiAnalysis as Record<string, unknown>;
           const summary = (analysis.summary as string) || '';
           if (summary) {
-            context.push(`RFP Analysis for "${o.title}": ${summary.substring(0, 1500)}`);
+            context.push(`RFP Analysis for "${o.title}": ${summary.substring(0, 500)}`);
           }
         }
       }
