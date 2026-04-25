@@ -246,6 +246,10 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
 
   // Document panel
   const [selectedDoc, setSelectedDoc] = useState<GovDocument | null>(null);
+  // Analyze dialog
+  const [analyzeDocDialog, setAnalyzeDocDialog] = useState<GovDocument | null>(null);
+  const [analyzeDocType, setAnalyzeDocType] = useState<'rfp' | 'addendum'>('rfp');
+  const [analyzingDocId, setAnalyzingDocId] = useState<string | null>(null);
 
   // Paste RFP
   const [pasteRfpText, setPasteRfpText] = useState('');
@@ -1535,20 +1539,30 @@ ${sectionsHtml}
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <Badge variant="secondary" className="text-[10px]">{doc.documentType || doc.fileName?.split('.').pop()}</Badge>
-                      <Button variant="ghost" size="sm" className="h-7 text-xs gap-1"
-                        onClick={async (e) => {
+                      <select
+                        className="text-[10px] h-6 rounded border bg-muted px-1 cursor-pointer"
+                        value={doc.documentType || 'other'}
+                        onClick={e => e.stopPropagation()}
+                        onChange={async (e) => {
                           e.stopPropagation();
-                          try {
-                            const result = await api<any>(`/gov/documents/${doc.id}/analyze`, { method: 'POST' });
-                            if (result.error) { alert(result.error); return; }
-                            alert('Document analyzed! Check Overview for results.');
-                            fetchDocuments();
-                            fetchOpp();
-                            fetchCompliance();
-                          } catch (err: any) { alert(`Analysis failed: ${err.message}`); }
+                          await api(`/gov/documents/${doc.id}`, { method: 'PATCH', body: JSON.stringify({ documentType: e.target.value }) }).catch(() => {});
+                          fetchDocuments();
+                        }}
+                      >
+                        <option value="rfp">RFP</option>
+                        <option value="amendment">Addendum</option>
+                        <option value="attachment">Attachment</option>
+                        <option value="response">Response</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <Button variant="ghost" size="sm" className="h-7 text-xs gap-1"
+                        disabled={analyzingDocId === doc.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAnalyzeDocType(doc.documentType === 'amendment' ? 'addendum' : 'rfp');
+                          setAnalyzeDocDialog(doc);
                         }}>
-                        <Sparkles className="h-3 w-3" /> Analyze
+                        {analyzingDocId === doc.id ? <><Loader2 className="h-3 w-3 animate-spin" /> Analyzing...</> : <><Sparkles className="h-3 w-3" /> Analyze</>}
                       </Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
                         onClick={async (e) => {
@@ -1969,6 +1983,88 @@ ${sectionsHtml}
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Analyze Document Dialog */}
+      <Dialog open={!!analyzeDocDialog} onOpenChange={(open) => { if (!analyzingDocId) { if (!open) setAnalyzeDocDialog(null); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5" /> Analyze Document
+            </DialogTitle>
+            <DialogDescription>
+              Classify this document so the AI knows how to process it.
+            </DialogDescription>
+          </DialogHeader>
+
+          {analyzeDocDialog && (
+            <div className="space-y-4">
+              <div className="rounded-md bg-muted/50 p-3">
+                <p className="text-sm font-medium truncate">{analyzeDocDialog.fileName}</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Document Type</Label>
+                <div className="flex gap-2">
+                  {([['rfp', 'RFP / Solicitation'], ['addendum', 'Addendum / Amendment']] as const).map(([val, label]) => (
+                    <button
+                      key={val}
+                      onClick={() => setAnalyzeDocType(val)}
+                      className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-colors ${
+                        analyzeDocType === val
+                          ? 'border-primary bg-primary/5 text-primary'
+                          : 'border-border hover:border-muted-foreground/50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {analyzeDocType === 'rfp'
+                    ? 'The extracted text will replace the opportunity notes and be used as the primary RFP content for AI analysis.'
+                    : 'The extracted text will be appended to the existing opportunity notes as an addendum.'}
+                </p>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setAnalyzeDocDialog(null)}>Cancel</Button>
+                <Button disabled={!!analyzingDocId} onClick={async () => {
+                  const docId = analyzeDocDialog.id;
+                  setAnalyzingDocId(docId);
+                  try {
+                    // Update document type
+                    await api(`/gov/documents/${docId}`, {
+                      method: 'PATCH',
+                      body: JSON.stringify({ documentType: analyzeDocType === 'rfp' ? 'rfp' : 'amendment' }),
+                    }).catch(() => {});
+
+                    // Analyze with the type hint
+                    const result = await api<any>(`/gov/documents/${docId}/analyze`, {
+                      method: 'POST',
+                      body: JSON.stringify({ documentType: analyzeDocType }),
+                    });
+
+                    if (result.error) {
+                      alert(result.error);
+                    } else {
+                      setAnalyzeDocDialog(null);
+                      fetchDocuments();
+                      fetchOpp();
+                      fetchCompliance();
+                    }
+                  } catch (err: any) {
+                    alert(`Analysis failed: ${err.message}`);
+                  } finally {
+                    setAnalyzingDocId(null);
+                  }
+                }}>
+                  {analyzingDocId ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Analyzing...</> : <><Sparkles className="h-4 w-4 mr-1" /> Analyze</>}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Section Generation Dialog */}
       <Dialog open={!!sectionGenDialog} onOpenChange={(open) => { if (sectionGenStatus !== 'generating') { if (!open) setSectionGenDialog(null); } }}>

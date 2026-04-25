@@ -435,6 +435,22 @@ export async function govContractRoutes(fastify: FastifyInstance) {
       .orderBy(desc(govDocuments.createdAt));
   });
 
+  // ── Documents: Update type ───────────────────────────────────────
+
+  fastify.patch('/api/v1/gov/documents/:id', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { documentType?: string };
+    const updates: Record<string, unknown> = {};
+    if (body.documentType) updates.documentType = body.documentType;
+    if (Object.keys(updates).length > 0) {
+      await fastify.db.update(govDocuments).set(updates)
+        .where(and(eq(govDocuments.id, id), eq(govDocuments.tenantId, request.tenantId)));
+    }
+    return { success: true };
+  });
+
   // ── Documents: Delete ────────────────────────────────────────────
 
   fastify.delete('/api/v1/gov/documents/:id', {
@@ -465,6 +481,9 @@ export async function govContractRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     try {
     const { id } = request.params as { id: string };
+    const body = (request.body || {}) as { documentType?: 'rfp' | 'addendum' };
+    const isAddendum = body.documentType === 'addendum';
+
     const [doc] = await fastify.db.select().from(govDocuments)
       .where(and(eq(govDocuments.id, id), eq(govDocuments.tenantId, request.tenantId))).limit(1);
     if (!doc) throw new NotFoundError('Document', id);
@@ -535,13 +554,24 @@ export async function govContractRoutes(fastify: FastifyInstance) {
       aiExtractedData: analysis as any,
     }).where(eq(govDocuments.id, id));
 
-    // Also update opportunity with this analysis and save RFP text to notes
+    // Also update opportunity with this analysis and save text to notes
     const [opp] = await fastify.db.select({ id: govOpportunities.id, notes: govOpportunities.notes })
       .from(govOpportunities).where(eq(govOpportunities.id, doc.opportunityId)).limit(1);
     if (opp) {
+      let updatedNotes: string;
+      if (isAddendum) {
+        // Append addendum text to existing notes
+        const existing = opp.notes || '';
+        const separator = `\n\n--- ADDENDUM: ${doc.fileName} (${new Date().toLocaleDateString()}) ---\n\n`;
+        updatedNotes = (existing + separator + docText).substring(0, 100000);
+      } else {
+        // RFP: replace notes with full RFP text
+        updatedNotes = docText.substring(0, 50000);
+      }
+
       await fastify.db.update(govOpportunities).set({
         aiAnalysis: analysis as any,
-        notes: docText.substring(0, 50000),
+        notes: updatedNotes,
         updatedAt: new Date(),
       }).where(eq(govOpportunities.id, doc.opportunityId));
 
