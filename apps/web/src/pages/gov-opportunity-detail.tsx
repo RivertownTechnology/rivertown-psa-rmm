@@ -1986,10 +1986,10 @@ ${sectionsHtml}
 
       {/* Analyze Document Dialog */}
       <Dialog open={!!analyzeDocDialog} onOpenChange={(open) => { if (!analyzingDocId) { if (!open) setAnalyzeDocDialog(null); } }}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm overflow-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5" /> Analyze Document
+              <Sparkles className="h-5 w-5 shrink-0" /> Analyze Document
             </DialogTitle>
             <DialogDescription>
               Classify this document so the AI knows how to process it.
@@ -1998,8 +1998,8 @@ ${sectionsHtml}
 
           {analyzeDocDialog && (
             <div className="space-y-4">
-              <div className="rounded-md bg-muted/50 p-3">
-                <p className="text-sm font-medium truncate">{analyzeDocDialog.fileName}</p>
+              <div className="rounded-md bg-muted/50 p-3 overflow-hidden">
+                <p className="text-sm font-medium break-all line-clamp-2">{analyzeDocDialog.fileName}</p>
               </div>
 
               <div className="space-y-2">
