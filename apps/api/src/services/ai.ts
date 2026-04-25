@@ -220,13 +220,14 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
   }
 
   // If asking about gov contracts/opportunities/rfp/proposals/compliance
-  if (msgLower.match(/gov|government|opportunity|opportunities|rfp|bid|proposal|compliance|cmmc|nist|set.aside|sdvosb|agency|federal|state contract|submission|award/)) {
+  if (msgLower.match(/gov|government|opportunity|opportunities|rfp|bid|proposal|compliance|cmmc|nist|set.aside|sdvosb|agency|federal|state contract|submission|award|irmo|town of|county|city of/)) {
     const opps = await db.select({
       id: govOpportunities.id, title: govOpportunities.title, agency: govOpportunities.agency,
       agencyType: govOpportunities.agencyType, status: govOpportunities.status,
       estimatedValue: govOpportunities.estimatedValue, setAsideType: govOpportunities.setAsideType,
       submissionDeadline: govOpportunities.submissionDeadline, winProbability: govOpportunities.winProbability,
       contractType: govOpportunities.contractType, samNumber: govOpportunities.samNumber,
+      notes: govOpportunities.notes,
     }).from(govOpportunities).where(eq(govOpportunities.tenantId, tenantId)).orderBy(desc(govOpportunities.createdAt)).limit(25);
 
     if (opps.length > 0) {
@@ -235,6 +236,16 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
         const deadline = o.submissionDeadline ? new Date(o.submissionDeadline).toLocaleDateString() : 'No deadline';
         return `- ${o.title} | ${o.agency} [${o.agencyType}] | Status: ${o.status} | Value: ${val} | Set-aside: ${o.setAsideType || 'none'} | Deadline: ${deadline} | Win prob: ${o.winProbability ?? 'N/A'}%${o.samNumber ? ` | SAM#: ${o.samNumber}` : ''}`;
       }).join('\n')}`);
+
+      // If user mentions a specific opportunity by name, include its full RFP notes
+      for (const o of opps) {
+        if (o.notes && o.title && msgLower.includes(o.title.toLowerCase().split(' ').slice(0, 3).join(' '))) {
+          // Include up to 8000 chars of RFP notes for the matching opportunity
+          context.push(`Full RFP/Notes for "${o.title}":\n${o.notes.substring(0, 8000)}`);
+        } else if (o.notes && o.agency && msgLower.includes(o.agency.toLowerCase())) {
+          context.push(`Full RFP/Notes for "${o.title}":\n${o.notes.substring(0, 8000)}`);
+        }
+      }
 
       // Include proposals count per opportunity
       const proposals = await db.select({
@@ -265,7 +276,7 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
           const analysis = fullOpp.aiAnalysis as Record<string, unknown>;
           const summary = (analysis.summary as string) || '';
           if (summary) {
-            context.push(`RFP Analysis for "${o.title}": ${summary.substring(0, 500)}`);
+            context.push(`RFP Analysis for "${o.title}": ${summary.substring(0, 1500)}`);
           }
         }
       }
