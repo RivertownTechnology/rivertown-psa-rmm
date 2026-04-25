@@ -462,7 +462,8 @@ export async function govContractRoutes(fastify: FastifyInstance) {
   fastify.post('/api/v1/gov/documents/:id/analyze', {
     preHandler: [fastify.authenticate, requirePermission('tickets:write')],
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } } as any,
-  }, async (request) => {
+  }, async (request, reply) => {
+    try {
     const { id } = request.params as { id: string };
     const [doc] = await fastify.db.select().from(govDocuments)
       .where(and(eq(govDocuments.id, id), eq(govDocuments.tenantId, request.tenantId))).limit(1);
@@ -568,6 +569,12 @@ export async function govContractRoutes(fastify: FastifyInstance) {
     }
 
     return analysis;
+    } catch (err: unknown) {
+      console.error('[GOV-DOC] Analyze error:', err);
+      const message = err instanceof Error ? err.message : 'Analysis failed';
+      reply.code(500);
+      return { error: `Document analysis failed: ${message}` };
+    }
   });
 
   // ── AI Analysis: Analyze RFP (from opportunity notes) ───────────
