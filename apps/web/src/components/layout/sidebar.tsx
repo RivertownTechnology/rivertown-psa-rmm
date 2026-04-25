@@ -69,6 +69,7 @@ const navGroups: NavGroup[] = [
       { label: 'Opportunities', icon: Target, href: '/gov/opportunities' },
       { label: 'Library', icon: Archive, href: '/gov/library' },
       { label: 'Analytics', icon: BarChart3, href: '/gov/analytics' },
+      { label: 'Settings', icon: Settings, href: '/gov/settings' },
     ],
   },
 ];

@@ -32,6 +32,7 @@ import { GovOpportunitiesPage } from '@/pages/gov-opportunities';
 import { GovOpportunityDetailPage } from '@/pages/gov-opportunity-detail';
 import { GovLibraryPage } from '@/pages/gov-library';
 import { GovAnalyticsPage } from '@/pages/gov-analytics';
+import { GovSettingsPage } from '@/pages/gov-settings';
 import { BusinessDocumentsPage } from '@/pages/business-documents';
 import { PublicProposalPage } from '@/pages/public-proposal';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
@@ -220,6 +221,9 @@ function AppRouter() {
   } else if (pathname === '/gov/library') {
     title = 'Gov Library'; currentNav = '/gov/library';
     content = <GovLibraryPage />;
+  } else if (pathname === '/gov/settings') {
+    title = 'Gov Settings'; currentNav = '/gov/settings';
+    content = <GovSettingsPage />;
   } else if (pathname === '/gov/analytics') {
     title = 'Gov Analytics'; currentNav = '/gov/analytics';
     content = <GovAnalyticsPage />;
