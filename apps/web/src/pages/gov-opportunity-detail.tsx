@@ -233,7 +233,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   const [catalogItems, setCatalogItems] = useState<Array<{id: string; name: string; category: string; defaultUnitPriceCents: number; defaultUnitCostCents: number | null}>>([]);
   const [showAddPricing, setShowAddPricing] = useState(false);
   const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
-  const [pricingForm, setPricingForm] = useState({ need: '', catalogItemId: '', quantity: '1', unitPriceCents: '', unitCostCents: '', frequency: 'monthly', notes: '', linkedToId: '' });
+  const [pricingForm, setPricingForm] = useState({ need: '', catalogItemId: '', quantity: '1', unitPriceCents: '', unitCostCents: '', frequency: 'monthly', notes: '', linkedToId: '', scenario: 'base' });
   const [generatingPricing, setGeneratingPricing] = useState(false);
 
   // AI states
@@ -761,7 +761,7 @@ ${sectionsHtml}
   // ---------------------------------------------------------------------------
 
   function resetPricingForm() {
-    setPricingForm({ need: '', catalogItemId: '', quantity: '1', unitPriceCents: '', unitCostCents: '', frequency: 'monthly', notes: '', linkedToId: '' });
+    setPricingForm({ need: '', catalogItemId: '', quantity: '1', unitPriceCents: '', unitCostCents: '', frequency: 'monthly', notes: '', linkedToId: '', scenario: 'base' });
   }
 
   function handleCatalogSelect(catalogItemId: string) {
@@ -788,6 +788,7 @@ ${sectionsHtml}
           frequency: pricingForm.frequency,
           notes: pricingForm.notes || null,
           linkedToId: pricingForm.linkedToId || null,
+          scenario: pricingForm.scenario || 'base',
         }),
       });
       setShowAddPricing(false);
@@ -811,6 +812,7 @@ ${sectionsHtml}
           frequency: pricingForm.frequency,
           notes: pricingForm.notes || null,
           linkedToId: pricingForm.linkedToId || null,
+          scenario: pricingForm.scenario || 'base',
         }),
       });
       setEditingPricingId(null);
@@ -865,6 +867,7 @@ ${sectionsHtml}
       frequency: item.frequency || 'monthly',
       notes: item.notes || '',
       linkedToId: item.linkedToId || '',
+      scenario: item.scenario || 'base',
     });
     setShowAddPricing(true);
   }
@@ -1241,9 +1244,21 @@ ${sectionsHtml}
               </Button>
             </div>
 
-            {/* Pricing Table */}
-            {pricingItems.length > 0 ? (
-              <Card>
+            {/* Pricing Table — grouped by scenario */}
+            {pricingItems.length > 0 ? (() => {
+              const SCENARIO_LABELS: Record<string, string> = { base: 'Base Proposal', option_a: 'Option A', option_b: 'Option B', option_c: 'Option C' };
+              const scenarios = [...new Set(pricingItems.map(i => i.scenario || 'base'))].sort();
+              return scenarios.map(scenario => {
+                const items = pricingItems.filter(i => (i.scenario || 'base') === scenario);
+                const scenarioMonthly = items.filter(i => !i.linkedToId && i.frequency === 'monthly').reduce((s, i) => s + (i.unitPriceCents ?? 0) * parseFloat(i.quantity ?? '1'), 0);
+                return (
+              <Card key={scenario}>
+                <CardHeader className="pb-2 pt-3 px-4">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm">{SCENARIO_LABELS[scenario] || scenario}</CardTitle>
+                    <span className="text-xs text-muted-foreground">{formatDollars(scenarioMonthly)}/mo</span>
+                  </div>
+                </CardHeader>
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -1261,12 +1276,12 @@ ${sectionsHtml}
                         </tr>
                       </thead>
                       <tbody>
-                        {pricingItems.filter(i => !i.linkedToId).map(item => {
+                        {items.filter(i => !i.linkedToId).map(item => {
                           const qty = parseFloat(item.quantity ?? '1');
                           const lineTotal = (item.unitPriceCents ?? 0) * qty;
                           const lineCost = (item.unitCostCents ?? 0) * qty;
                           const lineMargin = lineTotal > 0 ? Math.round(((lineTotal - lineCost) / lineTotal) * 100) : 0;
-                          const linkedItems = pricingItems.filter(i => i.linkedToId === item.id);
+                          const linkedItems = items.filter(i => i.linkedToId === item.id);
                           return (
                             <React.Fragment key={item.id}>
                             <tr className="border-b hover:bg-muted/30">
@@ -1319,26 +1334,14 @@ ${sectionsHtml}
                             </React.Fragment>
                           );
                         })}
-                        {/* Unlinked unmapped items that can be linked */}
-                        {pricingItems.filter(i => i.linkedToId && !pricingItems.some(p => p.id === i.linkedToId)).length > 0 && null}
                       </tbody>
-                      <tfoot>
-                        <tr className="bg-muted/50 font-medium">
-                          <td className="px-4 py-2" colSpan={6}>Totals</td>
-                          <td className="px-4 py-2 text-right">{formatDollars(pricingTotals.totalMonthlyCents)}/mo</td>
-                          <td className="px-4 py-2 text-right">
-                            <span className={pricingTotals.margin >= 30 ? 'text-green-600' : pricingTotals.margin >= 15 ? 'text-yellow-600' : 'text-red-600'}>
-                              {pricingTotals.margin}%
-                            </span>
-                          </td>
-                          <td />
-                        </tr>
-                      </tfoot>
                     </table>
                   </div>
                 </CardContent>
               </Card>
-            ) : (
+                );
+              });
+            })() : (
               <Card>
                 <CardContent className="py-12 text-center">
                   <DollarSign className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
@@ -1419,6 +1422,19 @@ ${sectionsHtml}
                         <SelectItem value="one_time">One Time</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div>
+                    <Label>Pricing Scenario</Label>
+                    <select
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      value={pricingForm.scenario}
+                      onChange={e => setPricingForm(f => ({ ...f, scenario: e.target.value }))}
+                    >
+                      <option value="base">Base Proposal</option>
+                      <option value="option_a">Option A</option>
+                      <option value="option_b">Option B</option>
+                      <option value="option_c">Option C</option>
+                    </select>
                   </div>
                   <div>
                     <Label>Notes</Label>

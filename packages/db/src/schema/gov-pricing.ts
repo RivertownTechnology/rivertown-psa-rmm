@@ -16,6 +16,7 @@ export const govPricingItems = pgTable('gov_pricing_items', {
   unitCostCents: integer('unit_cost_cents').default(0), // Override cost (or from catalog)
   frequency: text('frequency').default('monthly'), // monthly, annually, one_time
   linkedToId: uuid('linked_to_id'), // If set, this need is covered by another pricing item (no separate charge)
+  scenario: text('scenario').default('base'), // base, option_a, option_b, option_c, etc.
   notes: text('notes'),
   sortOrder: integer('sort_order').default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

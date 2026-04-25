@@ -1296,6 +1296,7 @@ ${section.title.toLowerCase().includes('sla') ? '\nIMPORTANT: Present the SLA da
       unitPriceCents,
       unitCostCents,
       frequency: body.frequency || 'monthly',
+      scenario: body.scenario || 'base',
       notes: body.notes || null,
       sortOrder: body.sortOrder ?? 0,
     }).returning();
