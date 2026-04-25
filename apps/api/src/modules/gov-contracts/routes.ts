@@ -496,7 +496,8 @@ export async function govContractRoutes(fastify: FastifyInstance) {
                 // pdf-parse v2: class-based API
                 const parser = new PDFParseClass({ data: buffer, verbosity: VerbLevel?.ERRORS ?? 0 });
                 await parser.load();
-                docText = await parser.getText() || '';
+                const result = await parser.getText();
+                docText = typeof result === 'string' ? result : (result?.text || '');
               } else {
                 // pdf-parse v1 fallback
                 const fn = (pdfMod as any).default || pdfMod;
