@@ -218,6 +218,10 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
 
+  // SLA policies for proposal
+  const [slaPolicies, setSlaPolicies] = useState<Array<{ id: string; name: string; isDefault: boolean }>>([]);
+  const [selectedSlaPolicyId, setSelectedSlaPolicyId] = useState('');
+
   // Section generation dialog
   const [sectionGenDialog, setSectionGenDialog] = useState<{ proposalId: string; sectionIndex: number; sectionTitle: string } | null>(null);
   const [sectionGenInstructions, setSectionGenInstructions] = useState('');
@@ -351,6 +355,12 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
       const items = Array.isArray(d) ? d : (d.data ?? []);
       setCatalogItems(items);
     }).catch(() => {});
+    api<any>('/settings/sla-policies').then(d => {
+      const policies = Array.isArray(d) ? d : (d.data ?? []);
+      setSlaPolicies(policies);
+      const def = policies.find((p: any) => p.isDefault);
+      if (def) setSelectedSlaPolicyId(def.id);
+    }).catch(() => {});
   }, [fetchOpp, fetchDocuments, fetchProposals, fetchCompliance, fetchSubmissions, fetchActivities, fetchPricing]);
 
   // ---------------------------------------------------------------------------
@@ -473,7 +483,10 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
     try {
       await api(`/gov/proposals/${sectionGenDialog.proposalId}/sections/${sectionGenDialog.sectionIndex}/generate`, {
         method: 'POST',
-        body: JSON.stringify({ instructions: sectionGenInstructions || undefined }),
+        body: JSON.stringify({
+          instructions: sectionGenInstructions || undefined,
+          slaPolicyId: sectionGenDialog.sectionTitle.toLowerCase().includes('sla') ? selectedSlaPolicyId : undefined,
+        }),
       });
       await fetchProposals();
       setSectionGenStatus('done');
@@ -1986,6 +1999,22 @@ ${sectionsHtml}
                       </span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {sectionGenDialog?.sectionTitle?.toLowerCase().includes('sla') && slaPolicies.length > 0 && (
+                <div className="space-y-2">
+                  <Label>SLA Policy</Label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={selectedSlaPolicyId}
+                    onChange={e => setSelectedSlaPolicyId(e.target.value)}
+                  >
+                    {slaPolicies.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}{p.isDefault ? ' (Default)' : ''}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">The selected SLA response/resolution times will be included in the generated section.</p>
                 </div>
               )}
 

@@ -147,6 +147,7 @@ const Combobox = React.forwardRef<HTMLButtonElement, ComboboxProps>(
               ref={listRef}
               role="listbox"
               className="max-h-60 overflow-y-auto p-1"
+              onWheel={e => e.stopPropagation()}
             >
               {filtered.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">

@@ -10,6 +10,8 @@ import {
   govSubmissions,
   govPricingItems,
   serviceCatalogItems,
+  integrationConfigs,
+  slaPolicies,
 } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError } from '../../common/errors.js';
@@ -676,14 +678,26 @@ export async function govContractRoutes(fastify: FastifyInstance) {
       .limit(1);
     if (!opp) throw new NotFoundError('Opportunity', id);
 
-    const defaultSections = [
+    // Load default sections from template if available
+    let defaultSections = [
       { title: 'Executive Summary', content: '', order: 1, isComplete: false },
       { title: 'Technical Approach', content: '', order: 2, isComplete: false },
       { title: 'Past Performance', content: '', order: 3, isComplete: false },
       { title: 'Staffing Plan', content: '', order: 4, isComplete: false },
-      { title: 'Pricing Narrative', content: '', order: 5, isComplete: false },
-      { title: 'Compliance Matrix', content: '', order: 6, isComplete: false },
+      { title: 'SLA Matrix', content: '', order: 5, isComplete: false },
+      { title: 'Pricing Narrative', content: '', order: 6, isComplete: false },
+      { title: 'Compliance Matrix', content: '', order: 7, isComplete: false },
     ];
+
+    const [templateConfig] = await fastify.db.select().from(integrationConfigs)
+      .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'gov_proposal_template')))
+      .limit(1);
+    if (templateConfig?.settings) {
+      const tmpl = templateConfig.settings as any;
+      if (tmpl.sections?.length) {
+        defaultSections = tmpl.sections.map((s: any) => ({ title: s.title, content: '', order: s.order, isComplete: false }));
+      }
+    }
 
     let sections = body.sections || defaultSections;
 
@@ -882,7 +896,7 @@ export async function govContractRoutes(fastify: FastifyInstance) {
   }, async (request) => {
     const { id, sectionIndex: sectionIndexStr } = request.params as { id: string; sectionIndex: string };
     const sectionIndex = parseInt(sectionIndexStr, 10);
-    const body = (request.body || {}) as { instructions?: string };
+    const body = (request.body || {}) as { instructions?: string; slaPolicyId?: string };
 
     const [proposal] = await fastify.db.select().from(govProposals)
       .where(and(eq(govProposals.id, id), eq(govProposals.tenantId, request.tenantId)))
@@ -934,6 +948,46 @@ export async function govContractRoutes(fastify: FastifyInstance) {
       }
     }
 
+    // Get SLA policies for SLA sections
+    let slaContext = '';
+    if (section.title.toLowerCase().includes('sla')) {
+      const slaList = await fastify.db.select().from(slaPolicies)
+        .where(and(eq(slaPolicies.tenantId, request.tenantId), eq(slaPolicies.isActive, true)));
+
+      // Use the SLA specified in body, or the default
+      const selectedSla = body.slaPolicyId
+        ? slaList.find(s => s.id === body.slaPolicyId)
+        : slaList.find(s => s.isDefault) || slaList[0];
+
+      if (selectedSla) {
+        const fmtTime = (mins: number) => mins < 60 ? `${mins} minutes` : mins < 1440 ? `${Math.floor(mins/60)} hours` : `${Math.floor(mins/1440)} business days`;
+        slaContext = `\nSLA Policy: "${selectedSla.name}"
+| Priority | Response Time | Resolution Time |
+|----------|--------------|-----------------|
+| Critical | ${fmtTime(selectedSla.criticalResponseMinutes)} | ${fmtTime(selectedSla.criticalResolutionMinutes)} |
+| High | ${fmtTime(selectedSla.highResponseMinutes)} | ${fmtTime(selectedSla.highResolutionMinutes)} |
+| Medium | ${fmtTime(selectedSla.mediumResponseMinutes)} | ${fmtTime(selectedSla.mediumResolutionMinutes)} |
+| Low | ${fmtTime(selectedSla.lowResponseMinutes)} | ${fmtTime(selectedSla.lowResolutionMinutes)} |
+
+Business Hours: ${selectedSla.businessHoursEnabled ? `${selectedSla.businessHoursStart} - ${selectedSla.businessHoursEnd}` : '24/7'}
+System Uptime Target: 99.9%\n`;
+      }
+    }
+
+    // Get template instructions for this section
+    let templateInstructions = '';
+    const [tmplConfig] = await fastify.db.select().from(integrationConfigs)
+      .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'gov_proposal_template')))
+      .limit(1);
+    if (tmplConfig?.settings) {
+      const tmpl = (tmplConfig.settings as any).sections as Array<{ title: string; instructions: string }> | undefined;
+      const match = tmpl?.find(t => t.title.toLowerCase() === section.title.toLowerCase());
+      if (match?.instructions) templateInstructions = match.instructions;
+    }
+
+    // Get company profile from template
+    const companyProfile = tmplConfig?.settings ? ((tmplConfig.settings as any).companyProfile || '') : '';
+
     // Get other sections for context
     const otherSections = sections
       .filter((_, i) => i !== sectionIndex && _.content?.trim())
@@ -948,17 +1002,21 @@ export async function govContractRoutes(fastify: FastifyInstance) {
 
     const systemPrompt = `You are a government proposal writer for Rivertown Technology Group, an MSP. Generate the "${section.title}" section for a government IT services proposal.
 
+${companyProfile ? `Company profile:\n${companyProfile}\n` : ''}
 Opportunity details:
 ${oppContext}
 
+${templateInstructions ? `Section guidelines: ${templateInstructions}\n` : ''}
 ${rfpContext ? `RFP Analysis:\n${rfpContext}\n` : ''}
 ${pricingContext}
+${slaContext}
 ${libraryContent ? `Company library content:\n${libraryContent}\n` : ''}
 ${otherSections ? `Other proposal sections already written:\n${otherSections}\n` : ''}
 ${body.instructions ? `User instructions: ${body.instructions}\n` : ''}
 
 Write a comprehensive, professional "${section.title}" section. Use markdown formatting. Be specific and detailed. Do not include other sections — only generate content for "${section.title}".
-${section.title.toLowerCase().includes('pricing') ? '\nIMPORTANT: Include specific dollar amounts and service bundle pricing from the pricing items above. Create a clear pricing table or breakdown that the agency can evaluate.' : ''}`;
+${section.title.toLowerCase().includes('pricing') ? '\nIMPORTANT: Include specific dollar amounts and service bundle pricing from the pricing items above. Create a clear pricing table or breakdown that the agency can evaluate.' : ''}
+${section.title.toLowerCase().includes('sla') ? '\nIMPORTANT: Present the SLA data above in a professionally formatted markdown table. Include response times, resolution targets, escalation procedures, and uptime guarantees.' : ''}`;
 
     const content = await callAI(ai, systemPrompt, `Generate the "${section.title}" section for this government proposal.`, 3000);
 
@@ -1358,6 +1416,61 @@ ${section.title.toLowerCase().includes('pricing') ? '\nIMPORTANT: Include specif
       .where(and(eq(govDocumentLibrary.id, id), eq(govDocumentLibrary.tenantId, request.tenantId)));
 
     reply.code(204).send();
+  });
+
+  // ── Default Proposal Template ──────────────────────────────────
+
+  fastify.get('/api/v1/gov/proposal-template', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const [config] = await fastify.db.select().from(integrationConfigs)
+      .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'gov_proposal_template')))
+      .limit(1);
+
+    const defaults = {
+      sections: [
+        { title: 'Executive Summary', instructions: 'Provide a high-level overview of our company, understanding of the client\'s needs, our approach, and why we are the best fit. Keep it concise — 1-2 pages.', order: 1 },
+        { title: 'Technical Approach', instructions: 'Detail our service delivery framework, infrastructure management strategy, technology platform expertise, cybersecurity approach, and transition plan. Reference specific technologies and methodologies.', order: 2 },
+        { title: 'Past Performance', instructions: 'Highlight relevant municipal and government IT experience, CJIS compliance work, similar-scope projects, and client satisfaction metrics. Include specific examples without naming clients unless authorized.', order: 3 },
+        { title: 'Staffing Plan', instructions: 'Outline the team structure: account manager, technical lead, help desk, security specialist, network engineer. Include required certifications (CJIS, CompTIA, Microsoft, etc.) and response coverage model.', order: 4 },
+        { title: 'SLA Matrix', instructions: 'Present our Service Level Agreement in a clear table format with response times, resolution targets, uptime guarantees, and escalation procedures by priority level. Pull from the selected SLA policy.', order: 5 },
+        { title: 'Pricing Narrative', instructions: 'Explain our pricing philosophy, what is included in the fixed monthly fee, cost justification, and value proposition. Reference specific line items from the pricing tab. Include contract terms and renewal options.', order: 6 },
+        { title: 'Compliance Matrix', instructions: 'Map our capabilities to every RFP requirement. Use a table with Requirement | Compliance Status | Evidence columns. Mark each as COMPLIANT with supporting detail.', order: 7 },
+      ],
+      companyProfile: '',
+    };
+
+    if (config?.settings) {
+      const saved = config.settings as any;
+      if (saved.sections) defaults.sections = saved.sections;
+      if (saved.companyProfile) defaults.companyProfile = saved.companyProfile;
+    }
+
+    return defaults;
+  });
+
+  fastify.put('/api/v1/gov/proposal-template', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const body = request.body as { sections: Array<{ title: string; instructions: string; order: number }>; companyProfile?: string };
+
+    const [existing] = await fastify.db.select().from(integrationConfigs)
+      .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'gov_proposal_template')))
+      .limit(1);
+
+    const settings = { sections: body.sections, companyProfile: body.companyProfile || '' };
+
+    if (existing) {
+      await fastify.db.update(integrationConfigs).set({ settings, updatedAt: new Date() })
+        .where(eq(integrationConfigs.id, existing.id));
+    } else {
+      await fastify.db.insert(integrationConfigs).values({
+        tenantId: request.tenantId, provider: 'gov_proposal_template',
+        isEnabled: true, credentials: {}, settings,
+      });
+    }
+
+    return { success: true };
   });
 
   // ── Dashboard ────────────────────────────────────────────────────
