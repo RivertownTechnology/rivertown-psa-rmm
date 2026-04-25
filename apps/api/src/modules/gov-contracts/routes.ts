@@ -487,10 +487,22 @@ export async function govContractRoutes(fastify: FastifyInstance) {
 
           if (doc.mimeType === 'application/pdf' || doc.fileName.endsWith('.pdf')) {
             try {
-              const pdfParseModule = await import('pdf-parse');
-              const pdfParse = (pdfParseModule as any).default || pdfParseModule;
-              const pdfData = await pdfParse(buffer);
-              docText = pdfData.text || '';
+              const pdfMod = await import('pdf-parse');
+              const PDFParseClass = (pdfMod as any).PDFParse;
+              const VerbLevel = (pdfMod as any).VerbosityLevel;
+
+              if (typeof PDFParseClass === 'function') {
+                // pdf-parse v2: class-based API
+                const parser = new PDFParseClass({ data: buffer, verbosity: VerbLevel?.ERRORS ?? 0 });
+                await parser.load();
+                docText = await parser.getText() || '';
+              } else {
+                // pdf-parse v1 fallback
+                const fn = (pdfMod as any).default || pdfMod;
+                const result = await fn(buffer);
+                docText = result.text || '';
+              }
+
               if (!docText || docText.trim().length < 10) {
                 extractError = 'PDF appears to be scanned/image-based with no extractable text. OCR is not currently supported.';
               }
