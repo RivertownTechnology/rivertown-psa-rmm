@@ -1,5 +1,5 @@
 import { eq, and, sql, desc } from 'drizzle-orm';
-import { tickets, ticketComments, integrationConfigs, customers, contacts, contracts, contractLineItems, invoices, assets, serviceCatalogItems, govOpportunities, govProposals, govComplianceItems, govDocumentLibrary } from '@rivertown/db';
+import { tickets, ticketComments, integrationConfigs, customers, contacts, contracts, contractLineItems, invoices, assets, serviceCatalogItems, govOpportunities, govProposals, govComplianceItems, govDocumentLibrary, govDocuments } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import { readCredentials } from '../common/credentials.js';
 
@@ -253,6 +253,33 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
         const pending = compliance.filter(c => c.status === 'pending').length;
         const atRisk = compliance.filter(c => c.status === 'at_risk').length;
         context.push(`Compliance items: ${compliance.length} total — ${complete} complete, ${pending} pending, ${atRisk} at risk`);
+      }
+    }
+
+    // Include AI analysis from opportunities
+    for (const o of opps) {
+      if (o.id) {
+        const [fullOpp] = await db.select({ aiAnalysis: govOpportunities.aiAnalysis })
+          .from(govOpportunities).where(eq(govOpportunities.id, o.id)).limit(1);
+        if (fullOpp?.aiAnalysis) {
+          const analysis = fullOpp.aiAnalysis as Record<string, unknown>;
+          const summary = (analysis.summary as string) || '';
+          if (summary) {
+            context.push(`RFP Analysis for "${o.title}": ${summary.substring(0, 500)}`);
+          }
+        }
+      }
+    }
+
+    // Include uploaded document analysis
+    const docs = await db.select({
+      fileName: govDocuments.fileName, documentType: govDocuments.documentType,
+      aiSummary: govDocuments.aiSummary, opportunityId: govDocuments.opportunityId,
+    }).from(govDocuments).where(eq(govDocuments.tenantId, tenantId)).limit(20);
+    if (docs.length > 0) {
+      const docsWithSummary = docs.filter(d => d.aiSummary);
+      if (docsWithSummary.length > 0) {
+        context.push(`Analyzed Documents (${docsWithSummary.length}):\n${docsWithSummary.map(d => `- ${d.fileName} [${d.documentType}]: ${(d.aiSummary || '').substring(0, 300)}`).join('\n')}`);
       }
     }
 
