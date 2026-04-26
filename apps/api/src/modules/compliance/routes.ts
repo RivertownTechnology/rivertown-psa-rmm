@@ -16,7 +16,13 @@ import {
   complianceRiskItems,
   compliancePolicies,
   complianceActivityLog,
+  complianceScopedAssets,
+  compliancePersonnelScreening,
+  complianceTrainingRecords,
+  complianceVendors,
+  complianceIncidents,
   customers,
+  assets,
 } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError } from '../../common/errors.js';
@@ -899,5 +905,287 @@ export async function complianceRoutes(fastify: FastifyInstance) {
       totalAssessments: totalAssessments?.count ?? 0,
       recentActivity,
     };
+  });
+
+  // ── Asset Scope Mapping ─────────────────────────────────────────
+
+  fastify.get('/api/v1/compliance/customers/:customerId/scoped-assets', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const { customerId } = request.params as { customerId: string };
+    const params = request.query as Record<string, string>;
+    const conditions = [eq(complianceScopedAssets.tenantId, request.tenantId), eq(complianceScopedAssets.customerId, customerId)];
+    if (params.frameworkId) conditions.push(eq(complianceScopedAssets.frameworkId, params.frameworkId));
+
+    const scoped = await fastify.db.select().from(complianceScopedAssets).where(and(...conditions));
+    const assetIds = scoped.map(s => s.assetId);
+    const assetList = assetIds.length > 0 ? await fastify.db.select({ id: assets.id, name: assets.name, assetType: assets.assetType, ipAddress: assets.ipAddress, osName: assets.osName })
+      .from(assets).where(inArray(assets.id, assetIds)) : [];
+    const assetMap = new Map(assetList.map(a => [a.id, a]));
+
+    return scoped.map(s => ({ ...s, asset: assetMap.get(s.assetId) }));
+  });
+
+  fastify.post('/api/v1/compliance/customers/:customerId/scoped-assets', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request, reply) => {
+    const { customerId } = request.params as { customerId: string };
+    const body = request.body as any;
+    const assetIds = Array.isArray(body.assetIds) ? body.assetIds : [body.assetId];
+
+    let created = 0;
+    for (const assetId of assetIds) {
+      try {
+        await fastify.db.insert(complianceScopedAssets).values({
+          tenantId: request.tenantId, customerId,
+          frameworkId: body.frameworkId, assetId,
+          networkZone: body.networkZone, justification: body.justification,
+          addedBy: request.user.sub,
+        }).onConflictDoNothing();
+        created++;
+      } catch { /* skip duplicates */ }
+    }
+    reply.code(201);
+    return { created };
+  });
+
+  fastify.delete('/api/v1/compliance/scoped-assets/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.delete(complianceScopedAssets)
+      .where(and(eq(complianceScopedAssets.id, id), eq(complianceScopedAssets.tenantId, request.tenantId)));
+    return { deleted: true };
+  });
+
+  // ── Personnel Screening ─────────────────────────────────────────
+
+  fastify.get('/api/v1/compliance/personnel', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const params = request.query as Record<string, string>;
+    const conditions = [eq(compliancePersonnelScreening.tenantId, request.tenantId)];
+    if (params.customerId) conditions.push(eq(compliancePersonnelScreening.customerId, params.customerId));
+    if (params.status) conditions.push(eq(compliancePersonnelScreening.status, params.status));
+    return fastify.db.select().from(compliancePersonnelScreening)
+      .where(and(...conditions)).orderBy(desc(compliancePersonnelScreening.createdAt)).limit(100);
+  });
+
+  fastify.post('/api/v1/compliance/personnel', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request, reply) => {
+    const body = request.body as any;
+    const [record] = await fastify.db.insert(compliancePersonnelScreening).values({
+      tenantId: request.tenantId,
+      customerId: body.customerId || null,
+      contactId: body.contactId || null,
+      userId: body.userId || null,
+      personName: body.personName,
+      personRole: body.personRole,
+      screeningType: body.screeningType,
+      status: body.status || 'pending',
+      submittedDate: body.submittedDate,
+      clearedDate: body.clearedDate,
+      expirationDate: body.expirationDate,
+      renewalDueDate: body.renewalDueDate,
+      agencyOri: body.agencyOri,
+      notes: body.notes,
+      metadata: body.metadata,
+    }).returning();
+    reply.code(201);
+    return record;
+  });
+
+  fastify.patch('/api/v1/compliance/personnel/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as any;
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    for (const key of ['personName', 'personRole', 'screeningType', 'status', 'submittedDate', 'clearedDate', 'expirationDate', 'renewalDueDate', 'agencyOri', 'documentStorageKey', 'notes', 'metadata']) {
+      if (body[key] !== undefined) updates[key] = body[key];
+    }
+    const [updated] = await fastify.db.update(compliancePersonnelScreening).set(updates)
+      .where(and(eq(compliancePersonnelScreening.id, id), eq(compliancePersonnelScreening.tenantId, request.tenantId))).returning();
+    return updated;
+  });
+
+  // ── Training Records ────────────────────────────────────────────
+
+  fastify.get('/api/v1/compliance/training', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const params = request.query as Record<string, string>;
+    const conditions = [eq(complianceTrainingRecords.tenantId, request.tenantId)];
+    if (params.customerId) conditions.push(eq(complianceTrainingRecords.customerId, params.customerId));
+    if (params.status) conditions.push(eq(complianceTrainingRecords.status, params.status));
+    return fastify.db.select().from(complianceTrainingRecords)
+      .where(and(...conditions)).orderBy(desc(complianceTrainingRecords.createdAt)).limit(200);
+  });
+
+  fastify.post('/api/v1/compliance/training', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request, reply) => {
+    const body = request.body as any;
+    const [record] = await fastify.db.insert(complianceTrainingRecords).values({
+      tenantId: request.tenantId,
+      customerId: body.customerId || null,
+      contactId: body.contactId || null,
+      userId: body.userId || null,
+      personName: body.personName,
+      trainingType: body.trainingType,
+      trainingProvider: body.trainingProvider,
+      courseName: body.courseName,
+      status: body.status || 'assigned',
+      assignedDate: body.assignedDate || new Date().toISOString().split('T')[0],
+      dueDate: body.dueDate,
+      completedDate: body.completedDate,
+      expirationDate: body.expirationDate,
+      externalId: body.externalId,
+      externalSource: body.externalSource,
+      metadata: body.metadata,
+    }).returning();
+    reply.code(201);
+    return record;
+  });
+
+  fastify.patch('/api/v1/compliance/training/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as any;
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    for (const key of ['personName', 'trainingType', 'trainingProvider', 'courseName', 'status', 'dueDate', 'completedDate', 'expirationDate', 'score', 'certificateStorageKey', 'externalId', 'externalSource', 'metadata', 'notes']) {
+      if (body[key] !== undefined) updates[key] = body[key];
+    }
+    const [updated] = await fastify.db.update(complianceTrainingRecords).set(updates)
+      .where(and(eq(complianceTrainingRecords.id, id), eq(complianceTrainingRecords.tenantId, request.tenantId))).returning();
+    return updated;
+  });
+
+  // ── Vendors / Business Associates ───────────────────────────────
+
+  fastify.get('/api/v1/compliance/vendors', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const params = request.query as Record<string, string>;
+    const conditions = [eq(complianceVendors.tenantId, request.tenantId)];
+    if (params.customerId) conditions.push(eq(complianceVendors.customerId, params.customerId));
+    if (params.status) conditions.push(eq(complianceVendors.status, params.status));
+    return fastify.db.select().from(complianceVendors)
+      .where(and(...conditions)).orderBy(complianceVendors.vendorName).limit(100);
+  });
+
+  fastify.post('/api/v1/compliance/vendors', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request, reply) => {
+    const body = request.body as any;
+    const [vendor] = await fastify.db.insert(complianceVendors).values({
+      tenantId: request.tenantId,
+      customerId: body.customerId,
+      vendorName: body.vendorName,
+      vendorType: body.vendorType,
+      contactName: body.contactName,
+      contactEmail: body.contactEmail,
+      contactPhone: body.contactPhone,
+      servicesProvided: body.servicesProvided,
+      dataAccess: body.dataAccess,
+      agreementType: body.agreementType,
+      agreementStatus: body.agreementStatus || 'none',
+      agreementSignedDate: body.agreementSignedDate,
+      agreementExpirationDate: body.agreementExpirationDate,
+      complianceCertifications: body.complianceCertifications,
+      riskLevel: body.riskLevel || 'medium',
+      notes: body.notes,
+    }).returning();
+    reply.code(201);
+    return vendor;
+  });
+
+  fastify.patch('/api/v1/compliance/vendors/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as any;
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    for (const key of ['vendorName', 'vendorType', 'contactName', 'contactEmail', 'contactPhone', 'servicesProvided', 'dataAccess', 'agreementType', 'agreementStatus', 'agreementSignedDate', 'agreementExpirationDate', 'agreementStorageKey', 'complianceCertifications', 'lastReviewDate', 'nextReviewDate', 'riskLevel', 'status', 'notes', 'metadata']) {
+      if (body[key] !== undefined) updates[key] = body[key];
+    }
+    const [updated] = await fastify.db.update(complianceVendors).set(updates)
+      .where(and(eq(complianceVendors.id, id), eq(complianceVendors.tenantId, request.tenantId))).returning();
+    return updated;
+  });
+
+  fastify.delete('/api/v1/compliance/vendors/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.update(complianceVendors).set({ status: 'terminated', updatedAt: new Date() })
+      .where(and(eq(complianceVendors.id, id), eq(complianceVendors.tenantId, request.tenantId)));
+    return { deleted: true };
+  });
+
+  // ── Security Incidents / Breach Log ─────────────────────────────
+
+  fastify.get('/api/v1/compliance/incidents', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const params = request.query as Record<string, string>;
+    const conditions = [eq(complianceIncidents.tenantId, request.tenantId)];
+    if (params.customerId) conditions.push(eq(complianceIncidents.customerId, params.customerId));
+    if (params.status) conditions.push(eq(complianceIncidents.status, params.status));
+    return fastify.db.select().from(complianceIncidents)
+      .where(and(...conditions)).orderBy(desc(complianceIncidents.createdAt)).limit(100);
+  });
+
+  fastify.post('/api/v1/compliance/incidents', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request, reply) => {
+    const body = request.body as any;
+    const [maxNum] = await fastify.db.select({ max: sql<number>`COALESCE(MAX(incident_number), 0)` })
+      .from(complianceIncidents).where(eq(complianceIncidents.tenantId, request.tenantId));
+
+    const [incident] = await fastify.db.insert(complianceIncidents).values({
+      tenantId: request.tenantId,
+      customerId: body.customerId,
+      incidentNumber: (maxNum?.max ?? 0) + 1,
+      title: body.title,
+      description: body.description,
+      incidentType: body.incidentType,
+      severity: body.severity || 'medium',
+      dataTypes: body.dataTypes,
+      affectedIndividuals: body.affectedIndividuals,
+      discoveredAt: body.discoveredAt ? new Date(body.discoveredAt) : new Date(),
+      status: 'open',
+      leadInvestigator: body.leadInvestigator || request.user.sub,
+    }).returning();
+
+    await fastify.db.insert(complianceActivityLog).values({
+      tenantId: request.tenantId,
+      customerId: body.customerId,
+      entityType: 'incident',
+      entityId: incident.id,
+      action: 'created',
+      actorType: 'user',
+      actorId: request.user.sub,
+      description: `Security incident #${incident.incidentNumber}: ${incident.title}`,
+    });
+
+    reply.code(201);
+    return incident;
+  });
+
+  fastify.patch('/api/v1/compliance/incidents/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as any;
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    for (const key of ['title', 'description', 'incidentType', 'severity', 'dataTypes', 'affectedSystems', 'affectedIndividuals', 'discoveredAt', 'reportedAt', 'containedAt', 'resolvedAt', 'reportedTo', 'breachNotification', 'rootCause', 'remediationActions', 'lessonsLearned', 'status', 'ticketId', 'leadInvestigator', 'metadata']) {
+      if (body[key] !== undefined) updates[key] = body[key];
+    }
+    const [updated] = await fastify.db.update(complianceIncidents).set(updates)
+      .where(and(eq(complianceIncidents.id, id), eq(complianceIncidents.tenantId, request.tenantId))).returning();
+    return updated;
   });
 }

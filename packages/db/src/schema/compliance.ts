@@ -360,3 +360,145 @@ export const complianceAutomatedChecks = pgTable('compliance_automated_checks', 
   index('compliance_auto_checks_source_idx').on(table.tenantId, table.source, table.checkType),
   index('compliance_auto_checks_control_idx').on(table.controlStatusId),
 ]);
+
+// ── Asset Scope Mapping ────────────────────────────────────────────
+// Which assets are in scope for which compliance framework per customer
+
+export const complianceScopedAssets = pgTable('compliance_scoped_assets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  customerId: uuid('customer_id').notNull().references(() => customers.id),
+  frameworkId: uuid('framework_id').notNull().references(() => complianceFrameworks.id),
+  assetId: uuid('asset_id').notNull().references(() => assets.id),
+  networkZone: text('network_zone'), // cji_network, general, dmz, guest, etc.
+  justification: text('justification'), // why this asset is in scope
+  addedBy: uuid('added_by').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('compliance_scoped_assets_customer_idx').on(table.tenantId, table.customerId, table.frameworkId),
+  uniqueIndex('compliance_scoped_assets_unique_idx').on(table.customerId, table.frameworkId, table.assetId),
+]);
+
+// ── Personnel Screening / Background Checks ────────────────────────
+
+export const compliancePersonnelScreening = pgTable('compliance_personnel_screening', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  customerId: uuid('customer_id').references(() => customers.id), // null = internal Rivertown staff
+  contactId: uuid('contact_id').references(() => contacts.id), // customer contact
+  userId: uuid('user_id').references(() => users.id), // internal tech/staff
+  personName: text('person_name').notNull(),
+  personRole: text('person_role'), // e.g. "IT Admin", "Police Records Clerk"
+  screeningType: text('screening_type').notNull(), // fingerprint, state_background, federal_background, cjis_certification, hipaa_training
+  status: text('status').default('pending'), // pending, submitted, cleared, denied, expired, renewal_due
+  submittedDate: date('submitted_date'),
+  clearedDate: date('cleared_date'),
+  expirationDate: date('expiration_date'),
+  renewalDueDate: date('renewal_due_date'),
+  agencyOri: text('agency_ori'), // Originating Agency Identifier for CJIS
+  documentStorageKey: text('document_storage_key'), // R2 key for certificate/proof
+  notes: text('notes'),
+  metadata: jsonb('metadata'), // { clearanceLevel, fingerprintId, certNumber, ... }
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('compliance_personnel_customer_idx').on(table.tenantId, table.customerId),
+  index('compliance_personnel_status_idx').on(table.tenantId, table.status),
+  index('compliance_personnel_expiry_idx').on(table.expirationDate),
+]);
+
+// ── Training Records ───────────────────────────────────────────────
+
+export const complianceTrainingRecords = pgTable('compliance_training_records', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  customerId: uuid('customer_id').references(() => customers.id),
+  contactId: uuid('contact_id').references(() => contacts.id),
+  userId: uuid('user_id').references(() => users.id),
+  personName: text('person_name').notNull(),
+  trainingType: text('training_type').notNull(), // security_awareness, cjis_certification, hipaa_privacy, hipaa_security, pci_awareness, phishing_simulation, incident_response, custom
+  trainingProvider: text('training_provider'), // huntress, knowbe4, internal, external
+  courseName: text('course_name'),
+  status: text('status').default('assigned'), // assigned, in_progress, completed, overdue, expired
+  assignedDate: date('assigned_date'),
+  dueDate: date('due_date'),
+  completedDate: date('completed_date'),
+  expirationDate: date('expiration_date'), // when this training needs renewal
+  score: integer('score'), // percentage score if applicable
+  certificateStorageKey: text('certificate_storage_key'), // R2 key for completion certificate
+  externalId: text('external_id'), // huntress training ID, knowbe4 campaign ID
+  externalSource: text('external_source'), // huntress, knowbe4
+  metadata: jsonb('metadata'), // { modules_completed, time_spent_minutes, phishing_results, ... }
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('compliance_training_customer_idx').on(table.tenantId, table.customerId),
+  index('compliance_training_status_idx').on(table.tenantId, table.status),
+  index('compliance_training_due_idx').on(table.dueDate),
+]);
+
+// ── Vendor / Business Associate Tracking ───────────────────────────
+
+export const complianceVendors = pgTable('compliance_vendors', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  customerId: uuid('customer_id').notNull().references(() => customers.id),
+  vendorName: text('vendor_name').notNull(),
+  vendorType: text('vendor_type'), // msp, cloud_provider, software_vendor, subcontractor, business_associate
+  contactName: text('contact_name'),
+  contactEmail: text('contact_email'),
+  contactPhone: text('contact_phone'),
+  servicesProvided: text('services_provided'),
+  dataAccess: text('data_access'), // what protected data they can access (cji, phi, cardholder, none)
+  agreementType: text('agreement_type'), // mca, baa, dpa, nda, isa, none
+  agreementStatus: text('agreement_status').default('none'), // none, draft, sent, signed, expired
+  agreementSignedDate: date('agreement_signed_date'),
+  agreementExpirationDate: date('agreement_expiration_date'),
+  agreementStorageKey: text('agreement_storage_key'), // R2 key for signed agreement
+  complianceCertifications: jsonb('compliance_certifications'), // ['SOC2', 'CJIS', 'HIPAA', ...]
+  lastReviewDate: date('last_review_date'),
+  nextReviewDate: date('next_review_date'),
+  riskLevel: text('risk_level').default('medium'), // low, medium, high, critical
+  status: text('status').default('active'), // active, inactive, under_review, terminated
+  notes: text('notes'),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('compliance_vendors_customer_idx').on(table.tenantId, table.customerId),
+  index('compliance_vendors_status_idx').on(table.tenantId, table.status),
+]);
+
+// ── Security Incidents / Breach Log ────────────────────────────────
+
+export const complianceIncidents = pgTable('compliance_incidents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  customerId: uuid('customer_id').notNull().references(() => customers.id),
+  incidentNumber: integer('incident_number').notNull(),
+  title: text('title').notNull(),
+  description: text('description'),
+  incidentType: text('incident_type').notNull(), // data_breach, unauthorized_access, malware, phishing, physical_security, policy_violation, system_outage, other
+  severity: text('severity').default('medium'), // critical, high, medium, low
+  dataTypes: jsonb('data_types'), // ['cji', 'phi', 'pii', 'cardholder'] — what data was involved
+  affectedSystems: jsonb('affected_systems'), // asset IDs or descriptions
+  affectedIndividuals: integer('affected_individuals'), // count for breach notification
+  discoveredAt: timestamp('discovered_at', { withTimezone: true }),
+  reportedAt: timestamp('reported_at', { withTimezone: true }),
+  containedAt: timestamp('contained_at', { withTimezone: true }),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  reportedTo: jsonb('reported_to'), // [{ entity: 'FBI CJIS ISO', date, method, reference }]
+  breachNotification: jsonb('breach_notification'), // { required, deadline, sent_date, method, recipients }
+  rootCause: text('root_cause'),
+  remediationActions: text('remediation_actions'),
+  lessonsLearned: text('lessons_learned'),
+  status: text('status').default('open'), // open, investigating, contained, resolved, closed
+  ticketId: uuid('ticket_id').references(() => tickets.id), // linked PSA ticket
+  leadInvestigator: uuid('lead_investigator').references(() => users.id),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('compliance_incidents_customer_idx').on(table.tenantId, table.customerId),
+  index('compliance_incidents_status_idx').on(table.tenantId, table.status),
+]);

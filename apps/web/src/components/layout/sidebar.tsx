@@ -85,6 +85,8 @@ const navGroups: NavGroup[] = [
       { label: 'Frameworks', icon: Library, href: '/compliance/frameworks' },
       { label: 'Risk Register', icon: AlertTriangle, href: '/compliance/risks' },
       { label: 'POA&M', icon: ListChecks, href: '/compliance/poam' },
+      { label: 'Personnel', icon: Target, href: '/compliance/personnel' },
+      { label: 'Incidents', icon: AlertTriangle, href: '/compliance/incidents' },
     ],
   },
 ];
