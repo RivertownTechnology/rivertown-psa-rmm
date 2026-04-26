@@ -122,6 +122,10 @@ export const complianceAssessmentItems = pgTable('compliance_assessment_items', 
   notes: text('notes'),
   findings: text('findings'),
   assignedTo: uuid('assigned_to').references(() => users.id),
+  assignedToContact: uuid('assigned_to_contact').references(() => contacts.id), // customer-side assignee for portal tasks
+  responseFromContact: text('response_from_contact'), // customer's answer/attestation
+  responseDate: timestamp('response_date', { withTimezone: true }),
+  questionForContact: text('question_for_contact'), // what to ask the customer
   dueDate: date('due_date'),
   lastReviewedAt: timestamp('last_reviewed_at', { withTimezone: true }),
   reviewedBy: uuid('reviewed_by').references(() => users.id),
@@ -144,9 +148,11 @@ export const complianceControlStatuses = pgTable('compliance_control_statuses', 
   status: text('status').default('not_assessed'), // compliant, non_compliant, partial, not_applicable, not_assessed
   notes: text('notes'),
   assignedTo: uuid('assigned_to').references(() => users.id),
+  assignedToContact: uuid('assigned_to_contact').references(() => contacts.id),
   dueDate: date('due_date'),
   lastReviewedAt: timestamp('last_reviewed_at', { withTimezone: true }),
   lastAssessmentItemId: uuid('last_assessment_item_id'),
+  lastAutoCheckId: uuid('last_auto_check_id'), // most recent automated check result
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [

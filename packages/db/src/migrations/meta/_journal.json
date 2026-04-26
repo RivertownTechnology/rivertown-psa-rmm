@@ -295,6 +295,13 @@
       "when": 1745195000000,
       "tag": "0041_compliance_automation",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1745195100000,
+      "tag": "0042_compliance_portal_tasks",
+      "breakpoints": true
     }
   ]
 }
