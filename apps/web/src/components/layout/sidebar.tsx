@@ -19,6 +19,11 @@ import {
   Archive,
   FolderOpen,
   Monitor,
+  ShieldCheck,
+  ClipboardCheck,
+  Library,
+  AlertTriangle,
+  ListChecks,
 } from 'lucide-react';
 
 interface NavItem {
@@ -70,6 +75,16 @@ const navGroups: NavGroup[] = [
       { label: 'Library', icon: Archive, href: '/gov/library' },
       { label: 'Analytics', icon: BarChart3, href: '/gov/analytics' },
       { label: 'Settings', icon: Settings, href: '/gov/settings' },
+    ],
+  },
+  {
+    label: 'Compliance',
+    items: [
+      { label: 'Dashboard', icon: ShieldCheck, href: '/compliance' },
+      { label: 'Assessments', icon: ClipboardCheck, href: '/compliance/assessments' },
+      { label: 'Frameworks', icon: Library, href: '/compliance/frameworks' },
+      { label: 'Risk Register', icon: AlertTriangle, href: '/compliance/risks' },
+      { label: 'POA&M', icon: ListChecks, href: '/compliance/poam' },
     ],
   },
 ];

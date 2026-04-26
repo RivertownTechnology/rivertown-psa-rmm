@@ -281,6 +281,13 @@
       "when": 1745194800000,
       "tag": "0039_pricing_scenarios",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1745194900000,
+      "tag": "0040_compliance_grc",
+      "breakpoints": true
     }
   ]
 }

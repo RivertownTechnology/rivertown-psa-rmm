@@ -39,6 +39,7 @@ import kbModule from './modules/knowledge-base/index.js';
 import cannedResponsesModule from './modules/canned-responses/index.js';
 import notificationsModule from './modules/notifications/index.js';
 import govContractsModule from './modules/gov-contracts/index.js';
+import complianceModule from './modules/compliance/index.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -227,7 +228,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   await fastify.register(aiRoutes);
 
   // Load feature modules
-  await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, portalModule, publicApiModule, reportsModule, attachmentsModule, kbModule, cannedResponsesModule, notificationsModule, govContractsModule]);
+  await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, portalModule, publicApiModule, reportsModule, attachmentsModule, kbModule, cannedResponsesModule, notificationsModule, govContractsModule, complianceModule]);
 
   // Start Pax8 auto-sync scheduler
   const { startPax8SyncScheduler } = await import('./services/pax8-sync.js');

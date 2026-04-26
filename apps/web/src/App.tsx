@@ -35,6 +35,8 @@ import { GovAnalyticsPage } from '@/pages/gov-analytics';
 import { GovSettingsPage } from '@/pages/gov-settings';
 import { BusinessDocumentsPage } from '@/pages/business-documents';
 import { PublicProposalPage } from '@/pages/public-proposal';
+import { ComplianceDashboardPage } from '@/pages/compliance-dashboard';
+import { ComplianceFrameworksPage } from '@/pages/compliance-frameworks';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { CommandPalette } from '@/components/command-palette';
 import { AIChat } from '@/components/ai-chat';
@@ -230,6 +232,21 @@ function AppRouter() {
   } else if (pathname === '/gov') {
     title = 'Gov Dashboard'; currentNav = '/gov';
     content = <GovDashboardPage />;
+  } else if (pathname === '/compliance/frameworks') {
+    title = 'Compliance Frameworks'; currentNav = '/compliance/frameworks';
+    content = <ComplianceFrameworksPage onNavigate={navigate} />;
+  } else if (pathname === '/compliance/assessments') {
+    title = 'Compliance Assessments'; currentNav = '/compliance/assessments';
+    content = <div className="text-center py-12 text-muted-foreground">Assessments page coming in Phase 2</div>;
+  } else if (pathname === '/compliance/risks') {
+    title = 'Risk Register'; currentNav = '/compliance/risks';
+    content = <div className="text-center py-12 text-muted-foreground">Risk Register coming in Phase 3</div>;
+  } else if (pathname === '/compliance/poam') {
+    title = 'POA&M'; currentNav = '/compliance/poam';
+    content = <div className="text-center py-12 text-muted-foreground">POA&M page coming in Phase 3</div>;
+  } else if (pathname === '/compliance') {
+    title = 'Compliance'; currentNav = '/compliance';
+    content = <ComplianceDashboardPage onNavigate={navigate} />;
   } else {
     title = 'Dashboard'; currentNav = '/';
     content = <DashboardPage />;

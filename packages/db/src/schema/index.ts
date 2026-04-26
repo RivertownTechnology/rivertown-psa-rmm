@@ -34,3 +34,4 @@ export * from './gov-contracts.js';
 export * from './business-documents.js';
 export * from './gov-pricing.js';
 export * from './api-keys.js';
+export * from './compliance.js';
