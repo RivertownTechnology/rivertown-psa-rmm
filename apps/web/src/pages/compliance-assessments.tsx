@@ -81,6 +81,8 @@ function formatScore(score: number | null) {
 export function ComplianceAssessmentsPage({ onNavigate }: { onNavigate: (path: string) => void }) {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [scopedCustomers, setScopedCustomers] = useState<ScopedCustomer[]>([]);
+  const [allCustomers, setAllCustomers] = useState<Array<{ id: string; name: string }>>([]);
+  const [allFrameworks, setAllFrameworks] = useState<Array<{ id: string; name: string; shortName: string }>>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
@@ -114,9 +116,9 @@ export function ComplianceAssessmentsPage({ onNavigate }: { onNavigate: (path: s
   useEffect(() => { loadAssessments(); }, [loadAssessments]);
 
   useEffect(() => {
-    api<ScopedCustomer[]>('/compliance/scoped-customers')
-      .then(setScopedCustomers)
-      .catch(() => {});
+    api<ScopedCustomer[]>('/compliance/scoped-customers').then(setScopedCustomers).catch(() => {});
+    api<{ data: Array<{ id: string; name: string }> }>('/customers?limit=100').then(d => setAllCustomers(d.data ?? [])).catch(() => {});
+    api<Array<{ id: string; name: string; shortName: string }>>('/compliance/frameworks').then(d => setAllFrameworks(d)).catch(() => {});
   }, []);
 
   // Customer options for filter (all scoped customers + "All" option)
@@ -125,16 +127,19 @@ export function ComplianceAssessmentsPage({ onNavigate }: { onNavigate: (path: s
     ...scopedCustomers.map(c => ({ value: c.id, label: c.name })),
   ];
 
-  // Customer options for create form (only customers with scopes)
-  const createCustomerOptions = scopedCustomers
-    .filter(c => c.scopes.length > 0)
-    .map(c => ({ value: c.id, label: c.name }));
+  // Customer options for create form — show ALL customers
+  const createCustomerOptions = allCustomers.map(c => {
+    const scoped = scopedCustomers.find(sc => sc.id === c.id);
+    const scopeCount = scoped?.scopes?.length ?? 0;
+    return { value: c.id, label: scopeCount > 0 ? `${c.name} (${scopeCount} frameworks)` : c.name };
+  });
 
-  // Framework options filtered to selected customer's scopes
-  const selectedCustomer = scopedCustomers.find(c => c.id === form.customerId);
-  const frameworkOptions = (selectedCustomer?.scopes ?? []).map(s => ({
-    value: s.frameworkId,
-    label: `${s.frameworkName} (${s.frameworkShortName})`,
+  // Framework options — show ALL frameworks, indicate if already scoped
+  const selectedScopedCustomer = scopedCustomers.find(c => c.id === form.customerId);
+  const scopedFwIds = new Set((selectedScopedCustomer?.scopes ?? []).map(s => s.frameworkId));
+  const frameworkOptions = allFrameworks.map(f => ({
+    value: f.id,
+    label: scopedFwIds.has(f.id) ? `${f.name} (${f.shortName})` : `${f.name} (${f.shortName}) — will be scoped`,
   }));
 
   // Auto-generate title when customer or framework changes
@@ -143,9 +148,9 @@ export function ComplianceAssessmentsPage({ onNavigate }: { onNavigate: (path: s
   }
 
   function handleFrameworkChange(frameworkId: string) {
-    const scope = selectedCustomer?.scopes.find(s => s.frameworkId === frameworkId);
-    const autoTitle = scope
-      ? `${scope.frameworkShortName} Assessment — ${new Date().toLocaleDateString()}`
+    const fw = allFrameworks.find(f => f.id === frameworkId);
+    const autoTitle = fw
+      ? `${fw.shortName} Assessment — ${new Date().toLocaleDateString()}`
       : '';
     setForm(f => ({ ...f, frameworkId, title: f.title || autoTitle }));
   }
@@ -154,6 +159,14 @@ export function ComplianceAssessmentsPage({ onNavigate }: { onNavigate: (path: s
     e.preventDefault();
     setSaving(true);
     try {
+      // Auto-scope customer to framework if not already scoped
+      if (!scopedFwIds.has(form.frameworkId)) {
+        await api(`/compliance/customers/${form.customerId}/scopes`, {
+          method: 'POST',
+          body: JSON.stringify({ frameworkId: form.frameworkId }),
+        });
+      }
+
       const payload: Record<string, string> = {
         customerId: form.customerId,
         frameworkId: form.frameworkId,
@@ -295,7 +308,7 @@ export function ComplianceAssessmentsPage({ onNavigate }: { onNavigate: (path: s
                 onValueChange={handleCustomerChange}
                 placeholder="Select customer..."
                 searchPlaceholder="Search customers..."
-                emptyText="No customers with compliance scopes."
+                emptyText="No customers found."
               />
             </div>
             <div className="space-y-2">
@@ -306,7 +319,7 @@ export function ComplianceAssessmentsPage({ onNavigate }: { onNavigate: (path: s
                 onValueChange={handleFrameworkChange}
                 placeholder={form.customerId ? 'Select framework...' : 'Select a customer first'}
                 disabled={!form.customerId}
-                emptyText="No frameworks scoped for this customer."
+                emptyText="No frameworks available. Import one first."
               />
             </div>
             <div className="space-y-2">
