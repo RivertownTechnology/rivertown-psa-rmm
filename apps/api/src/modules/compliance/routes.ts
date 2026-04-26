@@ -1204,6 +1204,57 @@ export async function complianceRoutes(fastify: FastifyInstance) {
     return updated;
   });
 
+  // ── Assessment Update ────────────────────────────────────────────
+
+  fastify.patch('/api/v1/compliance/assessments/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as any;
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    for (const key of ['title', 'assessmentType', 'status', 'dueDate', 'summary', 'findings']) {
+      if (body[key] !== undefined) updates[key] = body[key];
+    }
+    const [updated] = await fastify.db.update(complianceAssessments).set(updates)
+      .where(and(eq(complianceAssessments.id, id), eq(complianceAssessments.tenantId, request.tenantId))).returning();
+    return updated;
+  });
+
+  // ── Evidence Update ─────────────────────────────────────────────
+
+  fastify.patch('/api/v1/compliance/evidence/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as any;
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    for (const key of ['title', 'evidenceType', 'description', 'externalUrl', 'collectedAt', 'expiresAt', 'tags']) {
+      if (body[key] !== undefined) updates[key] = body[key];
+    }
+    if (body.reviewed) {
+      updates.reviewedAt = new Date();
+      updates.reviewedBy = request.user.sub;
+    }
+    const [updated] = await fastify.db.update(complianceEvidence).set(updates)
+      .where(and(eq(complianceEvidence.id, id), eq(complianceEvidence.tenantId, request.tenantId))).returning();
+    return updated;
+  });
+
+  // ── Scoped Asset Update ─────────────────────────────────────────
+
+  fastify.patch('/api/v1/compliance/scoped-assets/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as any;
+    const updates: Record<string, unknown> = {};
+    if (body.networkZone !== undefined) updates.networkZone = body.networkZone;
+    if (body.justification !== undefined) updates.justification = body.justification;
+    const [updated] = await fastify.db.update(complianceScopedAssets).set(updates)
+      .where(and(eq(complianceScopedAssets.id, id), eq(complianceScopedAssets.tenantId, request.tenantId))).returning();
+    return updated;
+  });
+
   // ── Assessment DELETE ────────────────────────────────────────────
 
   fastify.delete('/api/v1/compliance/assessments/:id', {
