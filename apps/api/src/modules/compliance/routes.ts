@@ -15,6 +15,7 @@ import {
   compliancePoamItems,
   complianceRiskItems,
   compliancePolicies,
+  compliancePolicyVersions,
   complianceActivityLog,
   complianceScopedAssets,
   compliancePersonnelScreening,
@@ -399,9 +400,21 @@ export async function complianceRoutes(fastify: FastifyInstance) {
   fastify.delete('/api/v1/compliance/customers/:customerId/scopes/:id', {
     preHandler: [fastify.authenticate, requirePermission('*')],
   }, async (request) => {
-    const { id } = request.params as { id: string };
+    const { id, customerId } = request.params as { id: string; customerId: string };
+
+    // Get scope to find frameworkId
+    const [scope] = await fastify.db.select().from(complianceCustomerScopes)
+      .where(and(eq(complianceCustomerScopes.id, id), eq(complianceCustomerScopes.tenantId, request.tenantId))).limit(1);
+
     await fastify.db.delete(complianceCustomerScopes)
       .where(and(eq(complianceCustomerScopes.id, id), eq(complianceCustomerScopes.tenantId, request.tenantId)));
+
+    // Clean up live control statuses for this customer+framework
+    if (scope) {
+      await fastify.db.delete(complianceControlStatuses)
+        .where(and(eq(complianceControlStatuses.customerId, customerId), eq(complianceControlStatuses.frameworkId, scope.frameworkId)));
+    }
+
     return { deleted: true };
   });
 
@@ -1187,5 +1200,201 @@ export async function complianceRoutes(fastify: FastifyInstance) {
     const [updated] = await fastify.db.update(complianceIncidents).set(updates)
       .where(and(eq(complianceIncidents.id, id), eq(complianceIncidents.tenantId, request.tenantId))).returning();
     return updated;
+  });
+
+  // ── Missing DELETE endpoints ────────────────────────────────────
+
+  fastify.delete('/api/v1/compliance/poam/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.delete(compliancePoamItems)
+      .where(and(eq(compliancePoamItems.id, id), eq(compliancePoamItems.tenantId, request.tenantId)));
+    return { deleted: true };
+  });
+
+  fastify.delete('/api/v1/compliance/risks/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.delete(complianceRiskItems)
+      .where(and(eq(complianceRiskItems.id, id), eq(complianceRiskItems.tenantId, request.tenantId)));
+    return { deleted: true };
+  });
+
+  fastify.delete('/api/v1/compliance/personnel/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.delete(compliancePersonnelScreening)
+      .where(and(eq(compliancePersonnelScreening.id, id), eq(compliancePersonnelScreening.tenantId, request.tenantId)));
+    return { deleted: true };
+  });
+
+  fastify.delete('/api/v1/compliance/training/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.delete(complianceTrainingRecords)
+      .where(and(eq(complianceTrainingRecords.id, id), eq(complianceTrainingRecords.tenantId, request.tenantId)));
+    return { deleted: true };
+  });
+
+  fastify.delete('/api/v1/compliance/incidents/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.delete(complianceIncidents)
+      .where(and(eq(complianceIncidents.id, id), eq(complianceIncidents.tenantId, request.tenantId)));
+    return { deleted: true };
+  });
+
+  // ── Evidence CRUD ───────────────────────────────────────────────
+
+  fastify.get('/api/v1/compliance/customers/:customerId/evidence', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const { customerId } = request.params as { customerId: string };
+    return fastify.db.select().from(complianceEvidence)
+      .where(and(eq(complianceEvidence.tenantId, request.tenantId), eq(complianceEvidence.customerId, customerId)))
+      .orderBy(desc(complianceEvidence.createdAt)).limit(100);
+  });
+
+  fastify.post('/api/v1/compliance/customers/:customerId/evidence', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request, reply) => {
+    const { customerId } = request.params as { customerId: string };
+    const body = request.body as any;
+    const [evidence] = await fastify.db.insert(complianceEvidence).values({
+      tenantId: request.tenantId,
+      customerId,
+      title: body.title,
+      evidenceType: body.evidenceType || 'document',
+      description: body.description,
+      fileName: body.fileName,
+      fileSize: body.fileSize,
+      mimeType: body.mimeType,
+      storageKey: body.storageKey,
+      externalUrl: body.externalUrl,
+      collectedAt: body.collectedAt ? new Date(body.collectedAt) : new Date(),
+      expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+      uploadedBy: request.user.sub,
+      tags: body.tags,
+    }).returning();
+    reply.code(201);
+    return evidence;
+  });
+
+  fastify.delete('/api/v1/compliance/evidence/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    // Delete evidence-control links first
+    await fastify.db.delete(complianceEvidenceControls).where(eq(complianceEvidenceControls.evidenceId, id));
+    await fastify.db.delete(complianceEvidence)
+      .where(and(eq(complianceEvidence.id, id), eq(complianceEvidence.tenantId, request.tenantId)));
+    return { deleted: true };
+  });
+
+  // Link evidence to control
+  fastify.post('/api/v1/compliance/evidence/:id/link', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { controlStatusId: string; assessmentItemId?: string };
+    await fastify.db.insert(complianceEvidenceControls).values({
+      evidenceId: id,
+      controlStatusId: body.controlStatusId,
+      assessmentItemId: body.assessmentItemId || null,
+    }).onConflictDoNothing();
+    return { linked: true };
+  });
+
+  // ── Policies CRUD ───────────────────────────────────────────────
+
+  fastify.get('/api/v1/compliance/policies', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const params = request.query as Record<string, string>;
+    const conditions = [eq(compliancePolicies.tenantId, request.tenantId)];
+    if (params.customerId) conditions.push(eq(compliancePolicies.customerId, params.customerId));
+    if (params.status) conditions.push(eq(compliancePolicies.status, params.status));
+    return fastify.db.select().from(compliancePolicies)
+      .where(and(...conditions)).orderBy(desc(compliancePolicies.updatedAt)).limit(100);
+  });
+
+  fastify.post('/api/v1/compliance/policies', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request, reply) => {
+    const body = request.body as any;
+    const [policy] = await fastify.db.insert(compliancePolicies).values({
+      tenantId: request.tenantId,
+      customerId: body.customerId || null,
+      frameworkId: body.frameworkId || null,
+      title: body.title,
+      policyType: body.policyType || 'policy',
+      content: body.content || '',
+      status: 'draft',
+      controlIds: body.controlIds,
+      tags: body.tags,
+    }).returning();
+    reply.code(201);
+    return policy;
+  });
+
+  fastify.patch('/api/v1/compliance/policies/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as any;
+
+    // Get current for version tracking
+    const [current] = await fastify.db.select().from(compliancePolicies)
+      .where(and(eq(compliancePolicies.id, id), eq(compliancePolicies.tenantId, request.tenantId))).limit(1);
+    if (!current) throw new NotFoundError('Policy', id);
+
+    // Save version if content changed
+    if (body.content !== undefined && body.content !== current.content) {
+      await fastify.db.insert(compliancePolicyVersions).values({
+        tenantId: request.tenantId,
+        policyId: id,
+        version: current.version ?? 1,
+        content: current.content || '',
+        changedBy: request.user.sub,
+        changeNotes: body.changeNotes || null,
+      });
+      body.version = (current.version ?? 1) + 1;
+    }
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    for (const key of ['title', 'policyType', 'content', 'version', 'status', 'effectiveDate', 'reviewDate', 'controlIds', 'tags', 'metadata']) {
+      if (body[key] !== undefined) updates[key] = body[key];
+    }
+    if (body.status === 'approved') {
+      updates.approvedBy = request.user.sub;
+      updates.approvedAt = new Date();
+    }
+
+    const [updated] = await fastify.db.update(compliancePolicies).set(updates)
+      .where(and(eq(compliancePolicies.id, id), eq(compliancePolicies.tenantId, request.tenantId))).returning();
+    return updated;
+  });
+
+  fastify.delete('/api/v1/compliance/policies/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    await fastify.db.update(compliancePolicies).set({ status: 'retired', updatedAt: new Date() })
+      .where(and(eq(compliancePolicies.id, id), eq(compliancePolicies.tenantId, request.tenantId)));
+    return { deleted: true };
+  });
+
+  fastify.get('/api/v1/compliance/policies/:id/versions', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    return fastify.db.select().from(compliancePolicyVersions)
+      .where(eq(compliancePolicyVersions.policyId, id))
+      .orderBy(desc(compliancePolicyVersions.version));
   });
 }
