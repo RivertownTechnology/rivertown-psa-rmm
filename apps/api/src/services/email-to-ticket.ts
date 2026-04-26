@@ -448,6 +448,11 @@ async function processEmail(db: Database, tenantId: string, email: {
         });
       }
 
+      // Fire customer_replied workflow trigger
+      import('./workflow-engine.js').then(({ evaluateWorkflowRules }) => {
+        evaluateWorkflowRules(db, tenantId, 'customer_replied', existingTicket).catch(() => {});
+      });
+
       // Handle auto-reopen/new ticket based on existing ticket status
       if (existingTicket.status === 'resolved') {
         // Auto-reopen resolved tickets on customer reply (if setting enabled)

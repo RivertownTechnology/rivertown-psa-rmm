@@ -316,6 +316,23 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       if (body.status && body.status !== existing.status) {
         import('../../services/workflow-engine.js').then(({ evaluateWorkflowRules }) => {
           evaluateWorkflowRules(fastify.db, request.tenantId, 'ticket_status_changed', updated, body as Record<string, unknown>).catch(e => console.error('Workflow error:', e));
+          // Fire specific status triggers
+          if (body.status === 'resolved') evaluateWorkflowRules(fastify.db, request.tenantId, 'ticket_resolved', updated).catch(() => {});
+          if (body.status === 'closed') evaluateWorkflowRules(fastify.db, request.tenantId, 'ticket_closed', updated).catch(() => {});
+        });
+      }
+
+      // Priority changed trigger
+      if (body.priority && body.priority !== existing.priority) {
+        import('../../services/workflow-engine.js').then(({ evaluateWorkflowRules }) => {
+          evaluateWorkflowRules(fastify.db, request.tenantId, 'priority_changed', updated, body as Record<string, unknown>).catch(() => {});
+        });
+      }
+
+      // Assignment changed trigger
+      if (body.assignedTo !== undefined && body.assignedTo !== existing.assignedTo) {
+        import('../../services/workflow-engine.js').then(({ evaluateWorkflowRules }) => {
+          evaluateWorkflowRules(fastify.db, request.tenantId, 'assigned_changed', updated, body as Record<string, unknown>).catch(() => {});
         });
       }
 

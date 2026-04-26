@@ -546,6 +546,15 @@ export async function portalRoutes(fastify: FastifyInstance) {
       tenantId: user.tid, ticketId: id, authorType: 'contact', authorId: user.sub,
       body: body.trim(), isInternal: false,
     }).returning();
+
+    // Fire customer_replied workflow trigger
+    const [fullTicket] = await fastify.db.select().from(tickets).where(eq(tickets.id, id)).limit(1);
+    if (fullTicket) {
+      import('../../services/workflow-engine.js').then(({ evaluateWorkflowRules }) => {
+        evaluateWorkflowRules(fastify.db, user.tid, 'customer_replied', fullTicket).catch(() => {});
+      });
+    }
+
     return comment;
   });
 
