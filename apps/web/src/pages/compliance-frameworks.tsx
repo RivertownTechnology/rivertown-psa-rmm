@@ -123,9 +123,10 @@ export function ComplianceFrameworksPage({ onNavigate }: { onNavigate: (path: st
           <DialogHeader><DialogTitle>Import Built-in Framework</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">Select a compliance framework to import with all policy areas and controls pre-configured.</p>
-            {(['cjis', 'hipaa', 'pci'] as const).map(type => {
+            {(['cjis', 'cmmc', 'hipaa', 'pci'] as const).map(type => {
               const labels: Record<string, { name: string; desc: string }> = {
                 cjis: { name: 'CJIS Security Policy v6.0', desc: 'FBI Criminal Justice Information Services — for law enforcement IT' },
+                cmmc: { name: 'CMMC Level 2 (NIST 800-171)', desc: 'Cybersecurity Maturity Model Certification — for defense contractors and CUI' },
                 hipaa: { name: 'HIPAA Security Rule', desc: 'Health Insurance Portability — for healthcare IT' },
                 pci: { name: 'PCI-DSS v4.0', desc: 'Payment Card Industry — for payment processing' },
               };
