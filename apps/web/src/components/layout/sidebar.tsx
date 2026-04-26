@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
@@ -12,6 +13,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   BarChart3,
   BookOpen,
   Landmark,
@@ -81,16 +83,16 @@ const navGroups: NavGroup[] = [
     label: 'Compliance',
     items: [
       { label: 'Dashboard', icon: ShieldCheck, href: '/compliance' },
-      { label: 'Assessments', icon: ClipboardCheck, href: '/compliance/assessments' },
       { label: 'Frameworks', icon: Library, href: '/compliance/frameworks' },
-      { label: 'Risk Register', icon: AlertTriangle, href: '/compliance/risks' },
+      { label: 'Assessments', icon: ClipboardCheck, href: '/compliance/assessments' },
       { label: 'POA&M', icon: ListChecks, href: '/compliance/poam' },
+      { label: 'Risk Register', icon: AlertTriangle, href: '/compliance/risks' },
+      { label: 'Incidents', icon: AlertTriangle, href: '/compliance/incidents' },
       { label: 'Personnel', icon: Target, href: '/compliance/personnel' },
       { label: 'Training', icon: BookOpen, href: '/compliance/training' },
       { label: 'Vendors', icon: Building2, href: '/compliance/vendors' },
       { label: 'Evidence', icon: Archive, href: '/compliance/evidence' },
       { label: 'Policies', icon: FileText, href: '/compliance/policies' },
-      { label: 'Incidents', icon: AlertTriangle, href: '/compliance/incidents' },
     ],
   },
 ];
@@ -120,6 +122,25 @@ export function Sidebar({
   badgeCounts,
   user,
 }: SidebarProps) {
+  // Auto-expand groups that contain the active page
+  const getActiveGroups = () => {
+    const active: Record<string, boolean> = {};
+    navGroups.forEach((group) => {
+      if (!group.label) return; // unlabeled group always open
+      const hasActive = group.items.some(item =>
+        currentPath === item.href || (item.href !== '/' && currentPath.startsWith(item.href + '/'))
+      );
+      active[group.label] = hasActive;
+    });
+    return active;
+  };
+
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(getActiveGroups);
+
+  function toggleGroup(label: string) {
+    setExpandedGroups(prev => ({ ...prev, [label]: !prev[label] }));
+  }
+
   const initials = user?.displayName
     ?.split(' ')
     .map((n) => n[0])
@@ -174,15 +195,25 @@ export function Sidebar({
 
       {/* Navigation */}
       <nav className="flex-1 p-3 overflow-y-auto">
-        {navGroups.map((group, gi) => (
-          <div key={gi} className={gi > 0 ? 'mt-4' : ''}>
+        {navGroups.map((group, gi) => {
+          const isExpanded = !group.label || expandedGroups[group.label] !== false;
+          const hasActiveItem = group.items.some(item =>
+            currentPath === item.href || (item.href !== '/' && currentPath.startsWith(item.href + '/'))
+          );
+
+          return (
+          <div key={gi} className={gi > 0 ? 'mt-2' : ''}>
             {group.label && !collapsed && (
-              <div className="px-3 mb-1 text-xs font-semibold text-sidebar-muted uppercase tracking-wider">
-                {group.label}
-              </div>
+              <button
+                onClick={() => toggleGroup(group.label)}
+                className="w-full flex items-center justify-between px-3 mb-1 text-xs font-semibold text-sidebar-muted uppercase tracking-wider hover:text-sidebar-foreground transition-colors"
+              >
+                <span className={hasActiveItem ? 'text-primary' : ''}>{group.label}</span>
+                <ChevronDown className={cn('h-3 w-3 transition-transform', !isExpanded && '-rotate-90')} />
+              </button>
             )}
             {group.label && collapsed && <div className="my-2 mx-2 border-t border-sidebar-border" />}
-            <div className="space-y-1">
+            {(isExpanded || collapsed) && <div className="space-y-1">
               {group.items.map((item) => {
                 const Icon = item.icon;
                 // Exact match, or prefix match only if no other nav item is a longer match
@@ -222,9 +253,10 @@ export function Sidebar({
                   </button>
                 );
               })}
-            </div>
+            </div>}
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* User info */}
