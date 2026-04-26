@@ -43,6 +43,11 @@ import { ComplianceAssessmentDetailPage } from '@/pages/compliance-assessment-de
 import { ComplianceRisksPage } from '@/pages/compliance-risks';
 import { CompliancePoamPage } from '@/pages/compliance-poam';
 import { CompliancePersonnelPage } from '@/pages/compliance-personnel';
+import { ComplianceTrainingPage } from '@/pages/compliance-training';
+import { ComplianceIncidentsPage } from '@/pages/compliance-incidents';
+import { ComplianceEvidencePage } from '@/pages/compliance-evidence';
+import { CompliancePoliciesPage } from '@/pages/compliance-policies';
+import { ComplianceVendorsPage } from '@/pages/compliance-vendors';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { CommandPalette } from '@/components/command-palette';
 import { AIChat } from '@/components/ai-chat';
@@ -261,9 +266,21 @@ function AppRouter() {
   } else if (pathname === '/compliance/personnel') {
     title = 'Personnel Screening'; currentNav = '/compliance/personnel';
     content = <CompliancePersonnelPage />;
+  } else if (pathname === '/compliance/training') {
+    title = 'Training Records'; currentNav = '/compliance/training';
+    content = <ComplianceTrainingPage />;
+  } else if (pathname === '/compliance/vendors') {
+    title = 'Vendor Management'; currentNav = '/compliance/vendors';
+    content = <ComplianceVendorsPage />;
+  } else if (pathname === '/compliance/evidence') {
+    title = 'Evidence Repository'; currentNav = '/compliance/evidence';
+    content = <ComplianceEvidencePage />;
+  } else if (pathname === '/compliance/policies') {
+    title = 'Policies & Procedures'; currentNav = '/compliance/policies';
+    content = <CompliancePoliciesPage />;
   } else if (pathname === '/compliance/incidents') {
     title = 'Security Incidents'; currentNav = '/compliance/incidents';
-    content = <div className="text-center py-12 text-muted-foreground">Incidents page coming soon</div>;
+    content = <ComplianceIncidentsPage />;
   } else if (pathname === '/compliance') {
     title = 'Compliance'; currentNav = '/compliance';
     content = <ComplianceDashboardPage onNavigate={navigate} />;
