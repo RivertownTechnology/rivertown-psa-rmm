@@ -590,6 +590,8 @@ export async function complianceRoutes(fastify: FastifyInstance) {
     if (body.notes !== undefined) updates.notes = body.notes;
     if (body.findings !== undefined) updates.findings = body.findings;
     if (body.assignedTo !== undefined) updates.assignedTo = body.assignedTo;
+    if (body.assignedToContact !== undefined) updates.assignedToContact = body.assignedToContact;
+    if (body.questionForContact !== undefined) updates.questionForContact = body.questionForContact;
     if (body.dueDate !== undefined) updates.dueDate = body.dueDate;
     if (body.status && body.status !== 'not_assessed') {
       updates.lastReviewedAt = new Date();
@@ -1200,6 +1202,136 @@ export async function complianceRoutes(fastify: FastifyInstance) {
     const [updated] = await fastify.db.update(complianceIncidents).set(updates)
       .where(and(eq(complianceIncidents.id, id), eq(complianceIncidents.tenantId, request.tenantId))).returning();
     return updated;
+  });
+
+  // ── Assessment DELETE ────────────────────────────────────────────
+
+  fastify.delete('/api/v1/compliance/assessments/:id', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [assessment] = await fastify.db.select().from(complianceAssessments)
+      .where(and(eq(complianceAssessments.id, id), eq(complianceAssessments.tenantId, request.tenantId))).limit(1);
+    if (!assessment) throw new NotFoundError('Assessment', id);
+    if (assessment.status === 'completed') return { error: 'Cannot delete a completed assessment' };
+    await fastify.db.delete(complianceAssessmentItems).where(eq(complianceAssessmentItems.assessmentId, id));
+    await fastify.db.delete(complianceAssessments).where(eq(complianceAssessments.id, id));
+    return { deleted: true };
+  });
+
+  // ── GET-by-ID endpoints ────────────────────────────────────────
+
+  fastify.get('/api/v1/compliance/poam/:id', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [item] = await fastify.db.select().from(compliancePoamItems)
+      .where(and(eq(compliancePoamItems.id, id), eq(compliancePoamItems.tenantId, request.tenantId))).limit(1);
+    if (!item) throw new NotFoundError('POA&M Item', id);
+    return item;
+  });
+
+  fastify.get('/api/v1/compliance/risks/:id', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [item] = await fastify.db.select().from(complianceRiskItems)
+      .where(and(eq(complianceRiskItems.id, id), eq(complianceRiskItems.tenantId, request.tenantId))).limit(1);
+    if (!item) throw new NotFoundError('Risk', id);
+    return item;
+  });
+
+  fastify.get('/api/v1/compliance/personnel/:id', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [item] = await fastify.db.select().from(compliancePersonnelScreening)
+      .where(and(eq(compliancePersonnelScreening.id, id), eq(compliancePersonnelScreening.tenantId, request.tenantId))).limit(1);
+    if (!item) throw new NotFoundError('Personnel Record', id);
+    return item;
+  });
+
+  fastify.get('/api/v1/compliance/training/:id', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [item] = await fastify.db.select().from(complianceTrainingRecords)
+      .where(and(eq(complianceTrainingRecords.id, id), eq(complianceTrainingRecords.tenantId, request.tenantId))).limit(1);
+    if (!item) throw new NotFoundError('Training Record', id);
+    return item;
+  });
+
+  fastify.get('/api/v1/compliance/incidents/:id', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [item] = await fastify.db.select().from(complianceIncidents)
+      .where(and(eq(complianceIncidents.id, id), eq(complianceIncidents.tenantId, request.tenantId))).limit(1);
+    if (!item) throw new NotFoundError('Incident', id);
+    return item;
+  });
+
+  fastify.get('/api/v1/compliance/evidence/:id', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [item] = await fastify.db.select().from(complianceEvidence)
+      .where(and(eq(complianceEvidence.id, id), eq(complianceEvidence.tenantId, request.tenantId))).limit(1);
+    if (!item) throw new NotFoundError('Evidence', id);
+    const links = await fastify.db.select().from(complianceEvidenceControls)
+      .where(eq(complianceEvidenceControls.evidenceId, id));
+    return { ...item, controlLinks: links };
+  });
+
+  // ── Portal Compliance Endpoints ─────────────────────────────────
+
+  fastify.get('/api/v1/portal/compliance/tasks', {
+    preHandler: [fastify.authenticate],
+  }, async (request) => {
+    if (!(request as any).user?.cid) return [];
+    const customerId = (request as any).user.cid;
+    const contactId = (request as any).user.sub;
+
+    // Get assessment items assigned to this contact
+    const items = await fastify.db.select().from(complianceAssessmentItems)
+      .where(and(eq(complianceAssessmentItems.tenantId, request.tenantId), eq(complianceAssessmentItems.assignedToContact, contactId)));
+
+    const controlIds = items.map(i => i.controlId);
+    const controls = controlIds.length > 0
+      ? await fastify.db.select().from(complianceControls).where(inArray(complianceControls.id, controlIds))
+      : [];
+    const controlMap = new Map(controls.map(c => [c.id, c]));
+
+    return items.map(i => ({
+      id: i.id,
+      controlCode: controlMap.get(i.controlId)?.controlCode,
+      controlTitle: controlMap.get(i.controlId)?.title,
+      question: i.questionForContact,
+      status: i.status,
+      dueDate: i.dueDate,
+      response: i.responseFromContact,
+      responseDate: i.responseDate,
+    }));
+  });
+
+  fastify.patch('/api/v1/portal/compliance/tasks/:id', {
+    preHandler: [fastify.authenticate],
+  }, async (request) => {
+    if (!(request as any).user?.cid) return { error: 'Not a portal user' };
+    const { id } = request.params as { id: string };
+    const body = request.body as { response: string };
+
+    const [updated] = await fastify.db.update(complianceAssessmentItems).set({
+      responseFromContact: body.response,
+      responseDate: new Date(),
+      updatedAt: new Date(),
+    }).where(and(
+      eq(complianceAssessmentItems.id, id),
+      eq(complianceAssessmentItems.tenantId, request.tenantId),
+      eq(complianceAssessmentItems.assignedToContact, (request as any).user.sub),
+    )).returning();
+
+    return updated || { error: 'Not found or not assigned to you' };
   });
 
   // ── Missing DELETE endpoints ────────────────────────────────────

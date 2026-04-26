@@ -296,6 +296,7 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
           <TabsTrigger value="tickets">Tickets ({tickets.length})</TabsTrigger>
           <TabsTrigger value="contracts">Contracts ({customerContracts.length})</TabsTrigger>
           <TabsTrigger value="invoices">Invoices ({customerInvoices.length})</TabsTrigger>
+          <TabsTrigger value="compliance">Compliance</TabsTrigger>
         </TabsList>
 
         {/* OVERVIEW */}
@@ -557,6 +558,11 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
             </Card>
           </div>
         </TabsContent>
+
+        {/* COMPLIANCE */}
+        <TabsContent value="compliance">
+          <CustomerComplianceTab customerId={customerId} />
+        </TabsContent>
       </Tabs>
 
       {/* Add/Edit Contact Dialog */}
@@ -785,6 +791,116 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function CustomerComplianceTab({ customerId }: { customerId: string }) {
+  const [summary, setSummary] = useState<any[]>([]);
+  const [frameworks, setFrameworks] = useState<Array<{ id: string; name: string; shortName: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [addingScope, setAddingScope] = useState(false);
+  const [selectedFwId, setSelectedFwId] = useState('');
+
+  useEffect(() => {
+    Promise.all([
+      api<any>(`/compliance/customers/${customerId}/summary`).catch(() => []),
+      api<any>('/compliance/frameworks').catch(() => []),
+    ]).then(([s, f]) => {
+      setSummary(Array.isArray(s) ? s : []);
+      setFrameworks(Array.isArray(f) ? f : []);
+      setLoading(false);
+    });
+  }, [customerId]);
+
+  async function addScope() {
+    if (!selectedFwId) return;
+    setAddingScope(true);
+    try {
+      await api(`/compliance/customers/${customerId}/scopes`, {
+        method: 'POST', body: JSON.stringify({ frameworkId: selectedFwId }),
+      });
+      const s = await api<any>(`/compliance/customers/${customerId}/summary`);
+      setSummary(Array.isArray(s) ? s : []);
+      setSelectedFwId('');
+    } catch { /* */ }
+    finally { setAddingScope(false); }
+  }
+
+  async function removeScope(scopeId: string) {
+    if (!confirm('Remove this compliance scope?')) return;
+    await api(`/compliance/customers/${customerId}/scopes/${scopeId}`, { method: 'DELETE' });
+    const s = await api<any>(`/compliance/customers/${customerId}/summary`);
+    setSummary(Array.isArray(s) ? s : []);
+  }
+
+  if (loading) return <div className="py-8 text-center text-muted-foreground">Loading...</div>;
+
+  const scopedFwIds = new Set(summary.map((s: any) => s.frameworkId));
+  const availableFrameworks = frameworks.filter(f => !scopedFwIds.has(f.id));
+
+  return (
+    <div className="space-y-4">
+      {/* Add Framework Scope */}
+      {availableFrameworks.length > 0 && (
+        <div className="flex items-center gap-2">
+          <select className="h-9 rounded-md border border-input bg-transparent px-3 text-sm flex-1 max-w-xs" value={selectedFwId} onChange={e => setSelectedFwId(e.target.value)}>
+            <option value="">Add compliance framework...</option>
+            {availableFrameworks.map(f => <option key={f.id} value={f.id}>{f.name} ({f.shortName})</option>)}
+          </select>
+          <Button size="sm" disabled={!selectedFwId || addingScope} onClick={addScope}>
+            {addingScope ? 'Adding...' : 'Add Scope'}
+          </Button>
+        </div>
+      )}
+
+      {summary.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <p>No compliance frameworks assigned. Import a framework first, then add it here.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {summary.map((fw: any) => (
+            <Card key={fw.frameworkId}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{fw.frameworkShortName}</Badge>
+                    <span className="font-medium">{fw.frameworkName}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-lg font-bold ${fw.score >= 80 ? 'text-green-600' : fw.score >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>{fw.score}%</span>
+                    <Button variant="ghost" size="sm" className="text-xs text-destructive" onClick={() => removeScope(fw.scope?.id)}>Remove</Button>
+                  </div>
+                </div>
+                {/* Progress bar */}
+                <div className="flex h-2 rounded-full overflow-hidden bg-muted mb-2">
+                  {fw.compliant > 0 && <div className="bg-green-500" style={{ width: `${(fw.compliant / fw.total) * 100}%` }} />}
+                  {fw.partial > 0 && <div className="bg-yellow-500" style={{ width: `${(fw.partial / fw.total) * 100}%` }} />}
+                  {fw.nonCompliant > 0 && <div className="bg-red-500" style={{ width: `${(fw.nonCompliant / fw.total) * 100}%` }} />}
+                  {fw.na > 0 && <div className="bg-blue-300" style={{ width: `${(fw.na / fw.total) * 100}%` }} />}
+                </div>
+                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <span className="text-green-600">{fw.compliant} compliant</span>
+                  <span className="text-yellow-600">{fw.partial} partial</span>
+                  <span className="text-red-600">{fw.nonCompliant} non-compliant</span>
+                  <span>{fw.notAssessed} not assessed</span>
+                  <span>{fw.na} N/A</span>
+                  <span className="ml-auto">{fw.openPoamItems} open POA&M</span>
+                </div>
+                {fw.latestAssessment && (
+                  <div className="text-xs text-muted-foreground mt-2">
+                    Latest: {fw.latestAssessment.title} ({fw.latestAssessment.status})
+                    {fw.latestAssessment.overallScore != null && ` — Score: ${fw.latestAssessment.overallScore}%`}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
