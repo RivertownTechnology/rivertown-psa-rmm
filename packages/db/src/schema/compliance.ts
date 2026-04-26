@@ -56,6 +56,8 @@ export const complianceControls = pgTable('compliance_controls', {
   severity: text('severity').default('medium'), // critical, high, medium, low
   controlType: text('control_type').default('technical'), // technical, administrative, physical
   assessmentMethod: text('assessment_method').default('examine'), // examine, interview, test
+  automationSource: text('automation_source'), // null=manual, ncentral, huntress, nodeware, sentinelone, duo, m365, asset_data
+  automationCheck: text('automation_check'), // machine-readable check key e.g. 'patch_compliance', 'edr_active', 'mfa_enrolled'
   sortOrder: integer('sort_order').default(0),
   metadata: jsonb('metadata'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -329,4 +331,26 @@ export const complianceActivityLog = pgTable('compliance_activity_log', {
 }, (table) => [
   index('compliance_activity_entity_idx').on(table.tenantId, table.entityType, table.entityId),
   index('compliance_activity_customer_idx').on(table.tenantId, table.customerId),
+]);
+
+// ── Automated Compliance Checks (integration data) ─────────────────
+
+export const complianceAutomatedChecks = pgTable('compliance_automated_checks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  customerId: uuid('customer_id').notNull().references(() => customers.id),
+  controlStatusId: uuid('control_status_id').references(() => complianceControlStatuses.id),
+  source: text('source').notNull(), // ncentral, huntress, nodeware, sentinelone, duo, m365, asset_data
+  checkType: text('check_type').notNull(), // patch_compliance, edr_active, mfa_enrolled, vuln_scan, av_status, encryption, backup_status, etc.
+  result: text('result').notNull(), // pass, fail, partial, error, unknown
+  details: jsonb('details'), // { totalDevices, compliantDevices, failedDevices: [...], scanDate, ... }
+  assetId: uuid('asset_id').references(() => assets.id), // null for org-wide checks, set for per-device
+  checkedAt: timestamp('checked_at', { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }), // when this check result goes stale
+  rawData: jsonb('raw_data'), // raw API response for audit trail
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('compliance_auto_checks_customer_idx').on(table.tenantId, table.customerId),
+  index('compliance_auto_checks_source_idx').on(table.tenantId, table.source, table.checkType),
+  index('compliance_auto_checks_control_idx').on(table.controlStatusId),
 ]);
