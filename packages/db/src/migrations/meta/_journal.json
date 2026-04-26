@@ -309,6 +309,13 @@
       "when": 1745195200000,
       "tag": "0043_compliance_full_grc",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1745195300000,
+      "tag": "0044_workflow_automation_upgrade",
+      "breakpoints": true
     }
   ]
 }

@@ -254,6 +254,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   const { startRecurringTicketScheduler } = await import('./services/recurring-tickets.js');
   startRecurringTicketScheduler(db);
 
+  // Start workflow automation scheduler
+  const { startWorkflowScheduler } = await import('./services/workflow-scheduler.js');
+  startWorkflowScheduler(db);
+
   // Start invoice auto-send scheduler
   const { startInvoiceAutoSendScheduler } = await import('./services/invoice-auto-send.js');
   startInvoiceAutoSendScheduler(db);

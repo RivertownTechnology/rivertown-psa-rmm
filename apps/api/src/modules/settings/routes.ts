@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { eq, and, sql, desc, count } from 'drizzle-orm';
-import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues, ticketQueues, ticketTags, ticketTagAssignments, ticketCategories, ticketSubcategories, recurringTicketRules, workflowRules, businessDocuments, apiKeys } from '@rivertown/db';
+import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues, ticketQueues, ticketTags, ticketTagAssignments, ticketCategories, ticketSubcategories, recurringTicketRules, workflowRules, workflowExecutionLog, businessDocuments, apiKeys } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
 import { readCredentials } from '../../common/credentials.js';
@@ -2082,6 +2082,63 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     await fastify.db.delete(workflowRules)
       .where(and(eq(workflowRules.id, id), eq(workflowRules.tenantId, request.tenantId)));
     reply.code(204).send();
+  });
+
+  // Workflow execution log
+  fastify.get('/api/v1/settings/workflow-rules/:id/log', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    return fastify.db.select().from(workflowExecutionLog)
+      .where(and(eq(workflowExecutionLog.ruleId, id), eq(workflowExecutionLog.tenantId, request.tenantId)))
+      .orderBy(desc(workflowExecutionLog.executedAt)).limit(100);
+  });
+
+  fastify.get('/api/v1/settings/workflow-execution-log', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request) => {
+    const params = request.query as Record<string, string>;
+    const conditions = [eq(workflowExecutionLog.tenantId, request.tenantId)];
+    if (params.ruleId) conditions.push(eq(workflowExecutionLog.ruleId, params.ruleId));
+    if (params.success === 'false') conditions.push(eq(workflowExecutionLog.success, false));
+    return fastify.db.select().from(workflowExecutionLog)
+      .where(and(...conditions))
+      .orderBy(desc(workflowExecutionLog.executedAt)).limit(100);
+  });
+
+  // Workflow prebuilt templates
+  fastify.get('/api/v1/settings/workflow-templates', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async () => {
+    const { PREBUILT_WORKFLOW_TEMPLATES } = await import('../../services/workflow-templates.js');
+    return PREBUILT_WORKFLOW_TEMPLATES;
+  });
+
+  fastify.post('/api/v1/settings/workflow-rules/import-template', {
+    preHandler: [fastify.authenticate, requirePermission('*')]
+  }, async (request, reply) => {
+    const { templateId } = request.body as { templateId: string };
+    const { PREBUILT_WORKFLOW_TEMPLATES } = await import('../../services/workflow-templates.js');
+    const template = PREBUILT_WORKFLOW_TEMPLATES.find(t => t.id === templateId);
+    if (!template) return { error: 'Template not found' };
+
+    const [rule] = await fastify.db.insert(workflowRules).values({
+      tenantId: request.tenantId,
+      name: template.name,
+      description: template.description,
+      trigger: template.trigger,
+      ruleType: template.ruleType,
+      category: template.category,
+      conditions: [],
+      conditionsLogic: template.conditionsLogic,
+      actions: template.actions,
+      timeConfig: template.timeConfig,
+      exitConditions: template.exitConditions,
+      isActive: false, // imported as inactive so user can review first
+    }).returning();
+
+    reply.code(201);
+    return rule;
   });
 
   // ===== REPORT TEMPLATE SETTINGS =====
