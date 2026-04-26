@@ -7,7 +7,9 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Pencil, Trash2, Package, Search, Copy } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Combobox } from '@/components/ui/combobox';
+import { Plus, Pencil, Trash2, Package, Search, Copy, Layers, X } from 'lucide-react';
 
 interface CatalogItem {
   id: string; name: string; description: string | null; sku: string | null;
@@ -43,6 +45,15 @@ export function ProductCatalogPage() {
   const [qboAccounts, setQboAccounts] = useState<QBOAccount[]>([]);
   const [qboConnected, setQboConnected] = useState(false);
 
+  // Bundles
+  const [bundles, setBundles] = useState<Array<{ id: string; name: string; description: string | null }>>([]);
+  const [showBundleForm, setShowBundleForm] = useState(false);
+  const [editingBundleId, setEditingBundleId] = useState<string | null>(null);
+  const [bundleForm, setBundleForm] = useState({ name: '', description: '' });
+  const [bundleItems, setBundleItems] = useState<Array<{ catalogItemId: string; quantityMultiplier: string }>>([]);
+  const [savingBundle, setSavingBundle] = useState(false);
+  const [activeTab, setActiveTab] = useState('products');
+
   const load = useCallback(async () => {
     const params = new URLSearchParams();
     if (categoryFilter) params.set('category', categoryFilter);
@@ -51,6 +62,12 @@ export function ProductCatalogPage() {
   }, [categoryFilter]);
 
   useEffect(() => { load(); }, [load]);
+
+  const loadBundles = useCallback(async () => {
+    const data = await api<any[]>('/service-catalog/bundles');
+    setBundles(data);
+  }, []);
+  useEffect(() => { loadBundles(); }, [loadBundles]);
 
   // Load QBO accounts if connected
   useEffect(() => {
@@ -166,6 +183,13 @@ export function ProductCatalogPage() {
 
   return (
     <div className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="products"><Package className="h-4 w-4 mr-1" /> Products</TabsTrigger>
+          <TabsTrigger value="bundles"><Layers className="h-4 w-4 mr-1" /> Bundles ({bundles.length})</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="products">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="relative w-64">
@@ -398,6 +422,158 @@ export function ProductCatalogPage() {
           </form>
         </DialogContent>
       </Dialog>
+        </TabsContent>
+
+        <TabsContent value="bundles">
+          <div className="space-y-4">
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => {
+                setBundleForm({ name: '', description: '' });
+                setBundleItems([]);
+                setEditingBundleId(null);
+                setShowBundleForm(true);
+              }}>
+                <Plus className="h-4 w-4 mr-1" /> Create Bundle
+              </Button>
+            </div>
+
+            {bundles.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <Layers className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-muted-foreground mb-2">No bundles yet</p>
+                  <p className="text-xs text-muted-foreground">Bundles group products together for quick pricing on contracts and proposals.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {bundles.map(bundle => (
+                  <Card key={bundle.id}>
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-medium">{bundle.name}</div>
+                          {bundle.description && <p className="text-sm text-muted-foreground">{bundle.description}</p>}
+                        </div>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={async () => {
+                            const data = await api<any>(`/service-catalog/bundles/${bundle.id}`);
+                            setBundleForm({ name: data.name, description: data.description || '' });
+                            setBundleItems((data.items || []).map((i: any) => ({
+                              catalogItemId: i.catalogItem?.id || i.catalogItemId,
+                              quantityMultiplier: i.quantityMultiplier || '1',
+                            })));
+                            setEditingBundleId(bundle.id);
+                            setShowBundleForm(true);
+                          }}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={async () => {
+                            if (!confirm(`Delete bundle "${bundle.name}"?`)) return;
+                            await api(`/service-catalog/bundles/${bundle.id}`, { method: 'DELETE' });
+                            loadBundles();
+                          }}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Bundle Form Dialog */}
+          <Dialog open={showBundleForm} onOpenChange={setShowBundleForm}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>{editingBundleId ? 'Edit Bundle' : 'Create Bundle'}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label>Bundle Name</Label>
+                  <Input value={bundleForm.name} onChange={e => setBundleForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Standard MSP Bundle" />
+                </div>
+                <div>
+                  <Label>Description</Label>
+                  <Input value={bundleForm.description} onChange={e => setBundleForm(f => ({ ...f, description: e.target.value }))} placeholder="What this bundle includes..." />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label>Products in Bundle</Label>
+                    <Button variant="outline" size="sm" onClick={() => setBundleItems([...bundleItems, { catalogItemId: '', quantityMultiplier: '1' }])}>
+                      <Plus className="h-3 w-3 mr-1" /> Add Product
+                    </Button>
+                  </div>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {bundleItems.map((bi, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <Combobox
+                          options={items.map(i => ({ value: i.id, label: `${i.name}${i.sku ? ` (${i.sku})` : ''}` }))}
+                          value={bi.catalogItemId}
+                          onValueChange={v => {
+                            const updated = [...bundleItems];
+                            updated[idx] = { ...updated[idx], catalogItemId: v };
+                            setBundleItems(updated);
+                          }}
+                          placeholder="Select product..."
+                          className="flex-1"
+                        />
+                        <Input
+                          className="w-16 text-center"
+                          value={bi.quantityMultiplier}
+                          onChange={e => {
+                            const updated = [...bundleItems];
+                            updated[idx] = { ...updated[idx], quantityMultiplier: e.target.value };
+                            setBundleItems(updated);
+                          }}
+                          placeholder="Qty"
+                        />
+                        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setBundleItems(bundleItems.filter((_, i) => i !== idx))}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    {bundleItems.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">Click "Add Product" to add items to this bundle.</p>
+                    )}
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowBundleForm(false)}>Cancel</Button>
+                  <Button disabled={savingBundle || !bundleForm.name} onClick={async () => {
+                    setSavingBundle(true);
+                    try {
+                      const payload = {
+                        name: bundleForm.name,
+                        description: bundleForm.description || undefined,
+                        items: bundleItems.filter(i => i.catalogItemId).map((i, idx) => ({
+                          catalogItemId: i.catalogItemId,
+                          quantityMultiplier: i.quantityMultiplier || '1',
+                          sortOrder: idx,
+                        })),
+                      };
+                      if (editingBundleId) {
+                        await api(`/service-catalog/bundles/${editingBundleId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+                      } else {
+                        await api('/service-catalog/bundles', { method: 'POST', body: JSON.stringify(payload) });
+                      }
+                      setShowBundleForm(false);
+                      loadBundles();
+                    } catch { /* */ }
+                    finally { setSavingBundle(false); }
+                  }}>
+                    {savingBundle ? 'Saving...' : editingBundleId ? 'Save Bundle' : 'Create Bundle'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
