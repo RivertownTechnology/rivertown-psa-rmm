@@ -466,8 +466,8 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* My Tickets toggle */}
           <Button
             variant={myTicketsOnly ? 'default' : 'outline'}
@@ -596,7 +596,10 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
             return (
               <div
                 key={t.id}
-                className="rounded-lg border bg-card px-4 py-3.5 cursor-pointer transition-all hover:bg-muted/50 hover:border-primary/20 flex items-start gap-3"
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectTicket?.(t.id); } }}
+                className="rounded-lg border bg-card px-4 py-3.5 cursor-pointer transition-all hover:bg-muted/50 hover:border-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 flex items-start gap-3"
               >
                 {/* Selection indicator */}
                 <div className="pt-0.5 shrink-0" onClick={e => { e.stopPropagation(); toggleSelect(t.id); }}>

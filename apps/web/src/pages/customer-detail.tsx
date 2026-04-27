@@ -67,26 +67,37 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
   const [ncCreating, setNcCreating] = useState(false);
   const [ncResult, setNcResult] = useState<{ success: boolean; steps: Array<{ step: string; status: string; detail?: string }>; ncentralName?: string; sitesCreated?: number; error?: string } | null>(null);
 
+  const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set(['overview']));
+
+  // Core data: customer + contacts (needed for overview)
   const load = useCallback(async () => {
-    const [c, ct, s, a, t, con, inv] = await Promise.all([
+    const [c, ct] = await Promise.all([
       api<Customer>(`/customers/${customerId}`),
       api<{ data: Contact[] }>(`/contacts?customerId=${customerId}&limit=100`),
-      api<{ data: Site[] }>(`/sites?customerId=${customerId}&limit=100`),
-      api<{ data: Asset[] }>(`/assets?customerId=${customerId}&limit=100`),
-      api<{ data: TicketRow[] }>(`/tickets?customerId=${customerId}&limit=100`),
-      api<{ data: Contract[] }>(`/contracts?customerId=${customerId}&limit=100`),
-      api<{ data: Invoice[] }>(`/invoices?customerId=${customerId}&limit=100`),
     ]);
     setCustomer(c);
     setContacts(ct.data);
-    setSites(s.data);
-    setAssets(a.data);
-    setTickets(t.data);
-    setCustomerContracts(con.data);
-    setCustomerInvoices(inv.data);
   }, [customerId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Lazy-load tab data on first visit
+  useEffect(() => {
+    if (loadedTabs.has(tab)) return;
+    setLoadedTabs(prev => new Set([...prev, tab]));
+
+    if (tab === 'sites' && sites.length === 0) {
+      api<{ data: Site[] }>(`/sites?customerId=${customerId}&limit=100`).then(d => setSites(d.data)).catch(() => {});
+    } else if (tab === 'devices' && assets.length === 0) {
+      api<{ data: Asset[] }>(`/assets?customerId=${customerId}&limit=100`).then(d => setAssets(d.data)).catch(() => {});
+    } else if (tab === 'tickets' && tickets.length === 0) {
+      api<{ data: TicketRow[] }>(`/tickets?customerId=${customerId}&limit=100`).then(d => setTickets(d.data)).catch(() => {});
+    } else if (tab === 'contracts' && customerContracts.length === 0) {
+      api<{ data: Contract[] }>(`/contracts?customerId=${customerId}&limit=100`).then(d => setCustomerContracts(d.data)).catch(() => {});
+    } else if (tab === 'invoices' && customerInvoices.length === 0) {
+      api<{ data: Invoice[] }>(`/invoices?customerId=${customerId}&limit=100`).then(d => setCustomerInvoices(d.data)).catch(() => {});
+    }
+  }, [tab, customerId, loadedTabs, sites.length, assets.length, tickets.length, customerContracts.length, customerInvoices.length]);
 
   useEffect(() => {
     api<Array<{ id: string; name: string }>>('/settings/sla-policies').then(setSlaPolicies).catch(() => {});

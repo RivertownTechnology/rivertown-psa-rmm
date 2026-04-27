@@ -739,11 +739,12 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
               <div className="space-y-1">
                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Title</div>
                 {editingSubject ? (
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 items-center">
                     <Input value={subjectDraft} onChange={e => setSubjectDraft(e.target.value)} className="flex-1" autoFocus
                       onKeyDown={e => { if (e.key === 'Enter') { saveSubject(); } if (e.key === 'Escape') { setEditingSubject(false); } }} />
                     <Button size="sm" onClick={saveSubject}><Check className="h-3 w-3" /></Button>
                     <Button size="sm" variant="ghost" onClick={() => setEditingSubject(false)}><X className="h-3 w-3" /></Button>
+                    {subjectDraft !== ticket.subject && <span className="text-xs text-amber-500">unsaved</span>}
                   </div>
                 ) : (
                   <h3 className="text-lg font-semibold cursor-pointer hover:text-primary transition-colors" onClick={() => { setSubjectDraft(ticket.subject); setEditingSubject(true); }}>
