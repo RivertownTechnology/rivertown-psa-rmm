@@ -282,9 +282,9 @@ export function GovDashboardPage() {
                     ? Math.ceil((new Date(d.submissionDeadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
                     : 0;
                   return (
-                    <div key={d.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                    <button key={d.id} onClick={() => { window.history.pushState(null, '', `/gov/opportunities/${d.id}`); window.dispatchEvent(new PopStateEvent('popstate')); }} className="w-full flex items-center justify-between py-2 border-b last:border-0 hover:bg-muted/50 rounded px-1 -mx-1 transition-colors text-left cursor-pointer">
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium truncate">{d.title}</div>
+                        <div className="text-sm font-medium truncate hover:text-primary transition-colors">{d.title}</div>
                         <div className="text-xs text-muted-foreground">{d.agency}</div>
                       </div>
                       <div className="text-right shrink-0 ml-3">
@@ -297,7 +297,7 @@ export function GovDashboardPage() {
                           {d.submissionDeadline ? new Date(d.submissionDeadline).toLocaleDateString() : 'No deadline'}
                         </div>
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
