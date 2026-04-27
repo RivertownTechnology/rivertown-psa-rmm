@@ -1,4 +1,5 @@
-import { useState, useCallback, createContext, useContext, ReactNode } from 'react';
+import { useState, useCallback, createContext, useContext } from 'react';
+import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 
