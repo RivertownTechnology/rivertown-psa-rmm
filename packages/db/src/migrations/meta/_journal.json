@@ -316,6 +316,13 @@
       "when": 1745195300000,
       "tag": "0044_workflow_automation_upgrade",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1745195400000,
+      "tag": "0045_performance_indexes",
+      "breakpoints": true
     }
   ]
 }

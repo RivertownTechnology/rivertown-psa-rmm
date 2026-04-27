@@ -2056,9 +2056,24 @@ export async function settingsRoutes(fastify: FastifyInstance) {
   fastify.post('/api/v1/settings/workflow-rules', {
     preHandler: [fastify.authenticate, requirePermission('*')]
   }, async (request, reply) => {
-    const body = request.body as any;
+    const { createWorkflowRuleSchema } = await import('@rivertown/shared');
+    const body = createWorkflowRuleSchema.parse(request.body);
     const [rule] = await fastify.db.insert(workflowRules).values({
-      tenantId: request.tenantId, ...body,
+      tenantId: request.tenantId,
+      name: body.name,
+      trigger: body.trigger,
+      ruleType: body.ruleType,
+      conditions: body.conditions as any,
+      conditionsLogic: body.conditionsLogic as any,
+      actions: body.actions as any,
+      timeConfig: body.timeConfig as any,
+      exitConditions: body.exitConditions as any,
+      logEnabled: body.logEnabled,
+      templateId: body.templateId,
+      category: body.category,
+      isActive: body.isActive,
+      sortOrder: body.sortOrder,
+      description: body.description,
     }).returning();
     reply.code(201);
     return rule;

@@ -360,6 +360,9 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // Recalculate totals with proper tax
+      await recalcInvoiceTotals(fastify.db, invoice.id, request.tenantId);
+
       // Auto-apply account credits if customer has a balance
       const [cust] = await fastify.db.select().from(customers).where(and(eq(customers.id, contract.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
       if (cust && cust.creditBalanceCents > 0) {

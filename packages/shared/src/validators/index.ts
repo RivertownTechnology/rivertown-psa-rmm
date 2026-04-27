@@ -238,3 +238,72 @@ export const createCatalogItemSchema = z.object({
 });
 
 export const updateCatalogItemSchema = createCatalogItemSchema.partial();
+
+// Workflow Rules
+export const createWorkflowRuleSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().optional(),
+  trigger: z.string().min(1),
+  ruleType: z.enum(['instant', 'timed', 'scheduled']).default('instant'),
+  conditions: z.array(z.object({ field: z.string(), operator: z.string(), value: z.string() })).default([]),
+  conditionsLogic: z.object({
+    logic: z.enum(['and', 'or']),
+    groups: z.array(z.object({
+      logic: z.enum(['and', 'or']),
+      conditions: z.array(z.object({ field: z.string(), operator: z.string(), value: z.string() })),
+    })),
+  }).optional(),
+  actions: z.array(z.object({ type: z.string(), params: z.record(z.string(), z.unknown()).default({}) })).min(1),
+  timeConfig: z.record(z.string(), z.unknown()).default({}),
+  exitConditions: z.array(z.object({ field: z.string(), operator: z.string(), value: z.string() })).default([]),
+  logEnabled: z.boolean().default(true),
+  templateId: z.string().uuid().optional(),
+  category: z.string().default('general'),
+  isActive: z.boolean().default(true),
+  sortOrder: z.number().int().default(0),
+});
+
+export const updateWorkflowRuleSchema = createWorkflowRuleSchema.partial();
+
+// Compliance
+export const createComplianceAssessmentSchema = z.object({
+  customerId: z.string().uuid(),
+  frameworkId: z.string().uuid(),
+  title: z.string().min(1).max(300),
+  assessmentType: z.enum(['baseline', 'detailed', 'reassessment', 'remediation_check']).default('baseline'),
+  dueDate: z.string().date().optional(),
+});
+
+export const createComplianceRiskSchema = z.object({
+  customerId: z.string().uuid(),
+  title: z.string().min(1).max(300),
+  description: z.string().optional(),
+  category: z.enum(['technical', 'operational', 'legal', 'financial', 'reputational']).optional(),
+  likelihood: z.number().int().min(1).max(5),
+  impact: z.number().int().min(1).max(5),
+  riskResponse: z.enum(['mitigate', 'accept', 'avoid', 'transfer']).default('mitigate'),
+  responseDetails: z.string().optional(),
+  ownerId: z.string().uuid().optional(),
+  controlId: z.string().uuid().optional(),
+  reviewDate: z.string().date().optional(),
+});
+
+export const createCompliancePoamSchema = z.object({
+  customerId: z.string().uuid(),
+  frameworkId: z.string().uuid(),
+  finding: z.string().min(1),
+  riskLevel: z.enum(['critical', 'high', 'medium', 'low']).default('medium'),
+  weakness: z.string().optional(),
+  remediationPlan: z.string().optional(),
+  scheduledStartDate: z.string().date().optional(),
+  scheduledEndDate: z.string().date().optional(),
+  notes: z.string().optional(),
+});
+
+export const createComplianceIncidentSchema = z.object({
+  customerId: z.string().uuid(),
+  title: z.string().min(1).max(300),
+  description: z.string().optional(),
+  incidentType: z.enum(['data_breach', 'unauthorized_access', 'malware', 'phishing', 'physical_security', 'policy_violation', 'system_outage', 'other']),
+  severity: z.enum(['critical', 'high', 'medium', 'low']).default('medium'),
+});
