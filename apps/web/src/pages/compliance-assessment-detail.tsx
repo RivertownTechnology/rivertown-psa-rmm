@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { api } from '@/lib/api';
+import { api, getAccessToken, API_BASE } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +25,7 @@ import {
   ListChecks,
   ChevronDown,
   ChevronRight,
+  Upload,
 } from 'lucide-react';
 
 // ---------- Types ----------
@@ -587,6 +588,7 @@ export function ComplianceAssessmentDetailPage({
                         setLocalFindings((prev) => ({ ...prev, [item.id]: val }))
                       }
                       onFindingsBlur={() => handleFindingsBlur(item.id)}
+                      customerId={assessment?.customerId}
                     />
                   ))}
                 </CardContent>
@@ -642,6 +644,7 @@ export function ComplianceAssessmentDetailPage({
                         setLocalFindings((prev) => ({ ...prev, [item.id]: val }))
                       }
                       onFindingsBlur={() => handleFindingsBlur(item.id)}
+                      customerId={assessment?.customerId}
                     />
                   ))}
                 </CardContent>
@@ -838,6 +841,8 @@ function ControlItemRow({
   onNotesBlur,
   onFindingsChange,
   onFindingsBlur,
+  customerId,
+  controlStatusId,
 }: {
   item: AssessmentItem;
   isLocked: boolean;
@@ -849,6 +854,8 @@ function ControlItemRow({
   onNotesBlur: () => void;
   onFindingsChange: (val: string) => void;
   onFindingsBlur: () => void;
+  customerId?: string;
+  controlStatusId?: string;
 }) {
   const ctrl = item.control;
   const showFindings =
@@ -945,6 +952,37 @@ function ControlItemRow({
             onChange={(e) => onFindingsChange(e.target.value)}
             onBlur={onFindingsBlur}
           />
+        </div>
+      )}
+
+      {/* Evidence upload */}
+      {customerId && controlStatusId && !isLocked && (
+        <div>
+          <Label className="text-xs text-muted-foreground">Evidence</Label>
+          <div className="mt-1 flex items-center gap-2">
+            <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground cursor-pointer transition-colors">
+              <Upload className="h-3 w-3" /> Attach File
+              <input type="file" className="hidden" onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('title', file.name);
+                formData.append('evidenceType', 'document');
+                formData.append('controlStatusId', controlStatusId);
+                try {
+                  const token = getAccessToken();
+                  await fetch(`${API_BASE}/compliance/customers/${customerId}/evidence/upload`, {
+                    method: 'POST',
+                    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+                    body: formData,
+                  });
+                  // Visual feedback
+                  e.target.value = '';
+                } catch { /* */ }
+              }} />
+            </label>
+          </div>
         </div>
       )}
 

@@ -1765,6 +1765,7 @@ export async function complianceRoutes(fastify: FastifyInstance) {
       .orderBy(desc(complianceEvidence.createdAt)).limit(100);
   });
 
+  // Evidence: Create with metadata only (for links, attestations)
   fastify.post('/api/v1/compliance/customers/:customerId/evidence', {
     preHandler: [fastify.authenticate, requirePermission('*')],
   }, async (request, reply) => {
@@ -1786,8 +1787,105 @@ export async function complianceRoutes(fastify: FastifyInstance) {
       uploadedBy: request.user.sub,
       tags: body.tags,
     }).returning();
+
+    // Auto-link to control if controlStatusId provided
+    if (body.controlStatusId) {
+      await fastify.db.insert(complianceEvidenceControls).values({
+        evidenceId: evidence.id, controlStatusId: body.controlStatusId,
+      }).onConflictDoNothing();
+    }
+
     reply.code(201);
     return evidence;
+  });
+
+  // Evidence: File upload (multipart) with R2 storage
+  fastify.post('/api/v1/compliance/customers/:customerId/evidence/upload', {
+    preHandler: [fastify.authenticate, requirePermission('*')],
+  }, async (request, reply) => {
+    const { customerId } = request.params as { customerId: string };
+    const { uploadFile, isR2Configured } = await import('../../services/r2-storage.js');
+    const { randomUUID } = await import('crypto');
+
+    const data = await request.file();
+    if (!data) { reply.code(400); return { error: 'No file uploaded' }; }
+
+    const buffer = await data.toBuffer();
+    const fileName = data.filename;
+    const mimeType = data.mimetype;
+    const fileSize = buffer.length;
+
+    // Extract form fields
+    const fields = data.fields as any;
+    const title = fields?.title?.value || fileName;
+    const evidenceType = fields?.evidenceType?.value || 'document';
+    const description = fields?.description?.value || '';
+    const controlStatusId = fields?.controlStatusId?.value || '';
+    const expiresAt = fields?.expiresAt?.value || '';
+
+    // Secure storage path: customers/{cust}/compliance/evidence/{uuid}/{filename}
+    const evidenceId = randomUUID();
+    const storageKey = `${request.tenantId}/customers/${customerId}/compliance/evidence/${evidenceId}/${fileName}`;
+
+    // Upload to R2 if configured
+    if (await isR2Configured(fastify.db, request.tenantId)) {
+      await uploadFile(fastify.db, request.tenantId, storageKey, buffer, mimeType);
+    }
+
+    // Create evidence record
+    const [evidence] = await fastify.db.insert(complianceEvidence).values({
+      tenantId: request.tenantId,
+      customerId,
+      title,
+      evidenceType,
+      description,
+      fileName,
+      fileSize,
+      mimeType,
+      storageKey,
+      collectedAt: new Date(),
+      expiresAt: expiresAt ? new Date(expiresAt) : null,
+      uploadedBy: request.user.sub,
+    }).returning();
+
+    // Auto-link to control if provided
+    if (controlStatusId) {
+      await fastify.db.insert(complianceEvidenceControls).values({
+        evidenceId: evidence.id, controlStatusId,
+      }).onConflictDoNothing();
+    }
+
+    // Log the upload
+    await fastify.db.insert(complianceActivityLog).values({
+      tenantId: request.tenantId,
+      customerId,
+      entityType: 'evidence',
+      entityId: evidence.id,
+      action: 'created',
+      actorType: 'user',
+      actorId: request.user.sub,
+      description: `Evidence uploaded: ${fileName} (${(fileSize / 1024).toFixed(0)} KB)`,
+    });
+
+    reply.code(201);
+    return evidence;
+  });
+
+  // Evidence: Download (signed URL)
+  fastify.get('/api/v1/compliance/evidence/:id/download', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:read')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [evidence] = await fastify.db.select().from(complianceEvidence)
+      .where(and(eq(complianceEvidence.id, id), eq(complianceEvidence.tenantId, request.tenantId))).limit(1);
+    if (!evidence) throw new NotFoundError('Evidence', id);
+    if (!evidence.storageKey) return { error: 'No file stored for this evidence' };
+
+    const { getFileUrl, isR2Configured } = await import('../../services/r2-storage.js');
+    if (!await isR2Configured(fastify.db, request.tenantId)) return { error: 'Storage not configured' };
+
+    const url = await getFileUrl(fastify.db, request.tenantId, evidence.storageKey, 300); // 5 min expiry
+    return { url, fileName: evidence.fileName, mimeType: evidence.mimeType };
   });
 
   fastify.delete('/api/v1/compliance/evidence/:id', {
