@@ -1268,40 +1268,56 @@ ${sectionsHtml}
         <TabsContent value="pricing">
           <div className="space-y-4">
             {/* Pricing Summary */}
-            {pricingItems.length > 0 && (
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-xs text-muted-foreground mb-1">Monthly Revenue</div>
-                    <div className="text-lg font-bold text-green-600">{formatDollars(pricingTotals.totalMonthlyCents)}</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-xs text-muted-foreground mb-1">Annual Revenue</div>
-                    <div className="text-lg font-bold text-green-600">{formatDollars(pricingTotals.annualRevenue)}</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-xs text-muted-foreground mb-1">Annual Cost</div>
-                    <div className="text-lg font-bold text-red-600">{formatDollars(pricingTotals.annualCost)}</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-xs text-muted-foreground mb-1">Margin</div>
-                    <div className={`text-lg font-bold ${pricingTotals.margin >= 30 ? 'text-green-600' : pricingTotals.margin >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>{pricingTotals.margin}%</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-xs text-muted-foreground mb-1">Contract Value</div>
-                    <div className="text-lg font-bold">{formatDollars(pricingTotals.annualRevenue)}</div>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
+            {pricingItems.length > 0 && (() => {
+              const SCENARIO_LABELS: Record<string, string> = { base: 'Base Proposal', option_a: 'Option A', option_b: 'Option B', option_c: 'Option C' };
+              const scenarios = [...new Set(pricingItems.map(i => i.scenario || 'base'))].sort();
+              const unmappedCount = pricingItems.filter(i => !i.catalogItemId && !i.linkedToId).length;
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <Card>
+                    <CardContent className="p-4 text-center">
+                      <div className="text-xs text-muted-foreground mb-1">Monthly Revenue</div>
+                      <div className="text-lg font-bold text-green-600">{formatDollars(pricingTotals.totalMonthlyCents)}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4 text-center">
+                      <div className="text-xs text-muted-foreground mb-1">Annual Revenue</div>
+                      <div className="text-lg font-bold text-green-600">{formatDollars(pricingTotals.annualRevenue)}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4 text-center">
+                      <div className="text-xs text-muted-foreground mb-1">Annual Cost</div>
+                      <div className="text-lg font-bold text-red-600">{formatDollars(pricingTotals.annualCost)}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4 text-center">
+                      <div className="text-xs text-muted-foreground mb-1">Margin</div>
+                      <div className={`text-lg font-bold ${pricingTotals.margin >= 30 ? 'text-green-600' : pricingTotals.margin >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>
+                        {pricingTotals.margin}%
+                      </div>
+                      <div className="w-full bg-muted rounded-full h-1.5 mt-1 overflow-hidden">
+                        <div className={`h-full transition-all ${pricingTotals.margin >= 30 ? 'bg-green-500' : pricingTotals.margin >= 15 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${Math.min(pricingTotals.margin, 100)}%` }} />
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4 text-center">
+                      <div className="text-xs text-muted-foreground mb-1">Line Items</div>
+                      <div className="text-lg font-bold">{pricingItems.filter(i => !i.linkedToId).length}</div>
+                      {unmappedCount > 0 && (
+                        <div className="text-[10px] text-yellow-600 mt-0.5">{unmappedCount} unmapped</div>
+                      )}
+                      {scenarios.length > 1 && (
+                        <div className="text-[10px] text-muted-foreground mt-0.5">{scenarios.length} scenarios</div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              );
+            })()}
 
             {/* Action buttons */}
             <div className="flex items-center gap-2 justify-end">
@@ -1319,13 +1335,30 @@ ${sectionsHtml}
               const scenarios = [...new Set(pricingItems.map(i => i.scenario || 'base'))].sort();
               return scenarios.map(scenario => {
                 const items = pricingItems.filter(i => (i.scenario || 'base') === scenario);
-                const scenarioMonthly = items.filter(i => !i.linkedToId && i.frequency === 'monthly').reduce((s, i) => s + (i.unitPriceCents ?? 0) * parseFloat(i.quantity ?? '1'), 0);
+                const topLevelItems = items.filter(i => !i.linkedToId);
+                const scenarioRevenue = topLevelItems.reduce((s, i) => {
+                  const qty = parseFloat(i.quantity ?? '1');
+                  const price = (i.unitPriceCents ?? 0) * qty;
+                  return s + (i.frequency === 'annually' ? Math.round(price / 12) : price);
+                }, 0);
+                const scenarioCost = topLevelItems.reduce((s, i) => {
+                  const qty = parseFloat(i.quantity ?? '1');
+                  const cost = (i.unitCostCents ?? 0) * qty;
+                  return s + (i.frequency === 'annually' ? Math.round(cost / 12) : cost);
+                }, 0);
+                const scenarioMargin = scenarioRevenue > 0 ? Math.round(((scenarioRevenue - scenarioCost) / scenarioRevenue) * 100) : 0;
                 return (
               <Card key={scenario}>
                 <CardHeader className="pb-2 pt-3 px-4">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm">{SCENARIO_LABELS[scenario] || scenario}</CardTitle>
-                    <span className="text-xs text-muted-foreground">{formatDollars(scenarioMonthly)}/mo</span>
+                    <div className="flex items-center gap-3">
+                      <CardTitle className="text-sm">{SCENARIO_LABELS[scenario] || scenario}</CardTitle>
+                      <span className="text-xs text-muted-foreground">{topLevelItems.length} items</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs">
+                      <span className="text-muted-foreground">{formatDollars(scenarioRevenue)}/mo</span>
+                      <span className={`font-medium ${scenarioMargin >= 30 ? 'text-green-600' : scenarioMargin >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>{scenarioMargin}% margin</span>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -1345,7 +1378,7 @@ ${sectionsHtml}
                         </tr>
                       </thead>
                       <tbody>
-                        {items.filter(i => !i.linkedToId).map(item => {
+                        {topLevelItems.map(item => {
                           const qty = parseFloat(item.quantity ?? '1');
                           const lineTotal = (item.unitPriceCents ?? 0) * qty;
                           const lineCost = (item.unitCostCents ?? 0) * qty;
@@ -1358,7 +1391,7 @@ ${sectionsHtml}
                                 <div className="truncate font-medium" title={item.need}>{item.need}</div>
                                 {linkedItems.length > 0 && (
                                   <div className="mt-1 space-y-0.5">
-                                    {linkedItems.map(li => (
+                                    {linkedItems.map((li: any) => (
                                       <div key={li.id} className="flex items-center gap-1 text-xs text-muted-foreground">
                                         <span className="text-primary">↳</span> {li.need}
                                         <button onClick={() => unlinkPricingItem(li.id)} className="ml-1 text-muted-foreground/50 hover:text-destructive" title="Unlink">
@@ -1374,7 +1407,7 @@ ${sectionsHtml}
                                 {item.catalogItemName ? (
                                   <Badge variant="secondary" className="text-xs">{item.catalogItemName}</Badge>
                                 ) : (
-                                  <span className="text-xs text-muted-foreground italic">Unmapped</span>
+                                  <span className="text-xs text-yellow-600 italic">Unmapped</span>
                                 )}
                               </td>
                               <td className="px-4 py-2 text-right">{item.quantity ?? '1'}</td>
@@ -1404,6 +1437,22 @@ ${sectionsHtml}
                           );
                         })}
                       </tbody>
+                      {/* Subtotals row */}
+                      <tfoot>
+                        <tr className="border-t-2 bg-muted/30 font-medium">
+                          <td className="px-4 py-2" colSpan={2}>Subtotal ({SCENARIO_LABELS[scenario] || scenario})</td>
+                          <td className="px-4 py-2 text-right">{topLevelItems.reduce((s, i) => s + parseFloat(i.quantity ?? '1'), 0)}</td>
+                          <td className="px-4 py-2" colSpan={2}></td>
+                          <td className="px-4 py-2"></td>
+                          <td className="px-4 py-2 text-right">{formatDollars(topLevelItems.reduce((s, i) => s + (i.unitPriceCents ?? 0) * parseFloat(i.quantity ?? '1'), 0))}</td>
+                          <td className="px-4 py-2 text-right">
+                            <span className={`${scenarioMargin >= 30 ? 'text-green-600' : scenarioMargin >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>
+                              {scenarioMargin}%
+                            </span>
+                          </td>
+                          <td className="px-4 py-2"></td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 </CardContent>
@@ -1414,10 +1463,69 @@ ${sectionsHtml}
               <Card>
                 <CardContent className="py-12 text-center">
                   <DollarSign className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-                  <p className="text-muted-foreground mb-4">No pricing items yet. Generate from the AI analysis or add manually.</p>
+                  <p className="text-sm text-muted-foreground mb-1">No pricing items yet</p>
+                  <p className="text-xs text-muted-foreground">Generate from the AI analysis or add line items manually.</p>
                 </CardContent>
               </Card>
             )}
+
+            {/* Scenario Comparison (if multiple scenarios) */}
+            {pricingItems.length > 0 && (() => {
+              const scenarios = [...new Set(pricingItems.map(i => i.scenario || 'base'))].sort();
+              if (scenarios.length < 2) return null;
+              const SCENARIO_LABELS: Record<string, string> = { base: 'Base Proposal', option_a: 'Option A', option_b: 'Option B', option_c: 'Option C' };
+              return (
+                <Card>
+                  <CardHeader className="pb-2 pt-3 px-4">
+                    <CardTitle className="text-sm">Scenario Comparison</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/50">
+                            <th className="text-left px-4 py-2 font-medium">Scenario</th>
+                            <th className="text-right px-4 py-2 font-medium">Items</th>
+                            <th className="text-right px-4 py-2 font-medium">Monthly</th>
+                            <th className="text-right px-4 py-2 font-medium">Annual</th>
+                            <th className="text-right px-4 py-2 font-medium">Cost</th>
+                            <th className="text-right px-4 py-2 font-medium">Margin</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {scenarios.map(s => {
+                            const sItems = pricingItems.filter(i => (i.scenario || 'base') === s && !i.linkedToId);
+                            const sMonthly = sItems.reduce((sum, i) => {
+                              const qty = parseFloat(i.quantity ?? '1');
+                              const price = (i.unitPriceCents ?? 0) * qty;
+                              return sum + (i.frequency === 'annually' ? Math.round(price / 12) : price);
+                            }, 0);
+                            const sCost = sItems.reduce((sum, i) => {
+                              const qty = parseFloat(i.quantity ?? '1');
+                              const cost = (i.unitCostCents ?? 0) * qty;
+                              return sum + (i.frequency === 'annually' ? Math.round(cost / 12) : cost);
+                            }, 0);
+                            const sMargin = sMonthly > 0 ? Math.round(((sMonthly - sCost) / sMonthly) * 100) : 0;
+                            return (
+                              <tr key={s} className="border-b hover:bg-muted/30">
+                                <td className="px-4 py-2 font-medium">{SCENARIO_LABELS[s] || s}</td>
+                                <td className="px-4 py-2 text-right">{sItems.length}</td>
+                                <td className="px-4 py-2 text-right">{formatDollars(sMonthly)}</td>
+                                <td className="px-4 py-2 text-right">{formatDollars(sMonthly * 12)}</td>
+                                <td className="px-4 py-2 text-right text-red-600">{formatDollars(sCost * 12)}</td>
+                                <td className="px-4 py-2 text-right">
+                                  <span className={`font-medium ${sMargin >= 30 ? 'text-green-600' : sMargin >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>{sMargin}%</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })()}
 
             {/* Add/Edit pricing dialog */}
             <Dialog open={showAddPricing} onOpenChange={(open) => { setShowAddPricing(open); if (!open) { setEditingPricingId(null); resetPricingForm(); } }}>
@@ -1481,29 +1589,30 @@ ${sectionsHtml}
                       />
                     </div>
                   </div>
-                  <div>
-                    <Label>Frequency</Label>
-                    <Select value={pricingForm.frequency} onValueChange={v => setPricingForm(f => ({ ...f, frequency: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="monthly">Monthly</SelectItem>
-                        <SelectItem value="annually">Annually</SelectItem>
-                        <SelectItem value="one_time">One Time</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Pricing Scenario</Label>
-                    <select
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      value={pricingForm.scenario}
-                      onChange={e => setPricingForm(f => ({ ...f, scenario: e.target.value }))}
-                    >
-                      <option value="base">Base Proposal</option>
-                      <option value="option_a">Option A</option>
-                      <option value="option_b">Option B</option>
-                      <option value="option_c">Option C</option>
-                    </select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Frequency</Label>
+                      <Select value={pricingForm.frequency} onValueChange={v => setPricingForm(f => ({ ...f, frequency: v }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="monthly">Monthly</SelectItem>
+                          <SelectItem value="annually">Annually</SelectItem>
+                          <SelectItem value="one_time">One Time</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Pricing Scenario</Label>
+                      <Select value={pricingForm.scenario} onValueChange={v => setPricingForm(f => ({ ...f, scenario: v }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="base">Base Proposal</SelectItem>
+                          <SelectItem value="option_a">Option A</SelectItem>
+                          <SelectItem value="option_b">Option B</SelectItem>
+                          <SelectItem value="option_c">Option C</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <div>
                     <Label>Notes</Label>
@@ -1887,59 +1996,151 @@ ${sectionsHtml}
         {/* ---- COMPLIANCE ---- */}
         <TabsContent value="compliance">
           <div className="space-y-4">
-            <div className="flex items-center gap-2 justify-end">
-              <Button variant="outline" size="sm" onClick={() => setShowAddCompliance(true)}>
-                <Plus className="h-4 w-4 mr-1" /> Add Item
-              </Button>
-              <Button size="sm" onClick={handleGenerateCompliance} disabled={generatingCompliance}>
-                {generatingCompliance ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Generating...</> : <><Sparkles className="h-4 w-4 mr-1" /> Generate from RFP</>}
-              </Button>
-            </div>
-
-            {compliance.length > 0 ? (
-              <Card>
-                <CardContent className="p-0">
-                  <div className="divide-y">
-                    {compliance.map(item => {
-                      const StatusIcon = COMPLIANCE_STATUS_ICONS[item.status] ?? Circle;
-                      return (
-                        <div key={item.id} className="flex items-center gap-3 px-4 py-3 group">
-                          <button
-                            onClick={() => handleToggleCompliance(item.id, item.status)}
-                            className="shrink-0"
-                            title={`Status: ${item.status} — Click to cycle: pending → complete → missing → at risk → N/A`}
-                          >
-                            <StatusIcon className={`h-5 w-5 ${COMPLIANCE_STATUS_COLORS[item.status]} transition-transform hover:scale-110`} />
-                          </button>
-                          <div className="flex-1 min-w-0">
-                            <div className={`text-sm ${item.status === 'complete' ? 'line-through text-muted-foreground' : ''}`}>{item.requirement}</div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className={`text-[10px] font-medium capitalize ${COMPLIANCE_STATUS_COLORS[item.status]}`}>{item.status.replace('_', ' ')}</span>
-                              {item.dueDate && (
-                                <span className="text-[10px] text-muted-foreground">Due: {new Date(item.dueDate).toLocaleDateString()}</span>
-                              )}
-                            </div>
-                          </div>
-                          <Badge className={`text-[10px] ${CATEGORY_COLORS[item.category] ?? 'bg-gray-100 text-gray-700'}`}>
-                            {item.category}
-                          </Badge>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                            onClick={async () => {
-                              await api(`/gov/compliance/${item.id}`, { method: 'DELETE' }).catch(() => {});
-                              fetchCompliance();
-                            }}>
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
+            {/* Summary + Actions */}
+            {compliance.length > 0 && (() => {
+              const total = compliance.length;
+              const complete = compliance.filter(c => c.status === 'complete').length;
+              const missing = compliance.filter(c => c.status === 'missing').length;
+              const atRisk = compliance.filter(c => c.status === 'at_risk').length;
+              const pct = Math.round((complete / total) * 100);
+              const categories = [...new Set(compliance.map(c => c.category))].sort();
+              return (
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-4">
+                        <div>
+                          <div className="text-2xl font-bold">{pct}%</div>
+                          <div className="text-xs text-muted-foreground">{complete} of {total} complete</div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
+                        {missing > 0 && (
+                          <div className="flex items-center gap-1 text-red-600">
+                            <XCircle className="h-4 w-4" />
+                            <span className="text-sm font-medium">{missing} missing</span>
+                          </div>
+                        )}
+                        {atRisk > 0 && (
+                          <div className="flex items-center gap-1 text-yellow-600">
+                            <AlertTriangle className="h-4 w-4" />
+                            <span className="text-sm font-medium">{atRisk} at risk</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setShowAddCompliance(true)}>
+                          <Plus className="h-4 w-4 mr-1" /> Add Item
+                        </Button>
+                        <Button size="sm" onClick={handleGenerateCompliance} disabled={generatingCompliance}>
+                          {generatingCompliance ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Generating...</> : <><Sparkles className="h-4 w-4 mr-1" /> Generate from RFP</>}
+                        </Button>
+                      </div>
+                    </div>
+                    {/* Progress bar */}
+                    <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                      <div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${pct}%` }} />
+                    </div>
+                    {/* Category breakdown */}
+                    <div className="flex items-center gap-3 mt-3 flex-wrap">
+                      {categories.map(cat => {
+                        const catItems = compliance.filter(c => c.category === cat);
+                        const catComplete = catItems.filter(c => c.status === 'complete').length;
+                        return (
+                          <div key={cat} className="flex items-center gap-1.5">
+                            <Badge className={`text-[10px] ${CATEGORY_COLORS[cat] ?? 'bg-gray-100 text-gray-700'}`}>{cat}</Badge>
+                            <span className="text-xs text-muted-foreground">{catComplete}/{catItems.length}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
+            {compliance.length === 0 && (
+              <div className="flex items-center gap-2 justify-end">
+                <Button variant="outline" size="sm" onClick={() => setShowAddCompliance(true)}>
+                  <Plus className="h-4 w-4 mr-1" /> Add Item
+                </Button>
+                <Button size="sm" onClick={handleGenerateCompliance} disabled={generatingCompliance}>
+                  {generatingCompliance ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Generating...</> : <><Sparkles className="h-4 w-4 mr-1" /> Generate from RFP</>}
+                </Button>
+              </div>
+            )}
+
+            {/* Grouped by category */}
+            {compliance.length > 0 ? (() => {
+              const categories = [...new Set(compliance.map(c => c.category))].sort();
+              return categories.map(cat => {
+                const catItems = compliance.filter(c => c.category === cat);
+                const catComplete = catItems.filter(c => c.status === 'complete').length;
+                const catPct = Math.round((catComplete / catItems.length) * 100);
+                return (
+                  <Card key={cat}>
+                    <CardHeader className="pb-2 pt-3 px-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Badge className={`text-[11px] ${CATEGORY_COLORS[cat] ?? 'bg-gray-100 text-gray-700'}`}>{cat}</Badge>
+                          <span className="text-xs text-muted-foreground">{catComplete}/{catItems.length} complete</span>
+                        </div>
+                        <div className="w-24 bg-muted rounded-full h-1.5 overflow-hidden">
+                          <div className="h-full bg-green-500 transition-all" style={{ width: `${catPct}%` }} />
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <div className="divide-y">
+                        {catItems.map(item => {
+                          const StatusIcon = COMPLIANCE_STATUS_ICONS[item.status] ?? Circle;
+                          const overdue = item.dueDate && new Date(item.dueDate) < new Date() && item.status !== 'complete' && item.status !== 'na';
+                          return (
+                            <div key={item.id} className={`flex items-center gap-3 px-4 py-3 group ${overdue ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}>
+                              <button
+                                onClick={() => handleToggleCompliance(item.id, item.status)}
+                                className="shrink-0"
+                                title={`Status: ${item.status} — Click to cycle`}
+                              >
+                                <StatusIcon className={`h-5 w-5 ${COMPLIANCE_STATUS_COLORS[item.status]} transition-transform hover:scale-110`} />
+                              </button>
+                              <div className="flex-1 min-w-0">
+                                <div className={`text-sm ${item.status === 'complete' ? 'line-through text-muted-foreground' : ''}`}>{item.requirement}</div>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className={`text-[10px] font-medium capitalize ${COMPLIANCE_STATUS_COLORS[item.status]}`}>{item.status.replace('_', ' ')}</span>
+                                  {item.dueDate && (
+                                    <span className={`text-[10px] ${overdue ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
+                                      {overdue ? 'Overdue: ' : 'Due: '}{new Date(item.dueDate).toLocaleDateString()}
+                                    </span>
+                                  )}
+                                  {item.assignedTo && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {techs.find(t => t.id === item.assignedTo)?.displayName ?? 'Assigned'}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                  onClick={async () => {
+                                    await api(`/gov/compliance/${item.id}`, { method: 'DELETE' }).catch(() => {});
+                                    fetchCompliance();
+                                  }}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              });
+            })() : (
               <Card>
-                <CardContent className="py-12 text-center text-muted-foreground">
-                  No compliance items yet. Generate from the RFP or add manually.
+                <CardContent className="py-12 text-center">
+                  <CheckCircle2 className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground mb-1">No compliance items yet</p>
+                  <p className="text-xs text-muted-foreground">Generate from the RFP analysis or add requirements manually.</p>
                 </CardContent>
               </Card>
             )}
@@ -1954,24 +2155,26 @@ ${sectionsHtml}
                 <div className="space-y-3">
                   <div>
                     <Label>Requirement</Label>
-                    <Input value={complianceForm.requirement} onChange={e => setComplianceForm(f => ({ ...f, requirement: e.target.value }))} placeholder="Compliance requirement" />
+                    <Input value={complianceForm.requirement} onChange={e => setComplianceForm(f => ({ ...f, requirement: e.target.value }))} placeholder="e.g. SAM.gov registration required" />
                   </div>
-                  <div>
-                    <Label>Category</Label>
-                    <Select value={complianceForm.category} onValueChange={v => setComplianceForm(f => ({ ...f, category: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="form">Form</SelectItem>
-                        <SelectItem value="certification">Certification</SelectItem>
-                        <SelectItem value="attachment">Attachment</SelectItem>
-                        <SelectItem value="format">Format</SelectItem>
-                        <SelectItem value="content">Content</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Due Date</Label>
-                    <Input type="date" value={complianceForm.dueDate} onChange={e => setComplianceForm(f => ({ ...f, dueDate: e.target.value }))} />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Category</Label>
+                      <Select value={complianceForm.category} onValueChange={v => setComplianceForm(f => ({ ...f, category: v }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="form">Form</SelectItem>
+                          <SelectItem value="certification">Certification</SelectItem>
+                          <SelectItem value="attachment">Attachment</SelectItem>
+                          <SelectItem value="format">Format</SelectItem>
+                          <SelectItem value="content">Content</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Due Date</Label>
+                      <Input type="date" value={complianceForm.dueDate} onChange={e => setComplianceForm(f => ({ ...f, dueDate: e.target.value }))} />
+                    </div>
                   </div>
                 </div>
                 <DialogFooter>
