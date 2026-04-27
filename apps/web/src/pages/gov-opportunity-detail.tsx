@@ -1028,6 +1028,36 @@ ${sectionsHtml}
 
         {/* ---- OVERVIEW ---- */}
         <TabsContent value="overview">
+          {/* Executive Health Panel */}
+          {opp && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+              <Card><CardContent className="p-3 text-center">
+                <div className="text-xs text-muted-foreground mb-1">Win Probability</div>
+                <div className={`text-xl font-bold ${(opp.winProbability ?? 0) >= 60 ? 'text-emerald-500' : (opp.winProbability ?? 0) >= 30 ? 'text-amber-500' : 'text-red-500'}`}>{opp.winProbability ?? 0}%</div>
+              </CardContent></Card>
+              <Card><CardContent className="p-3 text-center">
+                <div className="text-xs text-muted-foreground mb-1">Proposal</div>
+                <div className="text-xl font-bold">{proposals.length > 0 ? `v${proposals[0]?.version || 1}` : 'None'}</div>
+                <div className="text-[10px] text-muted-foreground">{proposals.length > 0 ? proposals[0]?.status : 'Not started'}</div>
+              </CardContent></Card>
+              <Card><CardContent className="p-3 text-center">
+                <div className="text-xs text-muted-foreground mb-1">Pricing</div>
+                <div className="text-xl font-bold">{pricingItems.length}</div>
+                <div className="text-[10px] text-muted-foreground">items mapped</div>
+              </CardContent></Card>
+              <Card><CardContent className="p-3 text-center">
+                <div className="text-xs text-muted-foreground mb-1">Documents</div>
+                <div className="text-xl font-bold">{documents.length}</div>
+                <div className="text-[10px] text-muted-foreground">{documents.filter((d: any) => d.aiSummary).length} analyzed</div>
+              </CardContent></Card>
+              <Card><CardContent className="p-3 text-center">
+                <div className="text-xs text-muted-foreground mb-1">Compliance</div>
+                <div className="text-xl font-bold">{compliance.length}</div>
+                <div className="text-[10px] text-muted-foreground">{compliance.filter((c: any) => c.status === 'complete').length} complete</div>
+              </CardContent></Card>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Left column */}
             <div className="lg:col-span-2 space-y-4">
@@ -1142,6 +1172,41 @@ ${sectionsHtml}
 
             {/* Right column */}
             <div className="space-y-4">
+              {/* Submission Readiness */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm">Submission Readiness</CardTitle></CardHeader>
+                <CardContent className="space-y-2">
+                  {(() => {
+                    const checks = [
+                      { label: 'RFP Uploaded', done: documents.length > 0 },
+                      { label: 'RFP Analyzed', done: !!(opp as any)?.aiAnalysis },
+                      { label: 'Pricing Complete', done: pricingItems.filter((p: any) => !p.linkedToId).length > 0 },
+                      { label: 'Proposal Created', done: proposals.length > 0 },
+                      { label: 'Proposal Sections Done', done: proposals.length > 0 && (proposals[0]?.sections ?? []).every((s: any) => s.content?.trim()?.length > 20) },
+                      { label: 'Compliance Items', done: compliance.length > 0 },
+                    ];
+                    const doneCount = checks.filter(c => c.done).length;
+                    const pct = Math.round((doneCount / checks.length) * 100);
+                    return (
+                      <>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                            <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-xs font-medium">{pct}%</span>
+                        </div>
+                        {checks.map((c, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            {c.done ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" /> : <Circle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />}
+                            <span className={c.done ? 'text-foreground' : 'text-muted-foreground'}>{c.label}</span>
+                          </div>
+                        ))}
+                      </>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader className="pb-2"><CardTitle className="text-sm">Assignment</CardTitle></CardHeader>
                 <CardContent>

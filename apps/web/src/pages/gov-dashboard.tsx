@@ -1,44 +1,25 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Landmark, Clock, TrendingUp, Activity,
-  AlertTriangle, Trophy, XCircle,
-} from 'lucide-react';
-import {
-  PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
+  BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell,
 } from 'recharts';
+import {
+  Landmark, Target, Trophy, Clock, TrendingUp, Activity,
+  DollarSign, ArrowRight, Plus, Upload, BarChart3, AlertTriangle,
+} from 'lucide-react';
+import { CHART_COLORS } from '@/lib/badge-colors';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface PipelineStatus {
-  status: string;
-  count: number;
-  totalEstimatedValue: number;
-}
-
-interface UpcomingDeadline {
-  id: string;
-  title: string;
-  agency: string;
-  submissionDeadline: string;
-}
-
-interface RecentActivity {
-  id: string;
-  type: string;
-  description: string;
-  opportunityTitle: string;
-  createdAt: string;
-}
-
 interface DashboardData {
   statusCounts: Array<{ status: string; count: number; totalValue: number }>;
-  upcomingDeadlines: UpcomingDeadline[];
+  upcomingDeadlines: Array<{ id: string; title: string; agency: string; submissionDeadline: string }>;
   winRate: number;
   pipelineValue: number;
   awardedValue: number;
@@ -49,9 +30,9 @@ interface DashboardData {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const STATUS_ORDER = ['discovered', 'qualified', 'in_review', 'in_progress', 'submitted', 'awarded', 'lost'];
+const FUNNEL_STAGES = ['discovered', 'qualified', 'in_review', 'in_progress', 'submitted', 'awarded', 'lost'];
 
-const STATUS_LABELS: Record<string, string> = {
+const STAGE_LABELS: Record<string, string> = {
   discovered: 'Discovered',
   qualified: 'Qualified',
   in_review: 'In Review',
@@ -61,40 +42,39 @@ const STATUS_LABELS: Record<string, string> = {
   lost: 'Lost',
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  discovered: 'bg-gray-100 text-gray-700',
-  qualified: 'bg-blue-100 text-blue-700',
-  in_review: 'bg-yellow-100 text-yellow-700',
-  in_progress: 'bg-purple-100 text-purple-700',
-  submitted: 'bg-indigo-100 text-indigo-700',
-  awarded: 'bg-green-100 text-green-700',
-  lost: 'bg-red-100 text-red-700',
+const STAGE_COLORS: Record<string, string> = {
+  discovered: '#93c5fd',  // blue-300
+  qualified: '#60a5fa',   // blue-400
+  in_review: '#3b82f6',   // blue-500
+  in_progress: '#2563eb', // blue-600
+  submitted: '#1d4ed8',   // blue-700
+  awarded: '#22c55e',     // green-500
+  lost: '#ef4444',        // red-500
 };
 
-const STATUS_ICONS: Record<string, typeof Landmark> = {
-  discovered: Landmark,
-  qualified: TrendingUp,
-  in_review: Clock,
-  in_progress: Activity,
-  submitted: AlertTriangle,
-  awarded: Trophy,
-  lost: XCircle,
+const ACTIVITY_DOT_COLORS: Record<string, string> = {
+  status_change: 'bg-blue-500',
+  note_added: 'bg-amber-500',
+  document_uploaded: 'bg-violet-500',
+  bid_submitted: 'bg-emerald-500',
+  deadline_approaching: 'bg-red-500',
+  created: 'bg-cyan-500',
 };
 
-const PIE_COLORS = ['#22c55e', '#ef4444'];
+const ACTIVITY_BADGE_VARIANTS: Record<string, string> = {
+  status_change: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  note_added: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  document_uploaded: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
+  bid_submitted: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  deadline_approaching: 'bg-red-500/10 text-red-600 dark:text-red-400',
+  created: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
+};
 
-function formatDollars(cents: number): string {
-  if (cents >= 100_000_00) {
-    return `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-  }
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
-function formatLargeDollars(cents: number): string {
+function formatCompactDollars(cents: number): string {
   const dollars = cents / 100;
-  if (dollars >= 1_000_000) return `$${(dollars / 1_000_000).toFixed(1)}M`;
-  if (dollars >= 1_000) return `$${(dollars / 1_000).toFixed(0)}K`;
-  return `$${dollars.toFixed(0)}`;
+  if (dollars >= 1_000_000) return `$${(dollars / 1_000_000).toFixed(1)}m`;
+  if (dollars >= 1_000) return `$${Math.round(dollars / 1_000)}k`;
+  return `$${Math.round(dollars)}`;
 }
 
 function timeAgo(dateStr: string): string {
@@ -107,7 +87,74 @@ function timeAgo(dateStr: string): string {
   const diffHours = Math.floor(diffMins / 60);
   if (diffHours < 24) return `${diffHours}h ago`;
   const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  const diffWeeks = Math.floor(diffDays / 7);
+  if (diffWeeks < 4) return `${diffWeeks}w ago`;
+  return date.toLocaleDateString();
+}
+
+function pushPath(path: string) {
+  window.history.pushState(null, '', path);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
+function formatActivityType(type: string): string {
+  return type
+    .split('_')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+// ---------------------------------------------------------------------------
+// Loading Skeleton
+// ---------------------------------------------------------------------------
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      {/* Hero skeleton */}
+      <div className="rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 p-8">
+        <Skeleton className="h-8 w-64 mb-2" />
+        <Skeleton className="h-4 w-96 mb-8" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="rounded-lg bg-background/80 p-5">
+              <Skeleton className="h-4 w-4 mb-3" />
+              <Skeleton className="h-8 w-24 mb-1" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Pipeline skeleton */}
+      <Card>
+        <CardHeader><Skeleton className="h-5 w-40" /></CardHeader>
+        <CardContent><Skeleton className="h-64 w-full" /></CardContent>
+      </Card>
+      {/* Bottom grid skeleton */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card><CardContent className="p-6"><Skeleton className="h-72 w-full" /></CardContent></Card>
+        <Card><CardContent className="p-6"><Skeleton className="h-72 w-full" /></CardContent></Card>
+        <Card><CardContent className="p-6"><Skeleton className="h-72 w-full" /></CardContent></Card>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Custom Tooltip for Pipeline Chart
+// ---------------------------------------------------------------------------
+
+function PipelineTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { stage: string; count: number; value: number } }> }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-lg border bg-popover px-3 py-2 text-sm shadow-md">
+      <p className="font-semibold">{d.stage}</p>
+      <p className="text-muted-foreground">{d.count} opportunities</p>
+      <p className="text-muted-foreground">{formatCompactDollars(d.value)} value</p>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -133,24 +180,7 @@ export function GovDashboardPage() {
     fetchDashboard();
   }, [fetchDashboard]);
 
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(7)].map((_, i) => (
-            <Card key={i}>
-              <CardHeader className="pb-2"><Skeleton className="h-4 w-24" /></CardHeader>
-              <CardContent><Skeleton className="h-9 w-20" /></CardContent>
-            </Card>
-          ))}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card><CardContent className="p-6"><Skeleton className="h-48 w-full" /></CardContent></Card>
-          <Card><CardContent className="p-6"><Skeleton className="h-48 w-full" /></CardContent></Card>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <DashboardSkeleton />;
 
   if (!data) {
     return (
@@ -160,188 +190,305 @@ export function GovDashboardPage() {
     );
   }
 
-  // Build pipeline map for easy lookup
-  const pipelineMap = new Map((data.statusCounts ?? []).map(p => [p.status, p]));
+  // Build lookup
+  const statusMap = new Map((data.statusCounts ?? []).map(s => [s.status, s]));
 
-  const awardedCount = pipelineMap.get('awarded')?.count ?? 0;
-  const lostCount = pipelineMap.get('lost')?.count ?? 0;
-  const pieData = [
-    { name: 'Awarded', value: awardedCount },
-    { name: 'Lost', value: lostCount },
-  ];
-  const hasWinData = awardedCount > 0 || lostCount > 0;
+  // KPI computations
+  const activeBids = FUNNEL_STAGES
+    .filter(s => s !== 'awarded' && s !== 'lost')
+    .reduce((sum, s) => sum + (statusMap.get(s)?.count ?? 0), 0);
+
+  // Funnel chart data
+  const funnelData = FUNNEL_STAGES.map(s => ({
+    stage: STAGE_LABELS[s],
+    stageKey: s,
+    count: statusMap.get(s)?.count ?? 0,
+    value: statusMap.get(s)?.totalValue ?? 0,
+  }));
 
   return (
     <div className="space-y-6">
-      {/* Pipeline Value Card */}
-      <Card className="border-primary/20 bg-primary/5">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Active Pipeline Value</p>
-              <p className="text-4xl font-bold mt-1">{formatLargeDollars(data.pipelineValue)}</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Total estimated value of non-awarded, non-lost opportunities
-              </p>
+      {/* ── Hero Section ──────────────────────────────────────────────── */}
+      <div className="rounded-xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-8 text-white relative overflow-hidden">
+        {/* Decorative elements */}
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-transparent to-emerald-600/10 pointer-events-none" />
+        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+
+        <div className="relative z-10">
+          <div className="flex items-center gap-3 mb-1">
+            <Landmark className="h-7 w-7 text-blue-400" />
+            <h1 className="text-2xl font-bold tracking-tight">Government Contracts</h1>
+          </div>
+          <p className="text-slate-400 text-sm mb-8 ml-10">
+            Pipeline overview, deadlines, and activity at a glance
+          </p>
+
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Pipeline Value */}
+            <div className="rounded-lg bg-white/5 backdrop-blur-sm border border-white/10 p-5 hover:bg-white/[0.08] transition-colors">
+              <DollarSign className="h-5 w-5 text-blue-400 mb-3" />
+              <div className="text-3xl font-bold tracking-tight">{formatCompactDollars(data.pipelineValue)}</div>
+              <div className="text-xs text-slate-400 mt-1">Pipeline Value</div>
             </div>
-            <TrendingUp className="h-10 w-10 text-primary opacity-60" />
+
+            {/* Win Rate */}
+            <div className="rounded-lg bg-white/5 backdrop-blur-sm border border-white/10 p-5 hover:bg-white/[0.08] transition-colors">
+              <Target className="h-5 w-5 text-emerald-400 mb-3" />
+              <div className="text-3xl font-bold tracking-tight">{data.winRate}%</div>
+              <div className="text-xs text-slate-400 mt-1">Win Rate</div>
+            </div>
+
+            {/* Active Bids */}
+            <div className="rounded-lg bg-white/5 backdrop-blur-sm border border-white/10 p-5 hover:bg-white/[0.08] transition-colors">
+              <TrendingUp className="h-5 w-5 text-amber-400 mb-3" />
+              <div className="text-3xl font-bold tracking-tight">{activeBids}</div>
+              <div className="text-xs text-slate-400 mt-1">Active Bids</div>
+            </div>
+
+            {/* Awarded Value */}
+            <div className="rounded-lg bg-white/5 backdrop-blur-sm border border-white/10 p-5 hover:bg-white/[0.08] transition-colors">
+              <Trophy className="h-5 w-5 text-yellow-400 mb-3" />
+              <div className="text-3xl font-bold tracking-tight">{formatCompactDollars(data.awardedValue)}</div>
+              <div className="text-xs text-slate-400 mt-1">Awarded Value</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Pipeline Funnel ───────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-base font-semibold">Pipeline Funnel</CardTitle>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">Opportunity count by stage with total value</p>
+        </CardHeader>
+        <CardContent className="pt-2">
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={funnelData} layout="vertical" margin={{ top: 8, right: 120, left: 0, bottom: 8 }}>
+              <XAxis type="number" hide />
+              <YAxis
+                type="category"
+                dataKey="stage"
+                width={100}
+                tick={{ fontSize: 13, fill: 'currentColor' }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip content={<PipelineTooltip />} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
+              <Bar
+                dataKey="count"
+                radius={[0, 6, 6, 0]}
+                barSize={28}
+                label={({ x, y, width, height, value, index }: { x: number; y: number; width: number; height: number; value: number; index: number }) => {
+                  const item = funnelData[index];
+                  return (
+                    <text
+                      x={x + width + 6}
+                      y={y + height / 2}
+                      textAnchor="start"
+                      dominantBaseline="middle"
+                      className="fill-current text-xs"
+                    >
+                      {value}  ({formatCompactDollars(item?.value ?? 0)})
+                    </text>
+                  );
+                }}
+              >
+                {funnelData.map((d) => (
+                  <Cell key={d.stageKey} fill={STAGE_COLORS[d.stageKey] ?? CHART_COLORS.primary} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          {/* Legend */}
+          <div className="flex items-center justify-center gap-6 mt-2 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-sm bg-blue-500" />
+              Active Stages
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-sm bg-green-500" />
+              Awarded
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-sm bg-red-500" />
+              Lost
+            </span>
           </div>
         </CardContent>
       </Card>
 
-      {/* Pipeline Summary Cards */}
-      <div>
-        <h2 className="text-lg font-semibold mb-3">Pipeline Summary</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-          {STATUS_ORDER.map(status => {
-            const item = pipelineMap.get(status);
-            const count = item?.count ?? 0;
-            const value = item?.totalValue ?? 0;
-            const Icon = STATUS_ICONS[status] ?? Landmark;
-            return (
-              <Card key={status} className="relative overflow-hidden">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <Badge className={`text-[10px] px-1.5 py-0 ${STATUS_COLORS[status]}`}>
-                      {STATUS_LABELS[status]}
-                    </Badge>
-                    <Icon className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div className="text-2xl font-bold">{count}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    {formatLargeDollars(value)}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Win Rate + Upcoming Deadlines */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Win Rate */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Win Rate</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {hasWinData ? (
-              <div className="flex items-center gap-4">
-                <ResponsiveContainer width={140} height={180}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={40}
-                      outerRadius={65}
-                      paddingAngle={2}
-                      dataKey="value"
-                    >
-                      {pieData.map((_, idx) => (
-                        <Cell key={idx} fill={PIE_COLORS[idx]} />
-                      ))}
-                    </Pie>
-                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="h-3 w-3 rounded-full bg-green-500" />
-                    <span className="text-sm">Awarded: {awardedCount}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="h-3 w-3 rounded-full bg-red-500" />
-                    <span className="text-sm">Lost: {lostCount}</span>
-                  </div>
-                  <div className="text-3xl font-bold mt-2">
-                    {data.winRate}%
-                  </div>
-                  <div className="text-xs text-muted-foreground">win rate</div>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-[180px] text-sm text-muted-foreground">
-                No win/loss data yet
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
+      {/* ── Bottom Grid: Deadlines | Activity | Quick Actions ─────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Upcoming Deadlines */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Upcoming Deadlines (30 days)</CardTitle>
+        <Card className="lg:col-span-1">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-muted-foreground" />
+              <CardTitle className="text-base font-semibold">Upcoming Deadlines</CardTitle>
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-0">
             {data.upcomingDeadlines.length > 0 ? (
-              <div className="space-y-2 max-h-[240px] overflow-y-auto">
-                {data.upcomingDeadlines.map(d => {
+              <div className="space-y-1">
+                {data.upcomingDeadlines.slice(0, 8).map(d => {
                   const daysRemaining = d.submissionDeadline
                     ? Math.ceil((new Date(d.submissionDeadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
                     : 0;
+                  const urgencyClass =
+                    daysRemaining <= 7
+                      ? 'text-red-600 dark:text-red-400 bg-red-500/10'
+                      : daysRemaining <= 14
+                        ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10'
+                        : 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10';
+
                   return (
-                    <button key={d.id} onClick={() => { window.history.pushState(null, '', `/gov/opportunities/${d.id}`); window.dispatchEvent(new PopStateEvent('popstate')); }} className="w-full flex items-center justify-between py-2 border-b last:border-0 hover:bg-muted/50 rounded px-1 -mx-1 transition-colors text-left cursor-pointer">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium truncate hover:text-primary transition-colors">{d.title}</div>
-                        <div className="text-xs text-muted-foreground">{d.agency}</div>
+                    <button
+                      key={d.id}
+                      onClick={() => pushPath(`/gov/opportunities/${d.id}`)}
+                      className="w-full flex items-center gap-3 py-3 px-3 rounded-lg hover:bg-muted/60 transition-colors text-left cursor-pointer group"
+                    >
+                      <div className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold tabular-nums ${urgencyClass}`}>
+                        {daysRemaining}d
                       </div>
-                      <div className="text-right shrink-0 ml-3">
-                        <div className={`text-sm font-semibold ${
-                          daysRemaining <= 7 ? 'text-red-600' : daysRemaining <= 14 ? 'text-yellow-600' : 'text-green-600'
-                        }`}>
-                          {daysRemaining}d
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                          {d.title}
                         </div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {d.submissionDeadline ? new Date(d.submissionDeadline).toLocaleDateString() : 'No deadline'}
-                        </div>
+                        <div className="text-xs text-muted-foreground truncate">{d.agency}</div>
                       </div>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                     </button>
                   );
                 })}
               </div>
             ) : (
-              <div className="flex items-center justify-center h-[180px] text-sm text-muted-foreground">
+              <div className="flex flex-col items-center justify-center h-48 text-sm text-muted-foreground">
+                <Clock className="h-8 w-8 mb-2 opacity-40" />
                 No upcoming deadlines
               </div>
             )}
           </CardContent>
         </Card>
-      </div>
 
-      {/* Recent Activity */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">Recent Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {(data.recentActivities ?? []).length > 0 ? (
-            <div className="space-y-3">
-              {(data.recentActivities ?? []).map(a => (
-                <div key={a.id} className="flex items-start gap-3">
-                  <div className="mt-1">
-                    <Activity className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm">{a.description}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {timeAgo(a.createdAt)}
-                    </div>
-                  </div>
-                  <Badge variant="secondary" className="text-[10px] shrink-0">
-                    {a.activityType}
-                  </Badge>
+        {/* Recent Activity */}
+        <Card className="lg:col-span-1">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-muted-foreground" />
+              <CardTitle className="text-base font-semibold">Recent Activity</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {(data.recentActivities ?? []).length > 0 ? (
+              <div className="relative">
+                {/* Timeline line */}
+                <div className="absolute left-[7px] top-3 bottom-3 w-px bg-border" />
+
+                <div className="space-y-0">
+                  {(data.recentActivities ?? []).slice(0, 10).map((a, idx) => {
+                    const dotColor = ACTIVITY_DOT_COLORS[a.activityType] ?? 'bg-gray-400';
+                    const badgeClass = ACTIVITY_BADGE_VARIANTS[a.activityType] ?? 'bg-gray-500/10 text-gray-600 dark:text-gray-400';
+
+                    return (
+                      <div key={a.id} className="flex items-start gap-3 py-2.5 pl-0 relative">
+                        {/* Timeline dot */}
+                        <div className={`shrink-0 h-[15px] w-[15px] rounded-full ${dotColor} ring-2 ring-background relative z-10 mt-0.5`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm leading-snug">{a.description}</div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge className={`text-[10px] px-1.5 py-0 border-0 font-medium ${badgeClass}`}>
+                              {formatActivityType(a.activityType)}
+                            </Badge>
+                            <span className="text-[11px] text-muted-foreground">{timeAgo(a.createdAt)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-48 text-sm text-muted-foreground">
+                <Activity className="h-8 w-8 mb-2 opacity-40" />
+                No recent activity
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Quick Actions */}
+        <Card className="lg:col-span-1">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-muted-foreground" />
+              <CardTitle className="text-base font-semibold">Quick Actions</CardTitle>
             </div>
-          ) : (
-            <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">
-              No recent activity
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-3">
+              <Button
+                variant="outline"
+                className="w-full justify-start h-12 text-sm"
+                onClick={() => pushPath('/gov/opportunities/new')}
+              >
+                <Plus className="h-4 w-4 mr-3 text-blue-500" />
+                Start New Opportunity
+                <ArrowRight className="h-4 w-4 ml-auto text-muted-foreground" />
+              </Button>
+
+              <Button
+                variant="outline"
+                className="w-full justify-start h-12 text-sm"
+                onClick={() => pushPath('/gov/opportunities/import')}
+              >
+                <Upload className="h-4 w-4 mr-3 text-violet-500" />
+                Import RFP
+                <ArrowRight className="h-4 w-4 ml-auto text-muted-foreground" />
+              </Button>
+
+              <Button
+                variant="outline"
+                className="w-full justify-start h-12 text-sm"
+                onClick={() => pushPath('/gov/opportunities')}
+              >
+                <BarChart3 className="h-4 w-4 mr-3 text-emerald-500" />
+                View Pipeline
+                <ArrowRight className="h-4 w-4 ml-auto text-muted-foreground" />
+              </Button>
+
+              <Button
+                variant="outline"
+                className="w-full justify-start h-12 text-sm"
+                onClick={() => pushPath('/gov/analytics')}
+              >
+                <TrendingUp className="h-4 w-4 mr-3 text-amber-500" />
+                View Analytics
+                <ArrowRight className="h-4 w-4 ml-auto text-muted-foreground" />
+              </Button>
             </div>
-          )}
-        </CardContent>
-      </Card>
+
+            {/* Summary stat at bottom */}
+            <div className="mt-6 pt-4 border-t">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Total opportunities</span>
+                <span className="font-semibold">
+                  {FUNNEL_STAGES.reduce((sum, s) => sum + (statusMap.get(s)?.count ?? 0), 0)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm mt-2">
+                <span className="text-muted-foreground">Awarded this period</span>
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                  {statusMap.get('awarded')?.count ?? 0}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
