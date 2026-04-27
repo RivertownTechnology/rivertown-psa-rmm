@@ -84,12 +84,22 @@ interface Assessment {
 
 type ItemStatus = 'compliant' | 'non_compliant' | 'partial' | 'not_applicable' | 'not_assessed';
 
-const STATUS_OPTIONS: { value: ItemStatus; label: string; icon: typeof CheckCircle2; color: string; bgColor: string }[] = [
-  { value: 'compliant', label: 'Compliant', icon: CheckCircle2, color: 'text-green-600', bgColor: 'bg-green-50 border-green-200 hover:bg-green-100' },
-  { value: 'non_compliant', label: 'Non-Compliant', icon: XCircle, color: 'text-red-600', bgColor: 'bg-red-50 border-red-200 hover:bg-red-100' },
-  { value: 'partial', label: 'Partial', icon: AlertTriangle, color: 'text-yellow-600', bgColor: 'bg-yellow-50 border-yellow-200 hover:bg-yellow-100' },
-  { value: 'not_applicable', label: 'N/A', icon: Minus, color: 'text-blue-600', bgColor: 'bg-blue-50 border-blue-200 hover:bg-blue-100' },
-  { value: 'not_assessed', label: 'Not Assessed', icon: Circle, color: 'text-gray-400', bgColor: 'bg-gray-50 border-gray-200 hover:bg-gray-100' },
+const STATUS_OPTIONS: { value: ItemStatus; label: string; icon: typeof CheckCircle2; color: string; bgColor: string; activeBg: string }[] = [
+  { value: 'compliant', label: 'Compliant', icon: CheckCircle2, color: 'text-green-500',
+    bgColor: 'border-border hover:border-green-500/50 hover:bg-green-500/5',
+    activeBg: 'border-green-500 bg-green-500/12 text-green-500 shadow-[0_0_8px_rgba(34,197,94,0.15)]' },
+  { value: 'non_compliant', label: 'Non-Compliant', icon: XCircle, color: 'text-red-500',
+    bgColor: 'border-border hover:border-red-500/50 hover:bg-red-500/5',
+    activeBg: 'border-red-500 bg-red-500/12 text-red-500 shadow-[0_0_8px_rgba(239,68,68,0.15)]' },
+  { value: 'partial', label: 'Partial', icon: AlertTriangle, color: 'text-amber-500',
+    bgColor: 'border-border hover:border-amber-500/50 hover:bg-amber-500/5',
+    activeBg: 'border-amber-500 bg-amber-500/12 text-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.15)]' },
+  { value: 'not_applicable', label: 'N/A', icon: Minus, color: 'text-slate-400',
+    bgColor: 'border-border hover:border-slate-400/50 hover:bg-slate-400/5',
+    activeBg: 'border-slate-400 bg-slate-400/10 text-slate-400' },
+  { value: 'not_assessed', label: 'Not Assessed', icon: Circle, color: 'text-blue-500',
+    bgColor: 'border-border hover:border-blue-500/50 hover:bg-blue-500/5',
+    activeBg: 'border-blue-500 bg-blue-500/12 text-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.15)]' },
 ];
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -768,17 +778,16 @@ export function ComplianceAssessmentDetailPage({
               <div className="grid grid-cols-2 gap-2">
                 {STATUS_OPTIONS.map((opt) => {
                   const Icon = opt.icon;
+                  const isActive = rapidStatus === opt.value;
                   return (
                     <button
                       key={opt.value}
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded border text-sm transition-colors ${
-                        rapidStatus === opt.value
-                          ? opt.bgColor + ' border-2'
-                          : 'border-gray-200 hover:bg-gray-50'
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-all duration-150 ${
+                        isActive ? opt.activeBg : opt.bgColor + ' text-muted-foreground'
                       }`}
                       onClick={() => setRapidStatus(opt.value)}
                     >
-                      <Icon className={`h-3.5 w-3.5 ${opt.color}`} />
+                      <Icon className={`h-3.5 w-3.5 ${isActive ? '' : 'text-muted-foreground/60'}`} />
                       {opt.label}
                     </button>
                   );
@@ -895,14 +904,14 @@ function ControlItemRow({
             <button
               key={opt.value}
               disabled={isLocked}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded border text-xs font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-all duration-150 ${
                 isActive
-                  ? opt.bgColor + ' border-2'
-                  : 'border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed'
+                  ? opt.activeBg
+                  : opt.bgColor + ' text-muted-foreground disabled:opacity-50 disabled:cursor-not-allowed'
               }`}
               onClick={() => onStatusChange(opt.value)}
             >
-              <Icon className={`h-3.5 w-3.5 ${isActive ? opt.color : 'text-gray-400'}`} />
+              <Icon className={`h-3.5 w-3.5 ${isActive ? '' : 'text-muted-foreground/60'}`} />
               {opt.label}
             </button>
           );

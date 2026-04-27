@@ -247,44 +247,49 @@ function AppRouter() {
   } else if (pathname === '/gov') {
     title = 'Gov Dashboard'; currentNav = '/gov';
     content = <GovDashboardPage />;
-  } else if (pathname.match(/^\/compliance\/frameworks\/([a-f0-9-]+)$/)) {
-    const fwId = pathname.match(/^\/compliance\/frameworks\/([a-f0-9-]+)$/)![1];
-    title = 'Framework Detail'; currentNav = '/compliance/frameworks';
-    content = <ComplianceFrameworkDetailPage frameworkId={fwId} onBack={() => navigate('/compliance/frameworks')} />;
-  } else if (pathname === '/compliance/frameworks') {
-    title = 'Compliance Frameworks'; currentNav = '/compliance/frameworks';
-    content = <ComplianceFrameworksPage onNavigate={navigate} />;
+  // ── Compliance: Customer workspace routes ──
   } else if (pathname.match(/^\/compliance\/assessments\/([a-f0-9-]+)$/)) {
     const aId = pathname.match(/^\/compliance\/assessments\/([a-f0-9-]+)$/)![1];
-    title = 'Assessment Detail'; currentNav = '/compliance/assessments';
+    title = 'Assessment'; currentNav = '/compliance/customers';
     content = <ComplianceAssessmentDetailPage assessmentId={aId} onBack={() => navigate('/compliance/assessments')} />;
   } else if (pathname === '/compliance/assessments') {
-    title = 'Compliance Assessments'; currentNav = '/compliance/assessments';
+    title = 'Assessments'; currentNav = '/compliance/customers';
     content = <ComplianceAssessmentsPage onNavigate={navigate} />;
   } else if (pathname === '/compliance/risks') {
-    title = 'Risk Register'; currentNav = '/compliance/risks';
+    title = 'Risk Register'; currentNav = '/compliance/customers';
     content = <ComplianceRisksPage />;
   } else if (pathname === '/compliance/poam') {
-    title = 'POA&M'; currentNav = '/compliance/poam';
+    title = 'POA&M'; currentNav = '/compliance/customers';
     content = <CompliancePoamPage />;
   } else if (pathname === '/compliance/personnel') {
-    title = 'Personnel Screening'; currentNav = '/compliance/personnel';
+    title = 'Personnel'; currentNav = '/compliance/customers';
     content = <CompliancePersonnelPage />;
   } else if (pathname === '/compliance/training') {
-    title = 'Training Records'; currentNav = '/compliance/training';
+    title = 'Training'; currentNav = '/compliance/customers';
     content = <ComplianceTrainingPage />;
   } else if (pathname === '/compliance/vendors') {
-    title = 'Vendor Management'; currentNav = '/compliance/vendors';
+    title = 'Vendors'; currentNav = '/compliance/customers';
     content = <ComplianceVendorsPage />;
   } else if (pathname === '/compliance/evidence') {
-    title = 'Evidence Repository'; currentNav = '/compliance/evidence';
+    title = 'Evidence'; currentNav = '/compliance/customers';
     content = <ComplianceEvidencePage />;
   } else if (pathname === '/compliance/policies') {
-    title = 'Policies & Procedures'; currentNav = '/compliance/policies';
+    title = 'Policies'; currentNav = '/compliance/customers';
     content = <CompliancePoliciesPage />;
   } else if (pathname === '/compliance/incidents') {
-    title = 'Security Incidents'; currentNav = '/compliance/incidents';
+    title = 'Incidents'; currentNav = '/compliance/customers';
     content = <ComplianceIncidentsPage />;
+  } else if (pathname === '/compliance/customers') {
+    title = 'Compliance Customers'; currentNav = '/compliance/customers';
+    content = <ComplianceAssessmentsPage onNavigate={navigate} />;
+  // ── Compliance: Admin routes ──
+  } else if (pathname.match(/^\/compliance\/admin\/frameworks\/([a-f0-9-]+)$/)) {
+    const fwId = pathname.match(/^\/compliance\/admin\/frameworks\/([a-f0-9-]+)$/)![1];
+    title = 'Framework Detail'; currentNav = '/compliance/admin';
+    content = <ComplianceFrameworkDetailPage frameworkId={fwId} onBack={() => navigate('/compliance/admin')} />;
+  } else if (pathname === '/compliance/admin') {
+    title = 'Compliance Admin'; currentNav = '/compliance/admin';
+    content = <ComplianceFrameworksPage onNavigate={(path) => navigate(path.replace('/compliance/frameworks/', '/compliance/admin/frameworks/'))} />;
   } else if (pathname === '/compliance') {
     title = 'Compliance'; currentNav = '/compliance';
     content = <ComplianceDashboardPage onNavigate={navigate} />;

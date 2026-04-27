@@ -83,16 +83,8 @@ const navGroups: NavGroup[] = [
     label: 'Compliance',
     items: [
       { label: 'Dashboard', icon: ShieldCheck, href: '/compliance' },
-      { label: 'Frameworks', icon: Library, href: '/compliance/frameworks' },
-      { label: 'Assessments', icon: ClipboardCheck, href: '/compliance/assessments' },
-      { label: 'POA&M', icon: ListChecks, href: '/compliance/poam' },
-      { label: 'Risk Register', icon: AlertTriangle, href: '/compliance/risks' },
-      { label: 'Incidents', icon: AlertTriangle, href: '/compliance/incidents' },
-      { label: 'Personnel', icon: Target, href: '/compliance/personnel' },
-      { label: 'Training', icon: BookOpen, href: '/compliance/training' },
-      { label: 'Vendors', icon: Building2, href: '/compliance/vendors' },
-      { label: 'Evidence', icon: Archive, href: '/compliance/evidence' },
-      { label: 'Policies', icon: FileText, href: '/compliance/policies' },
+      { label: 'Customers', icon: Building2, href: '/compliance/customers' },
+      { label: 'Admin', icon: Settings, href: '/compliance/admin' },
     ],
   },
 ];
