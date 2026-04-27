@@ -22,8 +22,8 @@ interface Customer {
   phone: string | null; address: string | null; city: string | null; state: string | null;
   zip: string | null; county: string | null; website: string | null; notes: string | null; createdAt: string;
 }
-interface Contract { id: string; name: string; contractType: string; status: string; startDate: string; endDate: string | null; billingCycle: string; }
-interface Invoice { id: string; invoiceNumber: number; status: string; issueDate: string; dueDate: string; totalCents: number; amountPaidCents: number; notes: string | null; }
+interface Contract { id: string; name: string; contractType: string; status: string; startDate: string; endDate: string | null; billingCycle: string; createdAt?: string; }
+interface Invoice { id: string; invoiceNumber: number; status: string; issueDate: string; dueDate: string; totalCents: number; amountPaidCents: number; notes: string | null; createdAt?: string; }
 interface Contact { id: string; firstName: string; lastName: string; email: string; phone: string | null; jobTitle: string | null; isPrimary: boolean; portalEnabled: boolean; }
 interface Site { id: string; name: string; addressLine1: string | null; city: string | null; state: string | null; postalCode: string | null; }
 interface Asset { id: string; name: string; assetType: string; osName: string | null; osVersion: string | null; status: string; ipAddress: string | null; manufacturer: string | null; model: string | null; }
