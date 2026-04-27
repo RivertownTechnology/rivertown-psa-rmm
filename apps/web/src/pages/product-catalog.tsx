@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { formatCents } from '@/lib/utils';
+import { useConfirm } from '@/lib/confirm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -35,6 +36,7 @@ const emptyForm = {
 };
 
 export function ProductCatalogPage() {
+  const { confirm } = useConfirm();
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -169,7 +171,8 @@ export function ProductCatalogPage() {
   }
 
   async function handleDelete(id: string, name: string) {
-    if (!confirm(`Remove "${name}" from catalog?`)) return;
+    const ok = await confirm({ title: 'Remove Product?', description: `Remove "${name}" from catalog?`, confirmLabel: 'Remove' });
+    if (!ok) return;
     await api(`/service-catalog/${id}`, { method: 'DELETE' });
     load();
   }
@@ -469,7 +472,8 @@ export function ProductCatalogPage() {
                             <Pencil className="h-4 w-4" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={async () => {
-                            if (!confirm(`Delete bundle "${bundle.name}"?`)) return;
+                            const ok = await confirm({ title: 'Delete Bundle?', description: `Delete bundle "${bundle.name}"?`, confirmLabel: 'Delete' });
+                            if (!ok) return;
                             await api(`/service-catalog/bundles/${bundle.id}`, { method: 'DELETE' });
                             loadBundles();
                           }}>

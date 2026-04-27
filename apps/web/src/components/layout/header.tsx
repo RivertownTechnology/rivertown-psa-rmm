@@ -46,7 +46,7 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
     } else {
       // No ticket associated
       timer.clearTimer();
-      alert(`Timer stopped: ${result.durationMinutes} minutes. No ticket was associated.`);
+      console.log(`Timer stopped: ${result.durationMinutes} minutes. No ticket was associated.`);
     }
   }
 

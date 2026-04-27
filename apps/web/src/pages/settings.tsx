@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/theme';
 import { api } from '@/lib/api';
+import { useConfirm } from '@/lib/confirm';
+import { useToast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -1976,12 +1978,15 @@ function UsersTab() {
 
 function ApiKeysTab() {
   interface ApiKeyRow { id: string; name: string; keyPrefix: string; scopes: string; isActive: boolean; lastUsedAt: string | null; expiresAt: string | null; createdAt: string; }
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: '', scopes: '*', expiresAt: '' });
   const [newKey, setNewKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [renameDialog, setRenameDialog] = useState<{id: string; name: string} | null>(null);
 
   useEffect(() => { loadKeys(); }, []);
   async function loadKeys() {
@@ -1997,7 +2002,7 @@ function ApiKeysTab() {
       setShowCreate(false);
       setForm({ name: '', scopes: '*', expiresAt: '' });
       loadKeys();
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error('Failed to create API key', err.message); }
     finally { setSaving(false); }
   }
 
@@ -2098,18 +2103,15 @@ function ApiKeysTab() {
                       </td>
                       <td className="py-2">
                         <div className="flex items-center gap-1">
-                          <Button size="sm" variant="ghost" onClick={async () => {
-                            const newName = prompt('Rename API key:', k.name);
-                            if (newName && newName !== k.name) {
-                              await api(`/settings/api-keys/${k.id}`, { method: 'PATCH', body: JSON.stringify({ name: newName }) }).catch(() => {});
-                              loadKeys();
-                            }
+                          <Button size="sm" variant="ghost" onClick={() => {
+                            setRenameDialog({ id: k.id, name: k.name });
                           }}>Rename</Button>
                           {k.isActive && (
                             <Button size="sm" variant="outline" onClick={() => revokeKey(k.id)}>Revoke</Button>
                           )}
                           <Button size="sm" variant="destructive" onClick={async () => {
-                            if (!confirm(`Permanently delete API key "${k.name}"? This cannot be undone.`)) return;
+                            const ok = await confirm({ title: 'Delete API Key?', description: `Permanently delete API key "${k.name}"? This cannot be undone.`, confirmLabel: 'Delete' });
+                            if (!ok) return;
                             await api(`/settings/api-keys/${k.id}/permanent`, { method: 'DELETE' }).catch(() => {});
                             loadKeys();
                           }}>Delete</Button>
@@ -2157,6 +2159,35 @@ function ApiKeysTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Rename API Key Dialog */}
+      <Dialog open={!!renameDialog} onOpenChange={() => setRenameDialog(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename API Key</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            if (!renameDialog) return;
+            await api(`/settings/api-keys/${renameDialog.id}`, { method: 'PATCH', body: JSON.stringify({ name: renameDialog.name }) }).catch(() => {});
+            loadKeys();
+            setRenameDialog(null);
+          }} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input
+                value={renameDialog?.name ?? ''}
+                onChange={e => setRenameDialog(prev => prev ? { ...prev, name: e.target.value } : null)}
+                autoFocus
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setRenameDialog(null)}>Cancel</Button>
+              <Button type="submit" disabled={!renameDialog?.name}>Rename</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2168,6 +2199,7 @@ interface TaxRate {
 }
 
 function BillingSettingsTab() {
+  const { confirm } = useConfirm();
   const [rates, setRates] = useState<TaxRate[]>([]);
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
@@ -2220,7 +2252,8 @@ function BillingSettingsTab() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this tax rate?')) return;
+    const ok = await confirm({ title: 'Delete Tax Rate?', description: 'Are you sure you want to delete this tax rate?', confirmLabel: 'Delete' });
+    if (!ok) return;
     await api(`/settings/tax-rates/${id}`, { method: 'DELETE' });
     loadRates();
   }
@@ -2495,6 +2528,7 @@ function BillingEmailCard() {
 // ===== QUICKBOOKS ONLINE CARD =====
 
 function QuickBooksCard() {
+  const { confirm } = useConfirm();
   const [status, setStatus] = useState<{ connected: boolean; companyName: string | null; isEnabled: boolean; lastSyncAt: string | null; syncStatus: string | null; syncError: string | null; syncFrequency: string }>({
     connected: false, companyName: null, isEnabled: false, lastSyncAt: null, syncStatus: null, syncError: null, syncFrequency: 'daily',
   });
@@ -2526,7 +2560,8 @@ function QuickBooksCard() {
   }
 
   async function disconnect() {
-    if (!confirm('Disconnect QuickBooks Online?')) return;
+    const ok = await confirm({ title: 'Disconnect QuickBooks?', description: 'Disconnect QuickBooks Online? You will need to reconnect to sync data again.', confirmLabel: 'Disconnect' });
+    if (!ok) return;
     await api('/integrations/quickbooks/disconnect', { method: 'POST' });
     setStatus(s => ({ ...s, connected: false, companyName: null, isEnabled: false }));
     setMessage('Disconnected');

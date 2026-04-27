@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { useConfirm } from '@/lib/confirm';
+import { useToast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -97,6 +99,8 @@ export function Pax8Page({ onBack }: { onBack: () => void }) {
 // ── Companies Tab ─────────────────────────────────────────────────────
 
 function CompaniesTab() {
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [companies, setCompanies] = useState<Pax8Company[]>([]);
   const [page, setPage] = useState<PageInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -241,7 +245,8 @@ function CompaniesTab() {
   }
 
   async function cancelSubscription(subId: string) {
-    if (!confirm('Are you sure you want to cancel this subscription on Pax8? This cannot be undone.')) return;
+    const ok = await confirm({ title: 'Cancel Subscription?', description: 'Are you sure you want to cancel this subscription on Pax8? This cannot be undone.', confirmLabel: 'Cancel Subscription' });
+    if (!ok) return;
     setCancelling(subId);
     try {
       await api(`/pax8/subscriptions/${subId}`, { method: 'DELETE' });
@@ -250,7 +255,7 @@ function CompaniesTab() {
         setSubscriptions(subData.subscriptions);
       }
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Cancel failed');
+      toast.error(e instanceof Error ? e.message : 'Cancel failed');
     } finally { setCancelling(null); }
   }
 
