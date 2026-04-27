@@ -161,7 +161,7 @@ export function Sidebar({
           {!collapsed && (
             <div>
               <h1 className="text-sm font-semibold text-white">Rivertown PSA</h1>
-              <p className="text-xs text-sidebar-muted">v0.3.0</p>
+              <p className="text-xs text-sidebar-muted">v{__APP_VERSION__}</p>
             </div>
           )}
         </div>

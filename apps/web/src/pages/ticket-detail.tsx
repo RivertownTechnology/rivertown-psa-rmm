@@ -1595,8 +1595,8 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                           </div>
                         </div>
                         <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditTime(entry)}><Pencil className="h-3 w-3" /></Button>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => deleteTimeEntry(entry.id)}><Trash2 className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditTime(entry)} aria-label="Edit time entry"><Pencil className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => deleteTimeEntry(entry.id)} aria-label="Delete time entry"><Trash2 className="h-3 w-3" /></Button>
                         </div>
                       </div>
                     )

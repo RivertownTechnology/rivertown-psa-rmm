@@ -19,6 +19,8 @@ export interface SLAResult {
   text: string;
   className: string;
   state: 'breached' | 'paused' | 'warning' | 'healthy' | 'met';
+  /** Unicode icon for color-blind accessibility */
+  icon: string;
   remainingMs?: number;
 }
 
@@ -28,13 +30,13 @@ export interface SLAResult {
  */
 export function slaCountdown(ticket: SLATicketFields): SLAResult | null {
   if (ticket.slaBreached) {
-    return { text: 'SLA: Breached', className: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20', state: 'breached' };
+    return { text: 'SLA: Breached', className: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20', state: 'breached', icon: '✗' };
   }
 
   if (!ticket.slaResolutionDueAt) return null;
 
   if (['resolved', 'closed'].includes(ticket.status)) {
-    return { text: 'SLA: Met', className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20', state: 'met' };
+    return { text: 'SLA: Met', className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20', state: 'met', icon: '✓' };
   }
 
   const now = Date.now();
@@ -48,12 +50,12 @@ export function slaCountdown(ticket: SLATicketFields): SLAResult | null {
   const remaining = adjustedDue - now;
 
   if (remaining <= 0 && !isPaused) {
-    return { text: 'SLA: Breached', className: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20', state: 'breached', remainingMs: remaining };
+    return { text: 'SLA: Breached', className: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20', state: 'breached', icon: '✗', remainingMs: remaining };
   }
 
   if (isPaused) {
     const label = formatDuration(remaining);
-    return { text: `SLA: Paused (${label})`, className: 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20', state: 'paused', remainingMs: remaining };
+    return { text: `SLA: Paused (${label})`, className: 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20', state: 'paused', icon: '⏸', remainingMs: remaining };
   }
 
   const total = adjustedDue - new Date(ticket.createdAt).getTime();
@@ -61,10 +63,10 @@ export function slaCountdown(ticket: SLATicketFields): SLAResult | null {
   const label = formatDuration(remaining);
 
   if (atRisk) {
-    return { text: `SLA: ${label}`, className: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20', state: 'warning', remainingMs: remaining };
+    return { text: `SLA: ${label}`, className: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20', state: 'warning', icon: '⚠', remainingMs: remaining };
   }
 
-  return { text: `SLA: ${label}`, className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20', state: 'healthy', remainingMs: remaining };
+  return { text: `SLA: ${label}`, className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20', state: 'healthy', icon: '✓', remainingMs: remaining };
 }
 
 /**

@@ -102,6 +102,32 @@ export const WORKFLOW_TYPE_COLORS: Record<string, string> = {
   scheduled: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
 };
 
+// ── Chart Colors (for Recharts) ────────────────────────────────────
+
+export const CHART_COLORS = {
+  primary: '#3b82f6',    // blue-500
+  success: '#22c55e',    // green-500
+  warning: '#f59e0b',    // amber-500
+  danger: '#ef4444',     // red-500
+  purple: '#8b5cf6',     // violet-500
+  pink: '#ec4899',       // pink-500
+  cyan: '#06b6d4',       // cyan-500
+  orange: '#f97316',     // orange-500
+};
+
+export const CHART_SERIES = [
+  CHART_COLORS.primary,
+  CHART_COLORS.success,
+  CHART_COLORS.warning,
+  CHART_COLORS.danger,
+  CHART_COLORS.purple,
+  CHART_COLORS.pink,
+  CHART_COLORS.cyan,
+  CHART_COLORS.orange,
+];
+
+export const CHART_SLA = [CHART_COLORS.success, CHART_COLORS.danger];
+
 // ── Helper: Get badge class with fallback ──────────────────────────
 
 export function statusBadgeClass(map: Record<string, string>, status: string, fallback = 'bg-gray-500/10 text-gray-500 border-gray-500/20'): string {

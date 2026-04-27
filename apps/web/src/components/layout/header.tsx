@@ -87,7 +87,7 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
           onClick={openCommandPalette}
           className="hidden sm:flex items-center text-muted-foreground text-sm border rounded-md px-3 py-1 hover:bg-accent transition-colors"
         >
-          Search... <kbd className="ml-2 text-xs opacity-60">{'\u2318'}K</kbd>
+          Search... <kbd className="ml-2 text-[10px] opacity-50 bg-muted px-1 py-0.5 rounded font-mono">Ctrl+K</kbd>
         </button>
 
         {/* Global timer */}

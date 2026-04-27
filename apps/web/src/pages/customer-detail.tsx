@@ -407,8 +407,8 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
                           {c.phone && <div className="text-sm text-muted-foreground">{c.phone}</div>}
                         </div>
                         <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditContact(c)}><Pencil className="h-3 w-3" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => deleteContact(c.id)}><Trash2 className="h-4 w-4" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditContact(c)} aria-label="Edit contact"><Pencil className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => deleteContact(c.id)} aria-label="Delete contact"><Trash2 className="h-4 w-4" /></Button>
                         </div>
                       </div>
                       {/* Portal Access Section */}

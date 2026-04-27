@@ -148,7 +148,8 @@ function OnboardingBanner({ stats }: { stats: DashboardStats }) {
   );
 }
 
-const SLA_COLORS = ['#22c55e', '#ef4444'];
+import { CHART_SLA, CHART_COLORS } from '@/lib/badge-colors';
+const SLA_COLORS = CHART_SLA;
 
 export function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -363,7 +364,7 @@ export function DashboardPage() {
                     formatter={(value: any) => [value, 'Tickets']}
                     contentStyle={{ fontSize: 12, borderRadius: 8 }}
                   />
-                  <Line type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6' }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="count" stroke={CHART_COLORS.primary} strokeWidth={2} dot={{ r: 3, fill: CHART_COLORS.primary }} activeDot={{ r: 5 }} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
