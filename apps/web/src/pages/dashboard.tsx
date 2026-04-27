@@ -367,7 +367,10 @@ export function DashboardPage() {
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex items-center justify-center h-[200px] text-sm text-muted-foreground">No data available</div>
+              <div className="flex flex-col items-center justify-center h-[200px] gap-2">
+                <Skeleton className="h-[140px] w-full rounded" />
+                <span className="text-xs text-muted-foreground">Loading chart data...</span>
+              </div>
             )}
           </CardContent>
         </Card>

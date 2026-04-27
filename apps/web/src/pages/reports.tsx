@@ -282,19 +282,19 @@ export function ReportsPage() {
             <Button variant="outline" size="sm" onClick={() => setPreset('month')}>This Month</Button>
             <Button variant="outline" size="sm" onClick={() => setPreset('last_month')}>Last Month</Button>
             <Button variant="outline" size="sm" onClick={() => setPreset('quarter')}>This Quarter</Button>
-            <div className="flex items-center gap-1 ml-2">
+            <div className="flex items-center gap-1.5 ml-2 rounded-lg border border-input bg-background px-2 py-1">
               <input
                 type="date"
                 value={dateFrom}
                 onChange={e => setDateFrom(e.target.value)}
-                className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+                className="bg-transparent text-sm outline-none border-none"
               />
-              <span className="text-muted-foreground text-sm">to</span>
+              <span className="text-muted-foreground text-xs">→</span>
               <input
                 type="date"
                 value={dateTo}
                 onChange={e => setDateTo(e.target.value)}
-                className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+                className="bg-transparent text-sm outline-none border-none"
               />
             </div>
           </div>

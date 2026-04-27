@@ -300,8 +300,8 @@ export function ContractsPage({ onNavigateToCustomer, onSelectContract }: { onNa
                       </span>
                     )}
                     {margin !== null && (
-                      <span className="text-xs text-muted-foreground">
-                        {margin.toFixed(1)}% margin
+                      <span className={`text-xs font-medium ${margin >= 30 ? 'text-emerald-600' : margin >= 15 ? 'text-amber-600' : 'text-red-600'}`}>
+                        {margin.toFixed(0)}% margin
                       </span>
                     )}
                     {blockTotal > 0 && (

@@ -335,11 +335,55 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
                 <div className="flex justify-between"><span className="text-muted-foreground">Contacts</span><span className="font-medium">{contacts.length}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Sites</span><span className="font-medium">{sites.length}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Devices</span><span className="font-medium">{assets.length}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Open Tickets</span><span className="font-medium">{tickets.filter(t => !['resolved', 'closed'].includes(t.status)).length}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Open Tickets</span><span className="font-medium text-blue-600">{tickets.filter(t => !['resolved', 'closed'].includes(t.status)).length}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Active Contracts</span><span className="font-medium">{customerContracts.filter(c => c.status === 'active').length}</span></div>
+                {customerContracts.some(c => c.status === 'active' && c.endDate && new Date(c.endDate) < new Date(Date.now() + 30 * 86400000)) && (
+                  <div className="flex justify-between text-amber-600"><span>Contract Expiring</span><span className="font-medium">Soon</span></div>
+                )}
+                {customerInvoices.some(i => i.status === 'overdue') && (
+                  <div className="flex justify-between text-red-600"><span>Overdue Invoices</span><span className="font-medium">{customerInvoices.filter(i => i.status === 'overdue').length}</span></div>
+                )}
               </CardContent>
             </Card>
           </div>
+
+          {/* Customer Timeline */}
+          <Card className="mt-4">
+            <CardHeader><CardTitle className="text-base">Recent Activity</CardTitle></CardHeader>
+            <CardContent>
+              {(() => {
+                const events: Array<{ date: string; type: string; text: string; color: string }> = [];
+                // Recent tickets
+                tickets.slice(0, 5).forEach(t => {
+                  events.push({ date: t.createdAt, type: 'ticket', text: `Ticket #${t.ticketNumber}: ${t.subject}`, color: 'bg-blue-500' });
+                });
+                // Contracts
+                customerContracts.forEach(c => {
+                  events.push({ date: c.createdAt || c.startDate, type: 'contract', text: `Contract: ${c.name} (${c.status})`, color: 'bg-emerald-500' });
+                });
+                // Invoices
+                customerInvoices.slice(0, 3).forEach(i => {
+                  events.push({ date: i.createdAt || i.issueDate, type: 'invoice', text: `Invoice #${i.invoiceNumber} — $${((i.totalCents || 0) / 100).toFixed(2)} (${i.status})`, color: i.status === 'overdue' ? 'bg-red-500' : 'bg-violet-500' });
+                });
+                events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                if (events.length === 0) return <p className="text-sm text-muted-foreground text-center py-4">No activity yet</p>;
+                return (
+                  <div className="space-y-3">
+                    {events.slice(0, 10).map((ev, i) => (
+                      <div key={i} className="flex items-start gap-3 text-sm">
+                        <div className={`h-2 w-2 rounded-full ${ev.color} mt-1.5 shrink-0`} />
+                        <div className="flex-1 min-w-0">
+                          <span className="truncate block">{ev.text}</span>
+                          <span className="text-xs text-muted-foreground">{new Date(ev.date).toLocaleDateString()}</span>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] shrink-0">{ev.type}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* CONTACTS */}
