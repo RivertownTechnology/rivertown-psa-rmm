@@ -48,6 +48,7 @@ import { ComplianceIncidentsPage } from '@/pages/compliance-incidents';
 import { ComplianceEvidencePage } from '@/pages/compliance-evidence';
 import { CompliancePoliciesPage } from '@/pages/compliance-policies';
 import { ComplianceVendorsPage } from '@/pages/compliance-vendors';
+import { WorkflowBuilderPage } from '@/pages/workflow-builder';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { CommandPalette } from '@/components/command-palette';
 import { AIChat } from '@/components/ai-chat';
@@ -213,6 +214,9 @@ function AppRouter() {
   } else if (pathname === '/pax8') {
     title = 'Pax8'; currentNav = '/pax8';
     content = <Pax8Page onBack={() => navigate('/settings')} />;
+  } else if (pathname === '/settings/workflows') {
+    title = 'Workflow Automation'; currentNav = '/settings';
+    content = <WorkflowBuilderPage />;
   } else if (pathname === '/settings') {
     title = 'Settings';
     content = <SettingsPage />;

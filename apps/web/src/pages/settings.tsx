@@ -1394,7 +1394,12 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
 
             {/* WORKFLOWS SUB-TAB */}
             <TabsContent value="workflows">
-              <WorkflowRulesTab />
+              <div className="text-center py-12 space-y-4">
+                <p className="text-muted-foreground">Workflow automation has moved to its own page with an enhanced visual builder.</p>
+                <a href="/settings/workflows" className="inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground shadow h-9 px-4 py-2 hover:bg-primary/90">
+                  Open Workflow Builder
+                </a>
+              </div>
             </TabsContent>
 
           </Tabs>
