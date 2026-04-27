@@ -105,6 +105,13 @@ const STATUS_COLORS: Record<string, string> = {
   lost: 'bg-red-100 text-red-700',
 };
 
+const AGENCY_TYPE_COLORS: Record<string, string> = {
+  federal: 'bg-blue-100 text-blue-700',
+  state: 'bg-purple-100 text-purple-700',
+  county: 'bg-teal-100 text-teal-700',
+  city: 'bg-orange-100 text-orange-700',
+};
+
 function formatDollars(cents: number): string {
   const dollars = cents / 100;
   if (dollars >= 1_000_000) return `$${(dollars / 1_000_000).toFixed(1)}M`;
@@ -291,32 +298,48 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
         className="rounded-md border bg-card p-3 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
         onClick={() => onNavigate(`/gov/opportunities/${opp.id}`)}
       >
-        <div className="text-sm font-medium truncate mb-1.5" title={opp.title}>
+        <div className="text-sm font-medium truncate mb-1" title={opp.title}>
           {opp.title}
         </div>
-        <Badge className={`text-[10px] px-1.5 py-0 mb-2 ${STATUS_COLORS[opp.agencyType] ?? 'bg-gray-100 text-gray-700'}`}>
-          {opp.agency}
-        </Badge>
+        <div className="flex items-center gap-1.5 mb-2">
+          <Badge className={`text-[10px] px-1.5 py-0 ${AGENCY_TYPE_COLORS[opp.agencyType] ?? 'bg-gray-100 text-gray-700'}`}>
+            {opp.agencyType}
+          </Badge>
+          <span className="text-[10px] text-muted-foreground truncate">{opp.agency}</span>
+        </div>
         <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1 font-medium text-foreground">
             <DollarSign className="h-3 w-3" />
             {formatDollars(opp.estimatedValue)}
           </span>
           {days !== null && (
             <span className={`flex items-center gap-1 ${
-              days <= 7 ? 'text-red-600' : days <= 14 ? 'text-yellow-600' : ''
+              days <= 0 ? 'text-red-600 font-medium' : days <= 7 ? 'text-red-600' : days <= 14 ? 'text-yellow-600' : ''
             }`}>
               <Calendar className="h-3 w-3" />
-              {days}d
+              {days <= 0 ? 'Overdue' : `${days}d`}
             </span>
           )}
         </div>
+        {opp.setAsideType && opp.setAsideType !== 'none' && (
+          <Badge variant="outline" className="text-[9px] px-1 py-0 mb-1.5">{opp.setAsideType.toUpperCase()}</Badge>
+        )}
         {opp.winProbability !== null && (
-          <div className="w-full bg-muted rounded-full h-1.5">
-            <div
-              className="h-1.5 rounded-full bg-primary transition-all"
-              style={{ width: `${opp.winProbability}%` }}
-            />
+          <div className="flex items-center gap-1.5">
+            <div className="flex-1 bg-muted rounded-full h-1.5">
+              <div
+                className={`h-1.5 rounded-full transition-all ${
+                  opp.winProbability >= 70 ? 'bg-green-500' : opp.winProbability >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+                }`}
+                style={{ width: `${opp.winProbability}%` }}
+              />
+            </div>
+            <span className="text-[10px] text-muted-foreground w-6 text-right">{opp.winProbability}%</span>
+          </div>
+        )}
+        {opp.assignedTo && (
+          <div className="text-[10px] text-muted-foreground mt-1.5 truncate">
+            {techMap.get(opp.assignedTo) ?? 'Assigned'}
           </div>
         )}
       </div>
@@ -419,8 +442,19 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
         </div>
       </div>
 
-      <div className="text-sm text-muted-foreground">
-        {filtered.length} opportunit{filtered.length !== 1 ? 'ies' : 'y'}
+      {/* Pipeline Summary */}
+      <div className="flex items-center gap-4 text-sm">
+        <span className="text-muted-foreground">{filtered.length} opportunit{filtered.length !== 1 ? 'ies' : 'y'}</span>
+        <span className="text-muted-foreground">|</span>
+        <span className="font-medium">Pipeline: {formatDollars(filtered.filter(o => !['awarded', 'lost'].includes(o.status)).reduce((s, o) => s + (o.estimatedValue || 0), 0))}</span>
+        <span className="text-green-600 font-medium">Awarded: {formatDollars(filtered.filter(o => o.status === 'awarded').reduce((s, o) => s + (o.estimatedValue || 0), 0))}</span>
+        {(() => {
+          const urgentCount = filtered.filter(o => {
+            const d = daysUntil(o.submissionDeadline);
+            return d !== null && d <= 7 && d >= 0 && !['awarded', 'lost', 'submitted'].includes(o.status);
+          }).length;
+          return urgentCount > 0 ? <span className="text-red-600 font-medium">{urgentCount} due within 7 days</span> : null;
+        })()}
       </div>
 
       {/* Kanban View */}
@@ -432,10 +466,17 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
               return (
                 <div key={col.status} className="w-72 shrink-0 flex flex-col">
                   <div className="flex items-center justify-between px-2 py-2 rounded-t-lg bg-muted">
-                    <span className="text-sm font-medium">{col.label}</span>
-                    <span className="text-xs text-muted-foreground bg-background rounded-full px-2 py-0.5">
-                      {colOpps.length}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium">{col.label}</span>
+                      <span className="text-xs text-muted-foreground bg-background rounded-full px-2 py-0.5">
+                        {colOpps.length}
+                      </span>
+                    </div>
+                    {colOpps.length > 0 && (
+                      <span className="text-[10px] text-muted-foreground font-medium">
+                        {formatDollars(colOpps.reduce((s, o) => s + (o.estimatedValue || 0), 0))}
+                      </span>
+                    )}
                   </div>
                   <Droppable droppableId={col.status}>
                     {(provided, snapshot) => (

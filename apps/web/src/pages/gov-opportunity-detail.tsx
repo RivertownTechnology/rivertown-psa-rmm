@@ -2189,33 +2189,59 @@ ${sectionsHtml}
         {/* ---- SUBMISSIONS ---- */}
         <TabsContent value="submissions">
           <div className="space-y-4">
-            <div className="flex justify-end">
-              <Button size="sm" onClick={() => setShowSubmissionForm(true)}>
+            <div className="flex items-center justify-between">
+              {submissions.length > 0 && (
+                <div className="flex items-center gap-2 text-sm">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <span>{submissions.length} submission{submissions.length !== 1 ? 's' : ''} recorded</span>
+                  <span className="text-muted-foreground">— Latest: {new Date(submissions[0]?.submittedAt).toLocaleDateString()}</span>
+                </div>
+              )}
+              <Button size="sm" onClick={() => setShowSubmissionForm(true)} className={submissions.length === 0 ? 'ml-auto' : ''}>
                 <Send className="h-4 w-4 mr-1" /> Record Submission
               </Button>
             </div>
 
             {submissions.length > 0 ? (
-              <div className="space-y-3">
-                {submissions.map(sub => (
-                  <Card key={sub.id}>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <Badge variant="secondary">{sub.method}</Badge>
-                        <span className="text-sm text-muted-foreground">{new Date(sub.submittedAt).toLocaleString()}</span>
+              <div className="relative">
+                {/* Timeline line */}
+                <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />
+                <div className="space-y-4">
+                  {submissions.map((sub, idx) => (
+                    <div key={sub.id} className="flex gap-4 relative">
+                      <div className={`shrink-0 h-8 w-8 rounded-full flex items-center justify-center z-10 ${
+                        idx === 0 ? 'bg-green-100 text-green-700' : 'bg-muted text-muted-foreground'
+                      }`}>
+                        <Send className="h-3.5 w-3.5" />
                       </div>
-                      {sub.confirmationNumber && (
-                        <div className="text-sm"><span className="text-muted-foreground">Confirmation:</span> {sub.confirmationNumber}</div>
-                      )}
-                      {sub.notes && <p className="text-sm mt-1">{sub.notes}</p>}
-                    </CardContent>
-                  </Card>
-                ))}
+                      <Card className="flex-1">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Badge variant={idx === 0 ? 'default' : 'secondary'}>{sub.method}</Badge>
+                              {idx === 0 && <Badge className="bg-green-100 text-green-700 text-[10px]">Latest</Badge>}
+                            </div>
+                            <span className="text-sm text-muted-foreground">{new Date(sub.submittedAt).toLocaleString()}</span>
+                          </div>
+                          {sub.confirmationNumber && (
+                            <div className="text-sm flex items-center gap-1">
+                              <span className="text-muted-foreground">Confirmation:</span>
+                              <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">{sub.confirmationNumber}</code>
+                            </div>
+                          )}
+                          {sub.notes && <p className="text-sm text-muted-foreground mt-1">{sub.notes}</p>}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
               <Card>
-                <CardContent className="py-12 text-center text-muted-foreground">
-                  No submissions recorded yet.
+                <CardContent className="py-12 text-center">
+                  <Send className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground mb-1">No submissions recorded yet</p>
+                  <p className="text-xs text-muted-foreground">Record a submission when you submit your proposal to the agency.</p>
                 </CardContent>
               </Card>
             )}
@@ -2288,27 +2314,50 @@ ${sectionsHtml}
               </CardContent>
             </Card>
 
+            {/* Activity count */}
+            {activities.length > 0 && (
+              <div className="text-sm text-muted-foreground">{activities.length} activit{activities.length !== 1 ? 'ies' : 'y'}</div>
+            )}
+
             {/* Timeline */}
             {activities.length > 0 ? (
-              <div className="space-y-3">
-                {activities.map(a => (
-                  <div key={a.id} className="flex items-start gap-3 pl-2">
-                    <div className="mt-1.5 h-2 w-2 rounded-full bg-primary shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm">{a.description}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {a.userName && <span>{a.userName} &middot; </span>}
-                        <Badge variant="secondary" className="text-[10px] mr-1">{a.type}</Badge>
-                        {timeAgo(a.createdAt)}
+              <div className="relative">
+                <div className="absolute left-[9px] top-0 bottom-0 w-px bg-border" />
+                <div className="space-y-4">
+                  {activities.map(a => {
+                    const ACTIVITY_COLORS: Record<string, string> = {
+                      note: 'bg-blue-100 text-blue-700',
+                      status_change: 'bg-purple-100 text-purple-700',
+                      document: 'bg-orange-100 text-orange-700',
+                      proposal: 'bg-green-100 text-green-700',
+                      submission: 'bg-indigo-100 text-indigo-700',
+                      compliance: 'bg-yellow-100 text-yellow-700',
+                      pricing: 'bg-teal-100 text-teal-700',
+                    };
+                    return (
+                      <div key={a.id} className="flex items-start gap-3 relative">
+                        <div className={`mt-0.5 h-[18px] w-[18px] rounded-full flex items-center justify-center z-10 ${ACTIVITY_COLORS[a.type] ?? 'bg-muted text-muted-foreground'}`}>
+                          <div className="h-1.5 w-1.5 rounded-full bg-current" />
+                        </div>
+                        <div className="flex-1 min-w-0 pb-1">
+                          <div className="text-sm">{a.description}</div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {a.userName && <span className="text-xs text-muted-foreground">{a.userName}</span>}
+                            <Badge variant="secondary" className="text-[10px]">{a.type.replace(/_/g, ' ')}</Badge>
+                            <span className="text-xs text-muted-foreground">{timeAgo(a.createdAt)}</span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                ))}
+                    );
+                  })}
+                </div>
               </div>
             ) : (
               <Card>
-                <CardContent className="py-12 text-center text-muted-foreground">
-                  No activity recorded yet.
+                <CardContent className="py-12 text-center">
+                  <Clock className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground mb-1">No activity recorded yet</p>
+                  <p className="text-xs text-muted-foreground">Activities are logged automatically as you work on this opportunity.</p>
                 </CardContent>
               </Card>
             )}
