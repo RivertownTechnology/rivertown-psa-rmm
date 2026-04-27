@@ -17,6 +17,8 @@ const rolePermissions: Record<string, string[]> = {
     'contracts:read',
     'quotes:read',
     'invoices:read',
+    'compliance:read',
+    'compliance:write',
   ],
   portal_user: [
     'portal:tickets:read',
@@ -26,6 +28,8 @@ const rolePermissions: Record<string, string[]> = {
     'portal:invoices:read',
     'portal:invoices:pay',
     'portal:assets:read',
+    'portal:compliance:read',
+    'portal:compliance:upload',
   ],
 };
 

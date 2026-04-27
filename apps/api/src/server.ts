@@ -258,6 +258,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   const { startWorkflowScheduler } = await import('./services/workflow-scheduler.js');
   startWorkflowScheduler(db);
 
+  // Start compliance automation scheduler
+  const { startComplianceScheduler } = await import('./services/compliance-scheduler.js');
+  startComplianceScheduler(db);
+
   // Start invoice auto-send scheduler
   const { startInvoiceAutoSendScheduler } = await import('./services/invoice-auto-send.js');
   startInvoiceAutoSendScheduler(db);
