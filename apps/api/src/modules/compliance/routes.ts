@@ -1707,6 +1707,111 @@ export async function complianceRoutes(fastify: FastifyInstance) {
     return updated || { error: 'Not found or not assigned to you' };
   });
 
+  // Portal: Compliance dashboard for customer
+  fastify.get('/api/v1/portal/compliance/dashboard', {
+    preHandler: [fastify.authenticate],
+  }, async (request) => {
+    if (!(request as any).user?.cid) return { error: 'Not a portal user' };
+    const customerId = (request as any).user.cid;
+    const tenantId = request.tenantId;
+
+    // Get compliance summary for this customer
+    const scopes = await fastify.db.select().from(complianceCustomerScopes)
+      .where(and(eq(complianceCustomerScopes.tenantId, tenantId), eq(complianceCustomerScopes.customerId, customerId), eq(complianceCustomerScopes.status, 'active')));
+
+    const fws = await fastify.db.select().from(complianceFrameworks).where(eq(complianceFrameworks.tenantId, tenantId));
+    const fwMap = new Map(fws.map(f => [f.id, f]));
+
+    const frameworkScores = [];
+    for (const scope of scopes) {
+      const statuses = await fastify.db.select({ status: complianceControlStatuses.status })
+        .from(complianceControlStatuses)
+        .where(and(eq(complianceControlStatuses.customerId, customerId), eq(complianceControlStatuses.frameworkId, scope.frameworkId)));
+      const total = statuses.length;
+      const compliant = statuses.filter(s => s.status === 'compliant').length;
+      const na = statuses.filter(s => s.status === 'not_applicable').length;
+      const notAssessed = statuses.filter(s => s.status === 'not_assessed').length;
+      const assessed = total - notAssessed;
+      const score = assessed > 0 ? Math.round(((compliant + na) / assessed) * 100) : 0;
+      frameworkScores.push({
+        frameworkId: scope.frameworkId,
+        frameworkName: fwMap.get(scope.frameworkId)?.name,
+        frameworkShortName: fwMap.get(scope.frameworkId)?.shortName,
+        score, total, compliant, assessed,
+      });
+    }
+
+    const [openPoam] = await fastify.db.select({ count: count() }).from(compliancePoamItems)
+      .where(and(eq(compliancePoamItems.customerId, customerId), sql`${compliancePoamItems.status} NOT IN ('completed', 'accepted_risk')`));
+
+    return { frameworkScores, openPoamItems: openPoam?.count ?? 0 };
+  });
+
+  // Portal: Customer's assessments
+  fastify.get('/api/v1/portal/compliance/assessments', {
+    preHandler: [fastify.authenticate],
+  }, async (request) => {
+    if (!(request as any).user?.cid) return [];
+    const customerId = (request as any).user.cid;
+    return fastify.db.select().from(complianceAssessments)
+      .where(and(eq(complianceAssessments.tenantId, request.tenantId), eq(complianceAssessments.customerId, customerId)))
+      .orderBy(desc(complianceAssessments.createdAt)).limit(20);
+  });
+
+  // Portal: Customer's POA&M items
+  fastify.get('/api/v1/portal/compliance/poam', {
+    preHandler: [fastify.authenticate],
+  }, async (request) => {
+    if (!(request as any).user?.cid) return [];
+    return fastify.db.select().from(compliancePoamItems)
+      .where(and(eq(compliancePoamItems.tenantId, request.tenantId), eq(compliancePoamItems.customerId, (request as any).user.cid)))
+      .orderBy(desc(compliancePoamItems.createdAt)).limit(50);
+  });
+
+  // Portal: Upload evidence
+  fastify.post('/api/v1/portal/compliance/evidence/upload', {
+    preHandler: [fastify.authenticate],
+  }, async (request, reply) => {
+    if (!(request as any).user?.cid) return { error: 'Not a portal user' };
+    const customerId = (request as any).user.cid;
+    const contactId = (request as any).user.sub;
+    const { uploadFile, isR2Configured } = await import('../../services/r2-storage.js');
+    const { randomUUID } = await import('crypto');
+
+    const data = await request.file();
+    if (!data) { reply.code(400); return { error: 'No file uploaded' }; }
+
+    const buffer = await data.toBuffer();
+    const fileName = data.filename;
+    const mimeType = data.mimetype;
+    const fileSize = buffer.length;
+    const fields = data.fields as any;
+    const title = fields?.title?.value || fileName;
+    const controlStatusId = fields?.controlStatusId?.value || '';
+
+    const evidenceId = randomUUID();
+    const storageKey = `${request.tenantId}/customers/${customerId}/compliance/evidence/${evidenceId}/${fileName}`;
+
+    if (await isR2Configured(fastify.db, request.tenantId)) {
+      await uploadFile(fastify.db, request.tenantId, storageKey, buffer, mimeType);
+    }
+
+    const [evidence] = await fastify.db.insert(complianceEvidence).values({
+      tenantId: request.tenantId, customerId, title,
+      evidenceType: 'document', fileName, fileSize, mimeType, storageKey,
+      collectedAt: new Date(), uploadedByContact: contactId,
+    }).returning();
+
+    if (controlStatusId) {
+      await fastify.db.insert(complianceEvidenceControls).values({
+        evidenceId: evidence.id, controlStatusId,
+      }).onConflictDoNothing();
+    }
+
+    reply.code(201);
+    return evidence;
+  });
+
   // ── Missing DELETE endpoints ────────────────────────────────────
 
   fastify.delete('/api/v1/compliance/poam/:id', {

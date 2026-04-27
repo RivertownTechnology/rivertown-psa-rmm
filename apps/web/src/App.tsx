@@ -48,6 +48,8 @@ import { ComplianceIncidentsPage } from '@/pages/compliance-incidents';
 import { ComplianceEvidencePage } from '@/pages/compliance-evidence';
 import { CompliancePoliciesPage } from '@/pages/compliance-policies';
 import { ComplianceVendorsPage } from '@/pages/compliance-vendors';
+import { ComplianceAdminPage } from '@/pages/compliance-admin';
+import { ComplianceCustomersPage } from '@/pages/compliance-customers';
 import { WorkflowBuilderPage } from '@/pages/workflow-builder';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { CommandPalette } from '@/components/command-palette';
@@ -281,7 +283,7 @@ function AppRouter() {
     content = <ComplianceIncidentsPage />;
   } else if (pathname === '/compliance/customers') {
     title = 'Compliance Customers'; currentNav = '/compliance/customers';
-    content = <ComplianceAssessmentsPage onNavigate={navigate} />;
+    content = <ComplianceCustomersPage onNavigate={navigate} />;
   // ── Compliance: Admin routes ──
   } else if (pathname.match(/^\/compliance\/admin\/frameworks\/([a-f0-9-]+)$/)) {
     const fwId = pathname.match(/^\/compliance\/admin\/frameworks\/([a-f0-9-]+)$/)![1];
@@ -289,7 +291,7 @@ function AppRouter() {
     content = <ComplianceFrameworkDetailPage frameworkId={fwId} onBack={() => navigate('/compliance/admin')} />;
   } else if (pathname === '/compliance/admin') {
     title = 'Compliance Admin'; currentNav = '/compliance/admin';
-    content = <ComplianceFrameworksPage onNavigate={(path) => navigate(path.replace('/compliance/frameworks/', '/compliance/admin/frameworks/'))} />;
+    content = <ComplianceAdminPage onNavigate={navigate} />;
   } else if (pathname === '/compliance') {
     title = 'Compliance'; currentNav = '/compliance';
     content = <ComplianceDashboardPage onNavigate={navigate} />;
