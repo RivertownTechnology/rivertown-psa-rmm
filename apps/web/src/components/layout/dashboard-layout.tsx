@@ -86,7 +86,7 @@ export function DashboardLayout({ children, title, currentPath, onNavigate }: Da
           onNavigate={onNavigate}
           onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
         />
-        <main className="flex-1 p-3 sm:p-4 lg:p-6">{children}</main>
+        <main className="flex-1 p-4 lg:p-page">{children}</main>
       </div>
     </div>
   );

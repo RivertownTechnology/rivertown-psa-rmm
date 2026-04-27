@@ -83,50 +83,7 @@ function relativeTime(dateStr: string): string {
   return `${months}mo ago`;
 }
 
-function slaCountdown(ticket: TicketRow): { text: string; className: string } | null {
-  if (ticket.slaBreached) {
-    return { text: 'SLA: Breached', className: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' };
-  }
-  if (!ticket.slaResolutionDueAt) return null;
-  if (['resolved', 'closed'].includes(ticket.status)) {
-    return { text: 'SLA: Met', className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' };
-  }
-
-  const now = Date.now();
-  const due = new Date(ticket.slaResolutionDueAt).getTime();
-  const isPaused = ticket.status === 'waiting_on_customer' && !!ticket.slaPausedAt;
-
-  // Account for paused time
-  const totalPaused = (ticket.slaTotalPausedMs ?? 0) +
-    (ticket.slaPausedAt ? (now - new Date(ticket.slaPausedAt).getTime()) : 0);
-  const adjustedDue = due + totalPaused;
-  const remaining = adjustedDue - now;
-
-  if (remaining <= 0 && !isPaused) {
-    return { text: 'SLA: Breached', className: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' };
-  }
-
-  if (isPaused) {
-    const totalMin = Math.floor(remaining / 60000);
-    const hours = Math.floor(totalMin / 60);
-    const mins = totalMin % 60;
-    const label = hours > 0 ? `SLA: Paused (${hours}h ${mins}m)` : `SLA: Paused (${mins}m)`;
-    return { text: label, className: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' };
-  }
-
-  const totalMin = Math.floor(remaining / 60000);
-  const hours = Math.floor(totalMin / 60);
-  const mins = totalMin % 60;
-  const total = adjustedDue - new Date(ticket.createdAt).getTime();
-  const atRisk = remaining < total * 0.25;
-  const label = hours > 0 ? `SLA: ${hours}h ${mins}m` : `SLA: ${mins}m`;
-  return {
-    text: label,
-    className: atRisk
-      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
-      : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-  };
-}
+import { slaCountdown } from '@/lib/sla';
 
 // ---------------------------------------------------------------------------
 // Badge style maps

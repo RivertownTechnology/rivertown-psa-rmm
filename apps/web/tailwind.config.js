@@ -15,6 +15,21 @@ export default {
         xl: ['1.125rem', { lineHeight: '1.75rem' }],
         '2xl': ['1.25rem', { lineHeight: '1.75rem' }],
         '3xl': ['1.5rem', { lineHeight: '2rem' }],
+        // Semantic typography
+        'heading-xl': ['1.5rem', { lineHeight: '2rem', fontWeight: '700' }],
+        'heading-lg': ['1.25rem', { lineHeight: '1.75rem', fontWeight: '600' }],
+        'heading-md': ['1.125rem', { lineHeight: '1.5rem', fontWeight: '600' }],
+        'heading-sm': ['1rem', { lineHeight: '1.5rem', fontWeight: '600' }],
+        'body': ['0.875rem', { lineHeight: '1.5rem' }],
+        'body-sm': ['0.8125rem', { lineHeight: '1.25rem' }],
+        'caption': ['0.75rem', { lineHeight: '1rem' }],
+        'overline': ['0.6875rem', { lineHeight: '1rem', fontWeight: '600', letterSpacing: '0.05em' }],
+      },
+      spacing: {
+        'page': '1.5rem',      // Standard page padding
+        'section': '1.5rem',   // Gap between sections
+        'card': '1rem',        // Card internal padding
+        'card-lg': '1.25rem',  // Large card padding
       },
       colors: {
         border: 'hsl(var(--border))',
