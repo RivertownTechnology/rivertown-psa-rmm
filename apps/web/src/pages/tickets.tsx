@@ -478,7 +478,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
           </Button>
 
           {/* Search */}
-          <div className="relative w-64">
+          <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search tickets..."
@@ -703,13 +703,13 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
 
       {/* Floating bulk action bar */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-card border rounded-lg shadow-lg px-4 py-3 flex items-center gap-3 z-50">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-card border rounded-lg shadow-lg px-4 py-3 flex items-center gap-2 sm:gap-3 z-50 max-w-[calc(100%-2rem)] flex-wrap justify-center">
           <span className="text-sm font-medium">{selectedIds.size} selected</span>
           <Button size="sm" variant="outline" onClick={() => setShowBulkAssign(true)}>
             <UserPlus className="h-3.5 w-3.5 mr-1" />Assign
           </Button>
           <Button size="sm" variant="outline" onClick={() => setShowBulkStatus(true)}>
-            <ArrowRight className="h-3.5 w-3.5 mr-1" />Change Status
+            <ArrowRight className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">Change </span>Status
           </Button>
           <Button size="sm" variant="outline" onClick={() => setShowBulkQueue(true)}>
             Queue
@@ -991,7 +991,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Category</Label>
                 <Combobox

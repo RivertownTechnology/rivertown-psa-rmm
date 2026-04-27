@@ -157,9 +157,9 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="relative w-72">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+          <div className="relative w-full sm:w-72">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search customers..."
@@ -176,7 +176,7 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
             className="w-44"
           />
         </div>
-        <Button onClick={() => setShowCreate(true)}>
+        <Button onClick={() => setShowCreate(true)} className="shrink-0">
           <Plus className="mr-2 h-4 w-4" />
           Add Customer
         </Button>
@@ -302,7 +302,7 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
               <Label htmlFor="name">Company Name</Label>
               <Input id="name" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="billingEmail">Billing Email</Label>
                 <Input id="billingEmail" type="email" value={formData.billingEmail} onChange={(e) => setFormData({ ...formData, billingEmail: e.target.value })} />
@@ -312,7 +312,7 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
                 <Input id="ccBillingEmail" type="email" value={formData.ccBillingEmail} onChange={(e) => setFormData({ ...formData, ccBillingEmail: e.target.value })} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone</Label>
                 <Input id="phone" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
@@ -326,7 +326,7 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
               <Label htmlFor="address">Address</Label>
               <Input id="address" value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} />
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="city">City</Label>
                 <Input id="city" value={formData.city} onChange={(e) => setFormData({ ...formData, city: e.target.value })} />
@@ -335,7 +335,7 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
                 <Label htmlFor="state">State</Label>
                 <Input id="state" value={formData.state} onChange={(e) => setFormData({ ...formData, state: e.target.value })} />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 col-span-2 sm:col-span-1">
                 <Label htmlFor="zip">Zip</Label>
                 <Input id="zip" value={formData.zip} onChange={(e) => setFormData({ ...formData, zip: e.target.value })} />
               </div>

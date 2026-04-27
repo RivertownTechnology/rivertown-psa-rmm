@@ -161,9 +161,9 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="relative w-56">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+            <div className="relative w-full sm:w-56">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search invoices..."
@@ -184,17 +184,18 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
               placeholder="Sort by..."
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <Button variant="outline" onClick={() => setShowGenerate(true)}>
               <RefreshCw className="mr-2 h-4 w-4" />
-              Generate from Contracts
+              <span className="hidden sm:inline">Generate from Contracts</span>
+              <span className="sm:hidden">Generate</span>
             </Button>
             <Button onClick={() => setShowCreate(true)}>
               New Invoice
             </Button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {statuses.map(s => (
             <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm"
               onClick={() => { setStatusFilter(s); setPage(1); }}>
@@ -214,15 +215,15 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
         <CardHeader className="pb-3"><CardTitle className="text-base">Invoices ({total})</CardTitle></CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[700px]">
               <thead><tr className="border-b bg-muted/50">
                 <th className="text-left p-3 font-medium w-20">Invoice #</th>
                 <th className="text-left p-3 font-medium">Customer</th>
                 <th className="text-left p-3 font-medium">Status</th>
-                <th className="text-left p-3 font-medium">Issue Date</th>
+                <th className="text-left p-3 font-medium hidden md:table-cell">Issue Date</th>
                 <th className="text-left p-3 font-medium">Due Date</th>
                 <th className="text-right p-3 font-medium">Total</th>
-                <th className="text-right p-3 font-medium">Paid</th>
+                <th className="text-right p-3 font-medium hidden md:table-cell">Paid</th>
                 <th className="text-right p-3 font-medium">Balance</th>
                 <th className="w-10"></th>
               </tr></thead>
@@ -249,10 +250,10 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
                         <Badge variant="destructive" className="ml-1">Overdue</Badge>
                       )}
                     </td>
-                    <td className={`p-3 ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'}`}>{inv.issueDate}</td>
+                    <td className={`p-3 hidden md:table-cell ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'}`}>{inv.issueDate}</td>
                     <td className={`p-3 ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'}`}>{inv.dueDate}</td>
                     <td className="p-3 text-right font-medium">{formatCents(inv.totalCents)}</td>
-                    <td className="p-3 text-right text-muted-foreground">{formatCents(inv.amountPaidCents)}</td>
+                    <td className="p-3 text-right text-muted-foreground hidden md:table-cell">{formatCents(inv.amountPaidCents)}</td>
                     <td className="p-3 text-right font-medium">
                       {formatCents(inv.totalCents - inv.amountPaidCents)}
                     </td>
@@ -291,7 +292,7 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
             <p className="text-sm text-muted-foreground">
               Creates draft invoices from all active contracts. Invoices are billed ahead — the service period is the month of the due date.
             </p>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Issue Date</Label>
                 <Input type="date" value={new Date().toISOString().split('T')[0]} disabled />
