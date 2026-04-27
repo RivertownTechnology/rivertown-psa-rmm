@@ -7,7 +7,7 @@ import { SLA_COLORS } from './badge-colors';
 
 export interface SLATicketFields {
   status: string;
-  slaBreached?: boolean;
+  slaBreached?: boolean | null;
   slaResolutionDueAt?: string | null;
   slaResponseDueAt?: string | null;
   slaPausedAt?: string | null;
