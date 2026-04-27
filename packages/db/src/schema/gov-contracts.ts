@@ -89,6 +89,8 @@ export const govProposals = pgTable('gov_proposals', {
   createdBy: uuid('created_by').references(() => users.id),
   reviewedBy: uuid('reviewed_by').references(() => users.id),
   shareToken: text('share_token'),
+  isLocked: boolean('is_locked').default(false),
+  clonedFromId: uuid('cloned_from_id'),
   submittedAt: timestamp('submitted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

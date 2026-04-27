@@ -815,13 +815,31 @@ export async function govContractRoutes(fastify: FastifyInstance) {
       .limit(1);
     if (!existing) throw new NotFoundError('Proposal', id);
 
+    // Block edits on locked/submitted proposals
+    if ((existing as any).isLocked) return { error: 'This proposal version is locked. Create a new version to make changes.' };
+    if (existing.status === 'submitted' && body.status !== 'submitted') return { error: 'Submitted proposals cannot be modified.' };
+
+    // Validate status transitions
+    const VALID_TRANSITIONS: Record<string, string[]> = {
+      draft: ['in_review'],
+      in_review: ['draft', 'final'],
+      final: ['submitted', 'in_review'],
+      submitted: [],
+    };
+    if (body.status && body.status !== existing.status) {
+      const allowed = VALID_TRANSITIONS[existing.status] || [];
+      if (!allowed.includes(body.status)) {
+        return { error: `Cannot transition from "${existing.status}" to "${body.status}". Allowed: ${allowed.join(', ') || 'none'}` };
+      }
+    }
+
     const updates: Record<string, any> = { updatedAt: new Date() };
     if (body.title !== undefined) updates.title = body.title;
     if (body.status !== undefined) updates.status = body.status;
     if (body.sections !== undefined) updates.sections = body.sections;
     if (body.templateType !== undefined) updates.templateType = body.templateType;
     if (body.reviewedBy !== undefined) updates.reviewedBy = body.reviewedBy;
-    if (body.status === 'submitted') updates.submittedAt = new Date();
+    if (body.status === 'submitted') { updates.submittedAt = new Date(); updates.isLocked = true; }
 
     const [updated] = await fastify.db.update(govProposals)
       .set(updates)
@@ -829,6 +847,91 @@ export async function govContractRoutes(fastify: FastifyInstance) {
       .returning();
 
     return updated;
+  });
+
+  // ── Proposals: Sync template sections ───────────────────────────
+
+  fastify.post('/api/v1/gov/proposals/:id/sync-template', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+
+    const [proposal] = await fastify.db.select().from(govProposals)
+      .where(and(eq(govProposals.id, id), eq(govProposals.tenantId, request.tenantId))).limit(1);
+    if (!proposal) throw new NotFoundError('Proposal', id);
+    if ((proposal as any).isLocked) return { error: 'Locked proposal cannot be synced' };
+
+    // Get current template
+    const [templateConfig] = await fastify.db.select().from(integrationConfigs)
+      .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'gov_proposal_template'))).limit(1);
+
+    const templateSections = templateConfig?.settings
+      ? ((templateConfig.settings as any).sections || []) as Array<{ title: string; instructions: string; order: number }>
+      : [];
+
+    if (templateSections.length === 0) return { error: 'No template configured in Gov Settings' };
+
+    const proposalSections = (proposal.sections || []) as Array<{ title: string; content: string; order: number; isComplete: boolean }>;
+    const existingTitles = new Set(proposalSections.map(s => s.title.toLowerCase()));
+
+    // Find new sections from template not in proposal
+    const added: string[] = [];
+    const updatedSections = [...proposalSections];
+    let maxOrder = Math.max(...proposalSections.map(s => s.order), 0);
+
+    for (const tmpl of templateSections) {
+      if (!existingTitles.has(tmpl.title.toLowerCase())) {
+        maxOrder++;
+        updatedSections.push({ title: tmpl.title, content: '', order: maxOrder, isComplete: false });
+        added.push(tmpl.title);
+      }
+    }
+
+    const body = (request.body || {}) as { apply?: boolean };
+    if (body.apply) {
+      // Actually apply the sync
+      await fastify.db.update(govProposals).set({ sections: updatedSections, updatedAt: new Date() })
+        .where(eq(govProposals.id, id));
+      return { applied: true, added, totalSections: updatedSections.length };
+    }
+
+    // Preview mode — show what would change
+    return { preview: true, added, currentCount: proposalSections.length, newCount: updatedSections.length };
+  });
+
+  // ── Proposals: Clone (new version) ──────────────────────────────
+
+  fastify.post('/api/v1/gov/proposals/:id/clone', {
+    preHandler: [fastify.authenticate, requirePermission('tickets:write')],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const [source] = await fastify.db.select().from(govProposals)
+      .where(and(eq(govProposals.id, id), eq(govProposals.tenantId, request.tenantId))).limit(1);
+    if (!source) throw new NotFoundError('Proposal', id);
+
+    // Lock the source
+    await fastify.db.update(govProposals).set({ isLocked: true, updatedAt: new Date() })
+      .where(eq(govProposals.id, id));
+
+    // Create new version
+    const [newProposal] = await fastify.db.insert(govProposals).values({
+      tenantId: request.tenantId,
+      opportunityId: source.opportunityId,
+      title: source.title,
+      status: 'draft',
+      version: (source.version ?? 1) + 1,
+      templateType: source.templateType,
+      sections: source.sections,
+      createdBy: request.user.sub,
+      clonedFromId: id,
+    }).returning();
+
+    await logActivity(fastify.db, request.tenantId, source.opportunityId, request.user.sub, 'note',
+      `New proposal version v${newProposal.version} created from v${source.version}`);
+
+    reply.code(201);
+    return newProposal;
   });
 
   // ── Proposals: Generate/revoke share link ───────────────────────

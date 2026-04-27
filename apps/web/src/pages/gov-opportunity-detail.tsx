@@ -1685,6 +1685,31 @@ ${sectionsHtml}
                   </div>
                   {currentProposal && (
                     <div className="flex gap-2">
+                      {/* Sync Template */}
+                      <Button variant="outline" size="sm" onClick={async () => {
+                        const res = await api<any>(`/gov/proposals/${currentProposal.id}/sync-template`, { method: 'POST' });
+                        if (res.error) { toast.error(res.error); return; }
+                        if (res.added?.length > 0) {
+                          const ok = await confirm({ title: 'Sync Template?', description: `Add ${res.added.length} new section${res.added.length > 1 ? 's' : ''}: ${res.added.join(', ')}`, confirmLabel: 'Add Sections' });
+                          if (ok) {
+                            await api(`/gov/proposals/${currentProposal.id}/sync-template`, { method: 'POST', body: JSON.stringify({ apply: true }) });
+                            fetchProposals();
+                            toast.success(`${res.added.length} sections added`);
+                          }
+                        } else { toast.info('Already in sync — no new sections'); }
+                      }}>
+                        Sync Template
+                      </Button>
+                      {/* New Version */}
+                      <Button variant="outline" size="sm" onClick={async () => {
+                        const ok = await confirm({ title: 'Create New Version?', description: `This will lock v${currentProposal.version} and create v${(currentProposal.version || 1) + 1} as a draft.`, confirmLabel: 'Create Version', variant: 'default' });
+                        if (!ok) return;
+                        await api(`/gov/proposals/${currentProposal.id}/clone`, { method: 'POST' });
+                        fetchProposals();
+                        toast.success(`Version ${(currentProposal.version || 1) + 1} created`);
+                      }}>
+                        New Version
+                      </Button>
                       <Button variant="outline" size="sm" onClick={() => exportProposalPDF()}>
                         <FileText className="h-4 w-4 mr-1" /> Export Document
                       </Button>
@@ -1717,6 +1742,24 @@ ${sectionsHtml}
                     </div>
                   )}
                 </div>
+
+                {/* Completion indicator */}
+                {(() => {
+                  const secs = currentProposal?.sections ?? [];
+                  const complete = secs.filter((s: any) => s.isComplete).length;
+                  const withContent = secs.filter((s: any) => s.content?.trim()?.length > 20).length;
+                  const total = secs.length;
+                  const pct = total > 0 ? Math.round((withContent / total) * 100) : 0;
+                  return (
+                    <div className="flex items-center gap-3 text-sm">
+                      <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0">{withContent}/{total} sections ({pct}%)</span>
+                      {(currentProposal as any)?.isLocked && <Badge variant="secondary" className="text-[10px]">Locked</Badge>}
+                    </div>
+                  );
+                })()}
 
                 {(currentProposal?.sections ?? []).sort((a, b) => a.order - b.order).map((section, sectionIdx) => (
                   <Card key={sectionIdx}>
@@ -2144,6 +2187,21 @@ ${sectionsHtml}
                   placeholder={`e.g. "Focus on our CJIS compliance experience" or "Include specific product pricing from the pricing tab"`}
                 />
               </div>
+
+              {/* Prompt Stack Viewer */}
+              <details className="text-xs">
+                <summary className="text-muted-foreground cursor-pointer hover:text-foreground font-medium">
+                  View AI Prompt Sources
+                </summary>
+                <div className="mt-2 space-y-2 rounded-md border p-3 bg-muted/30">
+                  <div><span className="font-medium text-foreground">Company Profile:</span> <span className="text-muted-foreground">{opp ? 'Loaded from Gov Settings' : 'Not configured'}</span></div>
+                  <div><span className="font-medium text-foreground">Section Template:</span> <span className="text-muted-foreground">"{sectionGenDialog?.sectionTitle}" instructions from Gov Settings</span></div>
+                  <div><span className="font-medium text-foreground">Opportunity:</span> <span className="text-muted-foreground">{opp?.title || 'N/A'} — {opp?.agency || 'N/A'}</span></div>
+                  <div><span className="font-medium text-foreground">RFP Analysis:</span> <span className="text-muted-foreground">{opp?.aiAnalysis ? 'Available' : 'Not analyzed'}</span></div>
+                  <div><span className="font-medium text-foreground">Pricing Items:</span> <span className="text-muted-foreground">{pricingItems.length} items loaded</span></div>
+                  {sectionGenInstructions && <div><span className="font-medium text-foreground">Your Instructions:</span> <span className="text-muted-foreground">"{sectionGenInstructions.substring(0, 100)}"</span></div>}
+                </div>
+              </details>
 
               <DialogFooter>
                 <Button variant="outline" onClick={() => setSectionGenDialog(null)}>Cancel</Button>
