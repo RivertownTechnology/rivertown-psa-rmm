@@ -108,7 +108,7 @@ export function Sidebar({
     navGroups.forEach((group) => {
       const hasActive = group.items.some(item =>
         currentPath === item.href || (item.href !== '/' && currentPath.startsWith(item.href + '/'))
-      ) || (group.defaultHref && (currentPath === group.defaultHref || currentPath.startsWith(group.defaultHref + '/')));
+      ) || !!(group.defaultHref && (currentPath === group.defaultHref || currentPath.startsWith(group.defaultHref + '/')));
       active[group.label] = hasActive;
     });
     return active;
