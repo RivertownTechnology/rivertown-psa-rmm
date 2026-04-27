@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Combobox } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Building2, Plus, Pencil, Trash2, AlertTriangle, FileCheck, FileWarning } from 'lucide-react';
+import { useConfirm } from '@/lib/confirm';
+import { useToast } from '@/lib/toast';
 
 interface VendorRecord {
   id: string; customerId: string; vendorName: string; vendorType: string;
@@ -48,6 +50,8 @@ const emptyForm = {
 };
 
 export function ComplianceVendorsPage() {
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [records, setRecords] = useState<VendorRecord[]>([]);
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -104,8 +108,10 @@ export function ComplianceVendorsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this vendor?')) return;
+    const ok = await confirm({ title: 'Delete Vendor?', description: 'This action cannot be undone.', confirmLabel: 'Delete' });
+    if (!ok) return;
     await api(`/compliance/vendors/${id}`, { method: 'DELETE' });
+    toast.success('Deleted successfully');
     load();
   }
 

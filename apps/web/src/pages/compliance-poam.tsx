@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Combobox } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ListChecks, Plus, Pencil, Trash2, Ticket } from 'lucide-react';
+import { useConfirm } from '@/lib/confirm';
+import { useToast } from '@/lib/toast';
 
 interface PoamItem {
   id: string; customerId: string; frameworkId: string; controlId: string | null;
@@ -22,6 +24,8 @@ const RISK_COLORS: Record<string, string> = { critical: 'bg-red-100 text-red-700
 const STATUS_COLORS: Record<string, string> = { open: 'bg-gray-100 text-gray-700', in_progress: 'bg-blue-100 text-blue-700', delayed: 'bg-red-100 text-red-700', completed: 'bg-green-100 text-green-700', accepted_risk: 'bg-purple-100 text-purple-700' };
 
 export function CompliancePoamPage() {
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [items, setItems] = useState<PoamItem[]>([]);
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -90,7 +94,7 @@ export function CompliancePoamPage() {
                     <td className="px-4 py-2 text-xs text-muted-foreground">{item.scheduledEndDate || '—'}</td>
                     <td className="px-4 py-2 text-right">
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingItem(item)}><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => { if (!confirm('Delete?')) return; await api(`/compliance/poam/${item.id}`, { method: 'DELETE' }); load(); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => { const ok = await confirm({ title: 'Delete POA&M Item?', description: 'This action cannot be undone.', confirmLabel: 'Delete' }); if (!ok) return; await api(`/compliance/poam/${item.id}`, { method: 'DELETE' }); toast.success('Deleted successfully'); load(); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                     </td>
                   </tr>
                 ))}

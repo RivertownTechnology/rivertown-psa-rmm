@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api, getAccessToken, API_BASE } from '@/lib/api';
+import { useConfirm } from '@/lib/confirm';
+import { useToast } from '@/lib/toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -205,6 +207,8 @@ interface GovOpportunityDetailPageProps {
 }
 
 export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportunityDetailPageProps) {
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [opp, setOpp] = useState<Opportunity | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
@@ -415,7 +419,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
       // Refresh opportunity to get updated winProbability
       fetchOpp();
     } catch (err: any) {
-      alert(`AI Analysis failed: ${err.message || 'Unknown error'}`);
+      toast.error('AI Analysis failed', err.message || 'Unknown error');
     }
     finally { setAnalyzing(false); }
   }
@@ -438,12 +442,12 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
         });
         if (!res.ok) {
           const err = await res.text();
-          alert(`Upload failed (${res.status}): ${err.substring(0, 200)}`);
+          toast.error(`Upload failed (${res.status})`, err.substring(0, 200));
         } else {
           console.log('[GOV-UPLOAD] Success');
         }
       } catch (err: any) {
-        alert(`Upload error: ${err.message || 'Failed'}`);
+        toast.error('Upload error', err.message || 'Failed');
         console.error('[GOV-UPLOAD] Error:', err);
       }
     }
@@ -457,7 +461,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
       fetchDocuments();
       fetchOpp();
     } catch (err: any) {
-      alert(`Analysis failed: ${err.message || 'Unknown error'}`);
+      toast.error('Analysis failed', err.message || 'Unknown error');
     }
     finally { setAnalyzingDocs(false); }
   }
@@ -468,7 +472,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
       await api(`/gov/opportunities/${opportunityId}/proposals`, { method: 'POST', body: JSON.stringify({ aiGenerate }) });
       await fetchProposals();
     } catch (err: any) {
-      alert(`Proposal generation failed: ${err.message || 'Unknown error. The AI may have timed out — try again.'}`);
+      toast.error('Proposal generation failed', err.message || 'Unknown error. The AI may have timed out — try again.');
     }
     finally { setGeneratingProposal(false); }
   }
@@ -520,7 +524,7 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
       await api(`/gov/proposals/${proposalId}/ai-improve`, { method: 'POST', body: JSON.stringify({ sectionIndex }) });
       fetchProposals();
     } catch (err: any) {
-      alert(`Section improvement failed: ${err.message || 'Unknown error'}`);
+      toast.error('Section improvement failed', err.message || 'Unknown error');
     }
     finally { setImprovingSection(null); }
   }
@@ -1512,9 +1516,9 @@ ${sectionsHtml}
                       });
                       fetchOpp();
                       setPasteRfpText('');
-                      alert('RFP saved and analyzed successfully');
+                      toast.success('RFP saved and analyzed');
                     } catch (err: any) {
-                      alert(`Failed: ${err.message || 'Unknown error'}`);
+                      toast.error('Failed', err.message || 'Unknown error');
                     } finally { setSavingPastedRfp(false); }
                   }}>
                     {savingPastedRfp ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Saving & Analyzing...</> : <><Sparkles className="h-4 w-4 mr-1" /> Save & Analyze RFP</>}
@@ -1583,7 +1587,8 @@ ${sectionsHtml}
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
                         onClick={async (e) => {
                           e.stopPropagation();
-                          if (!confirm(`Delete ${doc.fileName}?`)) return;
+                          const ok = await confirm({ title: 'Delete Document?', description: `Are you sure you want to delete "${doc.fileName}"?`, confirmLabel: 'Delete' });
+                          if (!ok) return;
                           await api(`/gov/documents/${doc.id}`, { method: 'DELETE' }).catch(() => {});
                           fetchDocuments();
                           if (selectedDoc?.id === doc.id) setSelectedDoc(null);
@@ -1688,14 +1693,14 @@ ${sectionsHtml}
                           // Copy existing link
                           const url = `${window.location.origin}/proposal/${currentProposal.shareToken}`;
                           await navigator.clipboard.writeText(url);
-                          alert('Link copied to clipboard');
+                          toast.success('Link copied to clipboard');
                         } else {
                           // Generate new share link
                           const res = await api<{ shareToken: string }>(`/gov/proposals/${currentProposal.id}/share`, { method: 'POST' });
                           const url = `${window.location.origin}/proposal/${res.shareToken}`;
                           await navigator.clipboard.writeText(url);
                           fetchProposals();
-                          alert('Share link created and copied to clipboard');
+                          toast.success('Share link created and copied to clipboard');
                         }
                       }}>
                         <Send className="h-4 w-4 mr-1" /> {currentProposal.shareToken ? 'Copy Link' : 'Share Link'}
@@ -2061,7 +2066,7 @@ ${sectionsHtml}
                     });
 
                     if (result.error) {
-                      alert(result.error);
+                      toast.error('Analysis error', result.error);
                     } else {
                       setAnalyzeDocDialog(null);
                       fetchDocuments();
@@ -2069,7 +2074,7 @@ ${sectionsHtml}
                       fetchCompliance();
                     }
                   } catch (err: any) {
-                    alert(`Analysis failed: ${err.message}`);
+                    toast.error('Analysis failed', err.message);
                   } finally {
                     setAnalyzingDocId(null);
                   }

@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Combobox } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { GraduationCap, Plus, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { useConfirm } from '@/lib/confirm';
+import { useToast } from '@/lib/toast';
 
 interface TrainingRecord {
   id: string; customerId: string | null; contactId: string | null; userId: string | null;
@@ -26,6 +28,8 @@ const STATUS_COLORS: Record<string, string> = {
 const emptyForm = { personName: '', customerId: '', contactId: '', userId: '', trainingType: 'security_awareness', trainingProvider: 'internal', courseName: '', status: 'assigned', assignedDate: '', dueDate: '', completedDate: '', expirationDate: '', score: '', externalId: '', externalSource: '' };
 
 export function ComplianceTrainingPage() {
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [records, setRecords] = useState<TrainingRecord[]>([]);
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -129,7 +133,7 @@ export function ComplianceTrainingPage() {
                       <td className="px-4 py-2 text-xs">{r.score != null ? `${r.score}%` : '—'}</td>
                       <td className="px-4 py-2 text-right">
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingId(r.id); setForm({ personName: r.personName, customerId: r.customerId || '', contactId: r.contactId || '', userId: r.userId || '', trainingType: r.trainingType, trainingProvider: r.trainingProvider || 'internal', courseName: r.courseName || '', status: r.status, assignedDate: r.assignedDate || '', dueDate: r.dueDate || '', completedDate: r.completedDate || '', expirationDate: r.expirationDate || '', score: r.score != null ? String(r.score) : '', externalId: r.externalId || '', externalSource: r.externalSource || '' }); setShowForm(true); }}><Pencil className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => { if (!confirm('Delete?')) return; await api(`/compliance/training/${r.id}`, { method: 'DELETE' }); load(); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => { const ok = await confirm({ title: 'Delete Training Record?', description: 'This action cannot be undone.', confirmLabel: 'Delete' }); if (!ok) return; await api(`/compliance/training/${r.id}`, { method: 'DELETE' }); toast.success('Deleted successfully'); load(); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </td>
                     </tr>
                   );

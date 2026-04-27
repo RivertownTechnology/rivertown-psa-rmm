@@ -4,6 +4,7 @@ import { ThemeProvider } from '@/lib/theme';
 import { TimerProvider } from '@/lib/timer';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/lib/toast';
+import { ConfirmProvider } from '@/lib/confirm';
 import { LoginPage } from '@/pages/login';
 import { DashboardPage } from '@/pages/dashboard';
 import { CustomersPage } from '@/pages/customers';
@@ -319,7 +320,9 @@ export function App() {
         <AuthProvider>
           <TimerProvider>
             <Toaster>
-              <AppRouter />
+              <ConfirmProvider>
+                <AppRouter />
+              </ConfirmProvider>
             </Toaster>
           </TimerProvider>
         </AuthProvider>

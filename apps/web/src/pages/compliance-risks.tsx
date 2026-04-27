@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Combobox } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, Plus, Pencil, Trash2 } from 'lucide-react';
+import { useConfirm } from '@/lib/confirm';
+import { useToast } from '@/lib/toast';
 
 interface RiskItem {
   id: string; customerId: string; title: string; description: string | null;
@@ -34,6 +36,8 @@ function riskColor(score: number) {
 const emptyForm = { title: '', description: '', category: 'technical', riskSource: 'manual', likelihood: '3', impact: '3', riskResponse: 'mitigate', responseDetails: '', customerId: '', reviewDate: '' };
 
 export function ComplianceRisksPage() {
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [risks, setRisks] = useState<RiskItem[]>([]);
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -146,7 +150,7 @@ export function ComplianceRisksPage() {
                     <td className="px-4 py-2"><Badge variant="secondary" className="text-[10px]">{r.status}</Badge></td>
                     <td className="px-4 py-2 text-right">
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingId(r.id); setForm({ title: r.title, description: r.description || '', category: r.category || 'technical', riskSource: r.riskSource || 'manual', likelihood: String(r.likelihood), impact: String(r.impact), riskResponse: r.riskResponse, responseDetails: r.responseDetails || '', customerId: r.customerId, reviewDate: r.reviewDate || '' }); setShowForm(true); }}><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => { if (!confirm('Delete this risk?')) return; await api(`/compliance/risks/${r.id}`, { method: 'DELETE' }); load(); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => { const ok = await confirm({ title: 'Delete Risk?', description: 'This action cannot be undone.', confirmLabel: 'Delete' }); if (!ok) return; await api(`/compliance/risks/${r.id}`, { method: 'DELETE' }); toast.success('Deleted successfully'); load(); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                     </td>
                   </tr>
                 ))}

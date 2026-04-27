@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Combobox } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { UserCheck, Plus, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { useConfirm } from '@/lib/confirm';
+import { useToast } from '@/lib/toast';
 
 interface PersonnelRecord {
   id: string; customerId: string | null; personName: string; personRole: string | null;
@@ -25,6 +27,8 @@ const STATUS_COLORS: Record<string, string> = {
 const emptyForm = { personName: '', personRole: '', screeningType: 'fingerprint', status: 'pending', customerId: '', submittedDate: '', clearedDate: '', expirationDate: '', renewalDueDate: '', agencyOri: '', notes: '' };
 
 export function CompliancePersonnelPage() {
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [records, setRecords] = useState<PersonnelRecord[]>([]);
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -113,7 +117,7 @@ export function CompliancePersonnelPage() {
                       <td className="px-4 py-2 text-xs">{r.expirationDate ? <span className={isExpiring ? 'text-yellow-700 font-medium' : ''}>{r.expirationDate}</span> : '—'}</td>
                       <td className="px-4 py-2 text-right">
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingId(r.id); setForm({ personName: r.personName, personRole: r.personRole || '', screeningType: r.screeningType, status: r.status, customerId: r.customerId || '', submittedDate: r.submittedDate || '', clearedDate: r.clearedDate || '', expirationDate: r.expirationDate || '', renewalDueDate: r.renewalDueDate || '', agencyOri: r.agencyOri || '', notes: r.notes || '' }); setShowForm(true); }}><Pencil className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => { if (!confirm('Delete?')) return; await api(`/compliance/personnel/${r.id}`, { method: 'DELETE' }); load(); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => { const ok = await confirm({ title: 'Delete Screening?', description: 'This action cannot be undone.', confirmLabel: 'Delete' }); if (!ok) return; await api(`/compliance/personnel/${r.id}`, { method: 'DELETE' }); toast.success('Deleted successfully'); load(); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </td>
                     </tr>
                   );

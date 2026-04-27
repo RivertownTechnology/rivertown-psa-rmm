@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { useConfirm } from '@/lib/confirm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -851,6 +852,7 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
 }
 
 function CustomerComplianceTab({ customerId }: { customerId: string }) {
+  const { confirm } = useConfirm();
   const [summary, setSummary] = useState<any[]>([]);
   const [frameworks, setFrameworks] = useState<Array<{ id: string; name: string; shortName: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -883,7 +885,8 @@ function CustomerComplianceTab({ customerId }: { customerId: string }) {
   }
 
   async function removeScope(scopeId: string) {
-    if (!confirm('Remove this compliance scope?')) return;
+    const ok = await confirm({ title: 'Remove Compliance Scope?', description: 'Are you sure you want to remove this compliance scope?', confirmLabel: 'Remove' });
+    if (!ok) return;
     await api(`/compliance/customers/${customerId}/scopes/${scopeId}`, { method: 'DELETE' });
     const s = await api<any>(`/compliance/customers/${customerId}/summary`);
     setSummary(Array.isArray(s) ? s : []);

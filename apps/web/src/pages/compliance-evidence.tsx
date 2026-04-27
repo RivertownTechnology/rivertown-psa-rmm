@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Combobox } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FileText, Plus, Trash2, AlertTriangle, Camera, Settings, ScrollText, Link2, ShieldCheck } from 'lucide-react';
+import { useConfirm } from '@/lib/confirm';
+import { useToast } from '@/lib/toast';
 
 interface EvidenceRecord {
   id: string; customerId: string; title: string; evidenceType: string;
@@ -32,6 +34,8 @@ const emptyForm = {
 };
 
 export function ComplianceEvidencePage() {
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [records, setRecords] = useState<EvidenceRecord[]>([]);
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -160,7 +164,7 @@ export function ComplianceEvidencePage() {
                         ) : '—'}
                       </td>
                       <td className="px-4 py-2 text-right">
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => { if (!confirm('Delete this evidence record?')) return; await api(`/compliance/evidence/${r.id}`, { method: 'DELETE' }); load(); }}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => { const ok = await confirm({ title: 'Delete Evidence?', description: 'This action cannot be undone.', confirmLabel: 'Delete' }); if (!ok) return; await api(`/compliance/evidence/${r.id}`, { method: 'DELETE' }); toast.success('Deleted successfully'); load(); }}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </td>

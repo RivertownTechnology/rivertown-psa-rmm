@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Combobox } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ShieldAlert, Plus, Pencil, Trash2 } from 'lucide-react';
+import { useConfirm } from '@/lib/confirm';
+import { useToast } from '@/lib/toast';
 
 interface IncidentRecord {
   id: string; customerId: string; incidentNumber: number; title: string;
@@ -54,6 +56,8 @@ const emptyForm = {
 };
 
 export function ComplianceIncidentsPage() {
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [records, setRecords] = useState<IncidentRecord[]>([]);
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -204,7 +208,7 @@ export function ComplianceIncidentsPage() {
                     <td className="px-4 py-2 text-xs text-muted-foreground">{r.discoveredAt || '—'}</td>
                     <td className="px-4 py-2 text-right">
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(r)}><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => { if (!confirm('Delete this incident?')) return; await api(`/compliance/incidents/${r.id}`, { method: 'DELETE' }); load(); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => { const ok = await confirm({ title: 'Delete Incident?', description: 'This action cannot be undone.', confirmLabel: 'Delete' }); if (!ok) return; await api(`/compliance/incidents/${r.id}`, { method: 'DELETE' }); toast.success('Deleted successfully'); load(); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                     </td>
                   </tr>
                 ))}
