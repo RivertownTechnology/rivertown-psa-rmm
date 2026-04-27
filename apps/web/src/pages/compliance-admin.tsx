@@ -97,9 +97,8 @@ export function ComplianceAdminPage({ onNavigate }: { onNavigate: (path: string)
         <TabsList>
           <TabsTrigger value="frameworks"><Library className="h-4 w-4 mr-1" /> Frameworks</TabsTrigger>
           <TabsTrigger value="policies"><FileText className="h-4 w-4 mr-1" /> Policy Templates</TabsTrigger>
-          <TabsTrigger value="training"><BookOpen className="h-4 w-4 mr-1" /> Training</TabsTrigger>
           <TabsTrigger value="vendors"><Building2 className="h-4 w-4 mr-1" /> Vendor Templates</TabsTrigger>
-          <TabsTrigger value="personnel"><Users className="h-4 w-4 mr-1" /> Personnel</TabsTrigger>
+          <TabsTrigger value="personnel"><Users className="h-4 w-4 mr-1" /> Internal Personnel</TabsTrigger>
         </TabsList>
 
         {/* Frameworks Tab */}
@@ -160,17 +159,6 @@ export function ComplianceAdminPage({ onNavigate }: { onNavigate: (path: string)
           </Card>
         </TabsContent>
 
-        {/* Training */}
-        <TabsContent value="training">
-          <Card>
-            <CardContent className="py-12 text-center">
-              <BookOpen className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-              <p className="text-muted-foreground mb-2">Training Management</p>
-              <p className="text-sm text-muted-foreground">Track security awareness training, CJIS certification, and compliance training across all customers.</p>
-              <Button variant="outline" className="mt-4" onClick={() => onNavigate('/compliance/training')}>Manage Training</Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
 
         {/* Vendors */}
         <TabsContent value="vendors">

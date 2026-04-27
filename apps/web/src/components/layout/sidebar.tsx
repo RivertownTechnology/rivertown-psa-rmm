@@ -64,12 +64,6 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    label: 'Catalog',
-    items: [
-      { label: 'Product Catalog', icon: Package, href: '/catalog' },
-    ],
-  },
-  {
     label: 'Gov Contracts',
     items: [
       { label: 'Dashboard', icon: Landmark, href: '/gov' },
@@ -90,6 +84,7 @@ const navGroups: NavGroup[] = [
 ];
 
 const bottomNavItems: NavItem[] = [
+  { label: 'Product Catalog', icon: Package, href: '/catalog' },
   { label: 'Settings', icon: Settings, href: '/settings' },
 ];
 
