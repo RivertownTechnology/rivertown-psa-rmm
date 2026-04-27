@@ -1,3 +1,4 @@
+import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, ilike, or, count, desc } from 'drizzle-orm';
 import { assets } from '@rivertown/db';
@@ -87,7 +88,7 @@ export async function assetRoutes(fastify: FastifyInstance) {
       const [existing] = await fastify.db.select().from(assets)
         .where(and(eq(assets.id, id), eq(assets.tenantId, request.tenantId))).limit(1);
       if (!existing) throw new NotFoundError('Asset', id);
-      const [updated] = await fastify.db.update(assets).set({ ...body, updatedAt: new Date() })
+      const [updated] = await fastify.db.update(assets).set({ ...sanitizeBody(body), updatedAt: new Date() })
         .where(and(eq(assets.id, id), eq(assets.tenantId, request.tenantId))).returning();
       return updated;
     },

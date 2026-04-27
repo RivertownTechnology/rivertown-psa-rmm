@@ -1,3 +1,4 @@
+import { sanitizeBody } from '../../common/sanitize.js';
 import crypto from 'crypto';
 import { FastifyInstance } from 'fastify';
 import { eq, and, sql, count, desc, inArray } from 'drizzle-orm';
@@ -506,7 +507,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       const { entryId } = request.params as { entryId: string };
       const body = request.body as Partial<{ durationMinutes: number; isBillable: boolean; rateCents: number; notes: string }>;
       const [updated] = await fastify.db.update(ticketTimeEntries)
-        .set({ ...body, updatedAt: new Date() })
+        .set({ ...sanitizeBody(body), updatedAt: new Date() })
         .where(and(eq(ticketTimeEntries.id, entryId), eq(ticketTimeEntries.tenantId, request.tenantId)))
         .returning();
       return updated;
@@ -600,7 +601,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
 
       const [updated] = await fastify.db
         .update(ticketExpenses)
-        .set({ ...body, updatedAt: new Date() })
+        .set({ ...sanitizeBody(body), updatedAt: new Date() })
         .where(and(eq(ticketExpenses.id, id), eq(ticketExpenses.tenantId, request.tenantId)))
         .returning();
 

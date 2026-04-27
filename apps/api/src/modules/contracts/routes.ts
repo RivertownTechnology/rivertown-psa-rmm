@@ -1,3 +1,4 @@
+import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, count, desc, sql } from 'drizzle-orm';
 import { contracts, contractLineItems, contractCoveredAssets, contractCoveredContacts, invoiceLineItems, pax8Subscriptions, ticketTimeEntries, tickets, serviceCatalogItems, serviceCatalogBundles, serviceCatalogBundleItems, users, tenants } from '@rivertown/db';
@@ -197,7 +198,7 @@ export async function contractRoutes(fastify: FastifyInstance) {
     const [existing] = await fastify.db.select().from(contracts)
       .where(and(eq(contracts.id, id), eq(contracts.tenantId, request.tenantId))).limit(1);
     if (!existing) throw new NotFoundError('Contract', id);
-    const [updated] = await fastify.db.update(contracts).set({ ...body, updatedAt: new Date() })
+    const [updated] = await fastify.db.update(contracts).set({ ...sanitizeBody(body), updatedAt: new Date() })
       .where(and(eq(contracts.id, id), eq(contracts.tenantId, request.tenantId))).returning();
     return updated;
   });
@@ -258,7 +259,7 @@ export async function contractRoutes(fastify: FastifyInstance) {
     const [existing] = await fastify.db.select().from(contractLineItems)
       .where(and(eq(contractLineItems.id, lineId), eq(contractLineItems.tenantId, request.tenantId))).limit(1);
     if (!existing) throw new NotFoundError('Line item', lineId);
-    const [updated] = await fastify.db.update(contractLineItems).set({ ...body, updatedAt: new Date() })
+    const [updated] = await fastify.db.update(contractLineItems).set({ ...sanitizeBody(body), updatedAt: new Date() })
       .where(and(eq(contractLineItems.id, lineId), eq(contractLineItems.tenantId, request.tenantId))).returning();
     return { ...updated, ...computeLineItemMetrics(updated) };
   });

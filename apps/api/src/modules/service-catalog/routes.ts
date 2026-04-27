@@ -1,3 +1,4 @@
+import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, count, desc } from 'drizzle-orm';
 import { serviceCatalogItems, serviceCatalogBundles, serviceCatalogBundleItems } from '@rivertown/db';
@@ -35,7 +36,7 @@ export async function serviceCatalogRoutes(fastify: FastifyInstance) {
     const [existing] = await fastify.db.select().from(serviceCatalogItems)
       .where(and(eq(serviceCatalogItems.id, id), eq(serviceCatalogItems.tenantId, request.tenantId))).limit(1);
     if (!existing) throw new NotFoundError('Catalog item', id);
-    const [updated] = await fastify.db.update(serviceCatalogItems).set({ ...body, updatedAt: new Date() })
+    const [updated] = await fastify.db.update(serviceCatalogItems).set({ ...sanitizeBody(body), updatedAt: new Date() })
       .where(and(eq(serviceCatalogItems.id, id), eq(serviceCatalogItems.tenantId, request.tenantId))).returning();
     return updated;
   });

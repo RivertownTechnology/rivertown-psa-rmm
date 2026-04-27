@@ -1,3 +1,4 @@
+import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, count } from 'drizzle-orm';
 import { sites } from '@rivertown/db';
@@ -70,7 +71,7 @@ export async function siteRoutes(fastify: FastifyInstance) {
       const [existing] = await fastify.db.select().from(sites)
         .where(and(eq(sites.id, id), eq(sites.tenantId, request.tenantId))).limit(1);
       if (!existing) throw new NotFoundError('Site', id);
-      const [updated] = await fastify.db.update(sites).set({ ...body, updatedAt: new Date() })
+      const [updated] = await fastify.db.update(sites).set({ ...sanitizeBody(body), updatedAt: new Date() })
         .where(and(eq(sites.id, id), eq(sites.tenantId, request.tenantId))).returning();
       return updated;
     },

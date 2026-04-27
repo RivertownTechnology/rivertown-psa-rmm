@@ -1,3 +1,4 @@
+import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, count, desc, sql } from 'drizzle-orm';
 import {
@@ -134,7 +135,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     const [existing] = await fastify.db.select().from(quotes)
       .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);
     if (!existing) throw new NotFoundError('Quote', id);
-    const [updated] = await fastify.db.update(quotes).set({ ...body, updatedAt: new Date() })
+    const [updated] = await fastify.db.update(quotes).set({ ...sanitizeBody(body), updatedAt: new Date() })
       .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).returning();
     return updated;
   });

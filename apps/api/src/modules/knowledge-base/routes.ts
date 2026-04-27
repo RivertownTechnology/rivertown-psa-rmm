@@ -1,3 +1,4 @@
+import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { kbArticles, kbCategories } from '@rivertown/db';
@@ -124,7 +125,7 @@ export async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       visibility: string; status: string;
     }>;
     const [updated] = await fastify.db.update(kbArticles)
-      .set({ ...body, updatedAt: new Date() })
+      .set({ ...sanitizeBody(body), updatedAt: new Date() })
       .where(and(eq(kbArticles.id, id), eq(kbArticles.tenantId, request.tenantId)))
       .returning();
     if (!updated) throw new NotFoundError('KB Article', id);

@@ -1,3 +1,4 @@
+import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, ilike, sql, count, desc, asc, gte, lte, inArray } from 'drizzle-orm';
 import {
@@ -1327,7 +1328,7 @@ ${section.title.toLowerCase().includes('sla') ? '\nIMPORTANT: Present the SLA da
     }
 
     const [updated] = await fastify.db.update(govPricingItems)
-      .set({ ...body, updatedAt: new Date() })
+      .set({ ...sanitizeBody(body), updatedAt: new Date() })
       .where(and(eq(govPricingItems.id, itemId), eq(govPricingItems.tenantId, request.tenantId)))
       .returning();
 

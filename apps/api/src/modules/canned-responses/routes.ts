@@ -1,3 +1,4 @@
+import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, or, desc } from 'drizzle-orm';
 import { cannedResponses } from '@rivertown/db';
@@ -64,7 +65,7 @@ export async function cannedResponseRoutes(fastify: FastifyInstance) {
       shortcut: string; isShared: boolean; sortOrder: number;
     }>;
     const [updated] = await fastify.db.update(cannedResponses)
-      .set({ ...body, updatedAt: new Date() })
+      .set({ ...sanitizeBody(body), updatedAt: new Date() })
       .where(and(eq(cannedResponses.id, id), eq(cannedResponses.tenantId, request.tenantId)))
       .returning();
     if (!updated) throw new NotFoundError('Canned Response', id);

@@ -1,3 +1,4 @@
+import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, ilike, sql, count, inArray } from 'drizzle-orm';
 import { customers, tickets } from '@rivertown/db';
@@ -147,7 +148,7 @@ export async function customerRoutes(fastify: FastifyInstance) {
 
       const [updated] = await fastify.db
         .update(customers)
-        .set({ ...body, updatedAt: new Date() })
+        .set({ ...sanitizeBody(body), updatedAt: new Date() })
         .where(and(eq(customers.id, id), eq(customers.tenantId, request.tenantId)))
         .returning();
 

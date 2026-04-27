@@ -1,3 +1,4 @@
+import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, sql, desc, count } from 'drizzle-orm';
 import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues, ticketQueues, ticketTags, ticketTagAssignments, ticketCategories, ticketSubcategories, recurringTicketRules, workflowRules, workflowExecutionLog, businessDocuments, apiKeys } from '@rivertown/db';
@@ -1272,7 +1273,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const body = request.body as Partial<{ name: string; subject: string; bodyHtml: string; bodyText: string; isActive: boolean }>;
     const [updated] = await fastify.db.update(emailTemplates)
-      .set({ ...body, updatedAt: new Date() })
+      .set({ ...sanitizeBody(body), updatedAt: new Date() })
       .where(and(eq(emailTemplates.id, id), eq(emailTemplates.tenantId, request.tenantId))).returning();
     return updated;
   });
@@ -1414,7 +1415,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const body = request.body as any;
     const [updated] = await fastify.db.update(slaPolicies)
-      .set({ ...body, updatedAt: new Date() })
+      .set({ ...sanitizeBody(body), updatedAt: new Date() })
       .where(and(eq(slaPolicies.id, id), eq(slaPolicies.tenantId, request.tenantId))).returning();
     return updated;
   });
@@ -1712,7 +1713,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
   }, async (request) => {
     const { id } = request.params as { id: string };
     const body = request.body as Record<string, unknown>;
-    const [updated] = await fastify.db.update(customFieldDefinitions).set({ ...body })
+    const [updated] = await fastify.db.update(customFieldDefinitions).set({ ...sanitizeBody(body) })
       .where(and(eq(customFieldDefinitions.id, id), eq(customFieldDefinitions.tenantId, request.tenantId))).returning();
     return updated;
   });
@@ -2069,7 +2070,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const body = request.body as any;
     const [updated] = await fastify.db.update(workflowRules)
-      .set({ ...body, updatedAt: new Date() })
+      .set({ ...sanitizeBody(body), updatedAt: new Date() })
       .where(and(eq(workflowRules.id, id), eq(workflowRules.tenantId, request.tenantId)))
       .returning();
     return updated;
@@ -2262,7 +2263,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const body = request.body as Record<string, unknown>;
     const [updated] = await fastify.db.update(businessDocuments)
-      .set({ ...body, updatedAt: new Date() })
+      .set({ ...sanitizeBody(body), updatedAt: new Date() })
       .where(and(eq(businessDocuments.id, id), eq(businessDocuments.tenantId, request.tenantId)))
       .returning();
     return updated;
@@ -2355,7 +2356,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const body = request.body as { displayName?: string; role?: string; isActive?: boolean };
 
-    const [updated] = await fastify.db.update(users).set({ ...body, updatedAt: new Date() })
+    const [updated] = await fastify.db.update(users).set({ ...sanitizeBody(body), updatedAt: new Date() })
       .where(and(eq(users.id, id), eq(users.tenantId, request.tenantId))).returning();
 
     return { id: updated.id, email: updated.email, displayName: updated.displayName, role: updated.role, isActive: updated.isActive };
