@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and, ilike, sql, count } from 'drizzle-orm';
-import { customers } from '@rivertown/db';
+import { eq, and, ilike, sql, count, inArray } from 'drizzle-orm';
+import { customers, tickets } from '@rivertown/db';
 import { createCustomerSchema, updateCustomerSchema, paginationSchema } from '@rivertown/shared';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError } from '../../common/errors.js';
@@ -35,7 +35,20 @@ export async function customerRoutes(fastify: FastifyInstance) {
         fastify.db.select({ total: count() }).from(customers).where(where),
       ]);
 
-      return paginate(data, total, query);
+      // Enrich with open ticket counts
+      const customerIds = data.map(c => c.id);
+      let ticketCounts: Map<string, number> = new Map();
+      if (customerIds.length > 0) {
+        const counts = await fastify.db
+          .select({ customerId: tickets.customerId, count: count() })
+          .from(tickets)
+          .where(and(eq(tickets.tenantId, request.tenantId), inArray(tickets.customerId, customerIds), sql`${tickets.status} NOT IN ('resolved', 'closed')`))
+          .groupBy(tickets.customerId);
+        ticketCounts = new Map(counts.map(c => [c.customerId, c.count]));
+      }
+
+      const enriched = data.map(c => ({ ...c, openTicketCount: ticketCounts.get(c.id) ?? 0 }));
+      return paginate(enriched, total, query);
     },
   );
 

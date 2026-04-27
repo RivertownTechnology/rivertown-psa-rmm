@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from '@/lib/auth';
 import { ThemeProvider } from '@/lib/theme';
 import { TimerProvider } from '@/lib/timer';
 import { ErrorBoundary } from '@/components/error-boundary';
+import { Toaster } from '@/lib/toast';
 import { LoginPage } from '@/pages/login';
 import { DashboardPage } from '@/pages/dashboard';
 import { CustomersPage } from '@/pages/customers';
@@ -317,7 +318,9 @@ export function App() {
       <ThemeProvider>
         <AuthProvider>
           <TimerProvider>
-            <AppRouter />
+            <Toaster>
+              <AppRouter />
+            </Toaster>
           </TimerProvider>
         </AuthProvider>
       </ThemeProvider>

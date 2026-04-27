@@ -25,6 +25,7 @@ interface Customer {
   billingEmail: string | null;
   phone: string | null;
   createdAt: string;
+  openTicketCount?: number;
 }
 
 interface PaginatedResponse {
@@ -213,7 +214,14 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
               <CardContent className="p-4">
                 {/* Line 1: Name + Status Badge */}
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-foreground">{c.name}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-foreground">{c.name}</span>
+                    {(c.openTicketCount ?? 0) > 0 && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
+                        {c.openTicketCount} open
+                      </Badge>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={statusColor[c.status] ?? 'secondary'}>
                       {statusLabels[c.status] ?? c.status}

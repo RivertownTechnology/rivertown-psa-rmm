@@ -132,21 +132,10 @@ function slaCountdown(ticket: TicketRow): { text: string; className: string } | 
 // Badge style maps
 // ---------------------------------------------------------------------------
 
-const statusBadgeClass: Record<string, string> = {
-  new: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  open: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-  pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-  waiting_on_customer: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-  resolved: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-  closed: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500',
-};
+import { TICKET_STATUS_COLORS, PRIORITY_COLORS, statusBadgeClass as getStatusClass } from '@/lib/badge-colors';
 
-const priorityBadgeClass: Record<string, string> = {
-  low: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
-  medium: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  high: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
-  critical: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-};
+const statusBadgeClass = TICKET_STATUS_COLORS;
+const priorityBadgeClass = PRIORITY_COLORS;
 
 function formatStatus(s: string) {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -650,7 +639,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
             return (
               <div
                 key={t.id}
-                className="rounded-lg border bg-card px-4 py-3 cursor-pointer transition-colors hover:bg-muted/50 flex items-start gap-3"
+                className="rounded-lg border bg-card px-4 py-3.5 cursor-pointer transition-all hover:bg-muted/50 hover:border-primary/20 flex items-start gap-3"
               >
                 {/* Selection indicator */}
                 <div className="pt-0.5 shrink-0" onClick={e => { e.stopPropagation(); toggleSelect(t.id); }}>
@@ -681,7 +670,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
                 </div>
 
                 {/* Line 2: customer + tech + badges */}
-                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                <div className="flex items-center gap-2 mt-2.5 flex-wrap">
                   <span className="text-xs text-muted-foreground">
                     {customerMap.get(t.customerId) ?? 'Unknown'}
                   </span>
