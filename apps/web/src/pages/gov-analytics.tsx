@@ -319,7 +319,7 @@ export function GovAnalyticsPage() {
                   </Pie>
                   <Tooltip
                     contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                    formatter={(value: number, name: string) => [`${value} opportunities`, name]}
+                    formatter={(value, name) => [`${value} opportunities`, name as string]}
                   />
                   <Legend
                     verticalAlign="bottom"
@@ -373,7 +373,7 @@ export function GovAnalyticsPage() {
                     label={{ value: 'Revenue', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: 'var(--muted-foreground)' }}
                   />
                   <Tooltip
-                    formatter={(value: number) => [formatDollarsLong(Number(value) * 100), 'Revenue']}
+                    formatter={(value) => [formatDollarsLong(Number(value) * 100), 'Revenue']}
                     contentStyle={{ fontSize: 12, borderRadius: 8 }}
                   />
                   <Area

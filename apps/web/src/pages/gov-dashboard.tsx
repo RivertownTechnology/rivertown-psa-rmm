@@ -282,7 +282,7 @@ export function GovDashboardPage() {
                 dataKey="count"
                 radius={[0, 6, 6, 0]}
                 barSize={28}
-                label={({ x, y, width, height, value, index }: { x: number; y: number; width: number; height: number; value: number; index: number }) => {
+                label={({ x, y, width, height, value, index }: any) => {
                   const item = funnelData[index];
                   return (
                     <text
