@@ -115,7 +115,15 @@
       "WebFetch(domain:help.lifecyclemanager.com)",
       "Read(//tmp/**)",
       "Bash(npx tsx *)",
-      "Bash(PGPASSWORD=ErpaieXrKVJfNmhpFenBLpBCDfjOUDTu psql -h mainline.proxy.rlwy.net -p 31107 -U postgres -d railway -c \"ALTER TABLE gov_proposals ADD COLUMN IF NOT EXISTS share_token TEXT;\")"
+      "Bash(PGPASSWORD=ErpaieXrKVJfNmhpFenBLpBCDfjOUDTu psql -h mainline.proxy.rlwy.net -p 31107 -U postgres -d railway -c \"ALTER TABLE gov_proposals ADD COLUMN IF NOT EXISTS share_token TEXT;\")",
+      "Bash(DATABASE_URL=\"postgresql://postgres:ErpaieXrKVJfNmhpFenBLpBCDfjOUDTu@mainline.proxy.rlwy.net:31107/railway\" npx tsx src/seeds/add-catalog-items.ts)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:ErpaieXrKVJfNmhpFenBLpBCDfjOUDTu@mainline.proxy.rlwy.net:31107/railway\" npx tsx src/seeds/add-gov-packages.ts)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:ErpaieXrKVJfNmhpFenBLpBCDfjOUDTu@mainline.proxy.rlwy.net:31107/railway\" npx tsx src/seeds/add-gov-line-items.ts)",
+      "Bash([ ! -f \"apps/web/src/pages/compliance-$p.tsx\" ])",
+      "Bash(sort -t'/' -k5)",
+      "Bash([ ! -f \"apps/web/src/pages/settings/$f.tsx\" ])",
+      "Bash([ -f \"apps/web/src/pages/settings/$f.tsx\" ])",
+      "Bash(npx vitest *)"
     ]
   }
 }
