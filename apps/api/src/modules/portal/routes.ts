@@ -524,6 +524,11 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const user = getPortalUser(request);
     requirePerm(user, 'tickets');
+    // Verify the ticket belongs to this customer before returning its comments
+    const [ticket] = await fastify.db.select({ id: tickets.id }).from(tickets)
+      .where(and(eq(tickets.id, id), eq(tickets.tenantId, user.tid), eq(tickets.customerId, user.cid)))
+      .limit(1);
+    if (!ticket) throw new NotFoundError('Ticket', id);
     return fastify.db.select().from(ticketComments)
       .where(and(eq(ticketComments.ticketId, id), eq(ticketComments.tenantId, user.tid), eq(ticketComments.isInternal, false)))
       .orderBy(ticketComments.createdAt);

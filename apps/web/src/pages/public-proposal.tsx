@@ -1,4 +1,15 @@
 import { useEffect, useState } from 'react';
+import DOMPurify from 'dompurify';
+
+// Escape user-controlled text before it's interpolated into the trusted HTML template
+function esc(v: unknown): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 interface ProposalData {
   title: string;
@@ -119,35 +130,35 @@ export function PublicProposalPage({ token }: { token: string }) {
 
 <div class="cover">
   <img src="/logo.png" class="cover-logo" alt="Rivertown Technology" onerror="this.style.display='none'" />
-  <div class="cover-title">${data.title || `Proposal for ${data.opportunityTitle}`}</div>
+  <div class="cover-title">${data.title ? esc(data.title) : `Proposal for ${esc(data.opportunityTitle)}`}</div>
   <div class="cover-subtitle">Information Technology Services Proposal</div>
   <div class="cover-divider"></div>
   <div class="cover-meta">
-    <strong>Prepared for:</strong> ${data.agency}<br>
+    <strong>Prepared for:</strong> ${esc(data.agency)}<br>
     <strong>Prepared by:</strong> Rivertown Technology Group<br>
-    <strong>Date:</strong> ${today}<br>
-    ${deadline ? `<strong>Submission Deadline:</strong> ${deadline}<br>` : ''}
-    ${data.samNumber ? `<strong>SAM Number:</strong> ${data.samNumber}<br>` : ''}
+    <strong>Date:</strong> ${esc(today)}<br>
+    ${deadline ? `<strong>Submission Deadline:</strong> ${esc(deadline)}<br>` : ''}
+    ${data.samNumber ? `<strong>SAM Number:</strong> ${esc(data.samNumber)}<br>` : ''}
   </div>
 </div>
 
 <div class="page-footer">
   <span>Rivertown Technology Group — Confidential</span>
-  <span>${data.opportunityTitle}</span>
+  <span>${esc(data.opportunityTitle)}</span>
 </div>
 
 <div class="page-content">
 <div class="toc">
   <h1>Table of Contents</h1>
-  ${sections.map((s, i) => `<a href="#section-${i + 1}" class="toc-item"><span>${s.title}</span><span>${i + 1}</span></a>`).join('')}
+  ${sections.map((s, i) => `<a href="#section-${i + 1}" class="toc-item"><span>${esc(s.title)}</span><span>${i + 1}</span></a>`).join('')}
 </div>
 
-${sections.map((s, i) => `<div class="section" id="section-${i + 1}"><h1 class="section-title">${s.title}</h1><div class="section-content"><p>${mdToHtml(s.content || '')}</p></div></div>`).join('')}
+${sections.map((s, i) => `<div class="section" id="section-${i + 1}"><h1 class="section-title">${esc(s.title)}</h1><div class="section-content"><p>${DOMPurify.sanitize(mdToHtml(s.content || ''))}</p></div></div>`).join('')}
 </div>
 
 <div class="screen-footer">
   <span>Rivertown Technology Group — Confidential</span>
-  <span>${data.opportunityTitle}</span>
+  <span>${esc(data.opportunityTitle)}</span>
 </div>
 `,
       }}

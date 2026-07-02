@@ -23,6 +23,14 @@ import {
 import { AppError, NotFoundError } from '../../common/errors.js';
 import { logAudit } from '../../common/audit.js';
 
+// Constant-time string comparison for secret/credential checks
+function safeStrEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
 const createTicketApiSchema = z.object({
   callerName: z.string().min(1),
   callerCompany: z.string().optional(),
@@ -548,7 +556,7 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
 
   fastify.post(
     '/api/ncentral/ticketRequests',
-    { config: { public: true } as any },
+    { config: { public: true, rateLimit: { max: 20, timeWindow: '1 minute' } } as any },
     async (request, reply) => {
       // Basic Auth
       const authHeader = request.headers.authorization;
@@ -580,7 +588,7 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
       if (!tenantId) {
         const expectedKey = process.env.PUBLIC_API_KEY;
         const defaultTenant = process.env.DEFAULT_TENANT_ID;
-        if (expectedKey && password === expectedKey && defaultTenant) {
+        if (expectedKey && safeStrEqual(password, expectedKey) && defaultTenant) {
           tenantId = defaultTenant;
         }
       }
@@ -593,7 +601,7 @@ export async function publicApiRoutes(fastify: FastifyInstance) {
         for (const config of ncConfigs) {
           const creds = readCredentials(config.credentials);
           const storedPass = (creds as any).psaApiPassword || (creds as any).psaPassword || (creds as any).jwtToken || '';
-          if (storedPass && password === storedPass) {
+          if (storedPass && safeStrEqual(password, storedPass)) {
             tenantId = config.tenantId;
             break;
           }

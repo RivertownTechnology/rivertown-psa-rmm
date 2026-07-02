@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import DOMPurify from 'dompurify';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -267,7 +268,7 @@ export function KBArticlePage({ slug, onNavigate }: { slug?: string; onNavigate?
           <CardContent>
             <div
               className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap"
-              dangerouslySetInnerHTML={{ __html: article.body || '<em>No content</em>' }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.body || '<em>No content</em>') }}
             />
           </CardContent>
         </Card>

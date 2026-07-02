@@ -1,7 +1,7 @@
 import { sanitizeBody } from '../../common/sanitize.js';
 import crypto from 'crypto';
 import { FastifyInstance } from 'fastify';
-import { eq, and, sql, count, desc, inArray } from 'drizzle-orm';
+import { eq, and, or, ilike, count, desc, inArray } from 'drizzle-orm';
 import {
   tickets,
   ticketComments,
@@ -11,10 +11,10 @@ import {
   ticketSubcategories,
   ticketTags,
   ticketTagAssignments,
-  tenantSequences,
   tenants,
   users,
   contacts,
+  customers,
   calendarEvents,
   emailMessages,
   csatRatings,
@@ -32,23 +32,17 @@ import { paginationToOffset, paginate } from '../../common/pagination.js';
 import { logAudit } from '../../common/audit.js';
 import { moduleEvents } from '../registry.js';
 import { determineTimeBillability } from '../contracts/billing-logic.js';
-
-async function getNextTicketNumber(db: any, tenantId: string): Promise<number> {
-  const [result] = await db
-    .update(tenantSequences)
-    .set({ currentValue: sql`(${tenantSequences.currentValue}::int + 1)::text` })
-    .where(
-      and(
-        eq(tenantSequences.tenantId, tenantId),
-        eq(tenantSequences.sequenceName, 'ticket'),
-      ),
-    )
-    .returning({ value: tenantSequences.currentValue });
-
-  return parseInt(result.value, 10);
-}
+import { getNextTicketNumber } from '../../common/ticket-number.js';
 
 export async function ticketRoutes(fastify: FastifyInstance) {
+  // Verify a ticket belongs to the caller's tenant, or 404. Used by child-record
+  // routes (tags) whose own tables lack a tenant_id column.
+  async function assertTicketInTenant(id: string, tenantId: string): Promise<void> {
+    const [t] = await fastify.db.select({ id: tickets.id }).from(tickets)
+      .where(and(eq(tickets.id, id), eq(tickets.tenantId, tenantId))).limit(1);
+    if (!t) throw new NotFoundError('Ticket', id);
+  }
+
   // List tickets
   fastify.get(
     '/api/v1/tickets',
@@ -70,6 +64,16 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       if (params.priority) conditions.push(eq(tickets.priority, params.priority));
       if (params.customerId) conditions.push(eq(tickets.customerId, params.customerId));
       if (params.assignedTo) conditions.push(eq(tickets.assignedTo, params.assignedTo));
+      if (params.search?.trim()) {
+        const term = params.search.trim();
+        const asNumber = parseInt(term.replace(/^#/, ''), 10);
+        const subjectMatch = ilike(tickets.subject, `%${term}%`);
+        conditions.push(
+          Number.isNaN(asNumber)
+            ? subjectMatch
+            : or(subjectMatch, eq(tickets.ticketNumber, asNumber))!,
+        );
+      }
 
       const where = and(...conditions);
 
@@ -214,6 +218,17 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         updateData.contactId = rawBody.contactId ?? null;
       }
 
+      // Customer reassignment: clear references that belong to the old customer
+      // unless the request explicitly sets them
+      if (body.customerId && body.customerId !== existing.customerId) {
+        const [newCustomer] = await fastify.db.select({ id: customers.id }).from(customers)
+          .where(and(eq(customers.id, body.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
+        if (!newCustomer) throw new NotFoundError('Customer', body.customerId);
+        if (!('contactId' in rawBody)) updateData.contactId = null;
+        if (!('assetId' in rawBody)) updateData.assetId = null;
+        if (!('contractId' in rawBody)) updateData.contractId = null;
+      }
+
       // Auto-set timestamps based on status changes
       if (body.status === 'resolved' && existing.status !== 'resolved') {
         updateData.resolvedAt = new Date();
@@ -249,10 +264,10 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         .where(and(eq(tickets.id, id), eq(tickets.tenantId, request.tenantId)))
         .returning();
 
-      // Recalculate SLA if priority changed
-      if (body.priority && body.priority !== existing.priority) {
+      // Recalculate SLA if priority or customer changed
+      if ((body.priority && body.priority !== existing.priority) || (body.customerId && body.customerId !== existing.customerId)) {
         const { calculateSla } = await import('../../services/sla-calculator.js');
-        const sla = await calculateSla(fastify.db, request.tenantId, existing.customerId, body.priority, new Date(existing.createdAt));
+        const sla = await calculateSla(fastify.db, request.tenantId, body.customerId ?? existing.customerId, body.priority ?? existing.priority, new Date(existing.createdAt));
         if (sla.slaPolicyId) {
           await fastify.db.update(tickets).set({
             slaDueAt: sla.slaDueAt,
@@ -686,7 +701,9 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     if (!Array.isArray(ids) || ids.length === 0 || ids.length > 500) {
       throw new ValidationError('ids must be an array of 1-500 items');
     }
-    const updateData: Record<string, unknown> = { ...update, updatedAt: new Date() };
+    // Whitelist writable columns — never trust the raw body (mass-assignment guard)
+    const parsed = updateTicketSchema.parse(update ?? {});
+    const updateData: Record<string, unknown> = { ...sanitizeBody(parsed), updatedAt: new Date() };
     for (const id of ids) {
       await fastify.db.update(tickets).set(updateData)
         .where(and(eq(tickets.id, id), eq(tickets.tenantId, request.tenantId)));
@@ -766,6 +783,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     { preHandler: [fastify.authenticate, requirePermission('tickets:read')] },
     async (request) => {
       const { id } = request.params as { id: string };
+      await assertTicketInTenant(id, request.tenantId);
       const assignments = await fastify.db
         .select({
           id: ticketTagAssignments.id,
@@ -776,7 +794,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         })
         .from(ticketTagAssignments)
         .innerJoin(ticketTags, eq(ticketTagAssignments.tagId, ticketTags.id))
-        .where(eq(ticketTagAssignments.ticketId, id));
+        .where(and(eq(ticketTagAssignments.ticketId, id), eq(ticketTags.tenantId, request.tenantId)));
       return assignments;
     },
   );
@@ -788,6 +806,11 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const { tagId } = request.body as { tagId: string };
+      await assertTicketInTenant(id, request.tenantId);
+      // Ensure the tag also belongs to this tenant before linking
+      const [tag] = await fastify.db.select({ id: ticketTags.id }).from(ticketTags)
+        .where(and(eq(ticketTags.id, tagId), eq(ticketTags.tenantId, request.tenantId))).limit(1);
+      if (!tag) throw new NotFoundError('Tag', tagId);
       const [assignment] = await fastify.db.insert(ticketTagAssignments).values({
         ticketId: id,
         tagId,
@@ -803,6 +826,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     { preHandler: [fastify.authenticate, requirePermission('tickets:write')] },
     async (request, reply) => {
       const { id, tagId } = request.params as { id: string; tagId: string };
+      await assertTicketInTenant(id, request.tenantId);
       await fastify.db.delete(ticketTagAssignments)
         .where(and(eq(ticketTagAssignments.ticketId, id), eq(ticketTagAssignments.tagId, tagId)));
       reply.code(204).send();

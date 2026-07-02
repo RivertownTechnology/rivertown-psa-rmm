@@ -23,22 +23,43 @@ export function getAccessToken() {
   return accessToken;
 }
 
+export function getRefreshToken() {
+  return refreshToken;
+}
+
+// Dedupe concurrent refreshes — the server rotates refresh tokens and rejects
+// reuse, so multiple parallel calls with the same token would fail all but one.
+let refreshInFlight: Promise<boolean> | null = null;
+
 async function refreshAccessToken(): Promise<boolean> {
   if (!refreshToken) return false;
-  try {
-    const res = await fetch(`${API_BASE}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    accessToken = data.accessToken;
-    localStorage.setItem('accessToken', data.accessToken);
-    return true;
-  } catch {
-    return false;
-  }
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      accessToken = data.accessToken;
+      localStorage.setItem('accessToken', data.accessToken);
+      // Persist the rotated refresh token — the old one is now revoked server-side
+      if (data.refreshToken) {
+        refreshToken = data.refreshToken;
+        localStorage.setItem('refreshToken', data.refreshToken);
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
 }
 
 export async function api<T = unknown>(

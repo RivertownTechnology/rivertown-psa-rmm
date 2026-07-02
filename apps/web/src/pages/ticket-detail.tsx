@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { api } from '@/lib/api';
+import { api, API_BASE, getAccessToken } from '@/lib/api';
 import { formatCents } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,6 +62,7 @@ interface TimeEntry {
 
 interface Contract { id: string; name: string; contractType: string; }
 interface Customer { id: string; name: string; }
+interface Attachment { id: string; fileName: string; fileSize: number; mimeType: string; }
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -225,8 +226,10 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
   // Core data
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [commentAttachments, setCommentAttachments] = useState<Record<string, Attachment[]>>({});
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [customerName, setCustomerName] = useState('');
+  const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [customerContacts, setCustomerContacts] = useState<Array<{ id: string; firstName: string; lastName: string; email: string }>>([]);
   const [customerAssets, setCustomerAssets] = useState<Array<{ id: string; name: string; assetType: string; screenconnectSessionId: string | null; screenconnectOnline: boolean }>>([]);
@@ -313,7 +316,26 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
   const loadComments = useCallback(async () => {
     const data = await api<Comment[]>(`/tickets/${ticketId}/comments`);
     setComments(data);
+    // Load attachments for each comment (fire-and-forget per comment)
+    const entries = await Promise.all(data.map(async (c) => {
+      try {
+        const atts = await api<Attachment[]>(`/attachments?entityType=ticket_comment&entityId=${c.id}`);
+        return [c.id, atts] as const;
+      } catch {
+        return [c.id, [] as Attachment[]] as const;
+      }
+    }));
+    setCommentAttachments(Object.fromEntries(entries));
   }, [ticketId]);
+
+  async function downloadAttachment(att: Attachment) {
+    try {
+      const { url } = await api<{ url: string }>(`/attachments/${att.id}/download`);
+      window.open(url, '_blank', 'noopener');
+    } catch (e) {
+      console.error('Attachment download failed:', e);
+    }
+  }
 
   const loadTimeEntries = useCallback(async () => {
     const data = await api<TimeEntry[]>(`/tickets/${ticketId}/time-entries`);
@@ -363,6 +385,20 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
     }
   }, []);
 
+  const loadAllCustomers = useCallback(async () => {
+    try {
+      const all: Customer[] = [];
+      for (let page = 1; page <= 10; page++) {
+        const res = await api<{ data: Customer[] }>(`/customers?limit=100&page=${page}`);
+        all.push(...res.data);
+        if (res.data.length < 100) break;
+      }
+      setAllCustomers(all);
+    } catch {
+      setAllCustomers([]);
+    }
+  }, []);
+
   const loadExpenses = useCallback(async () => {
     try {
       const data = await api<Array<{id: string; expenseType: string; description: string; amountCents: number; quantity: string; isBillable: boolean; expenseDate: string}>>(`/tickets/${ticketId}/expenses`);
@@ -386,6 +422,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
       loadContracts(t.customerId);
       loadContacts(t.customerId);
       loadAssets(t.customerId);
+      loadAllCustomers();
       api<Array<{ id: string; displayName: string }>>('/dispatch/techs').then(setTechs).catch(() => {});
       api<TicketCategory[]>('/ticket-categories').then(setCategories).catch(() => {});
       api<Array<{id: string; name: string}>>('/settings/ticket-queues').then(setQueues).catch(() => {});
@@ -413,7 +450,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
       clearInterval(dataInterval);
       clearInterval(tickInterval);
     };
-  }, [loadTicket, loadComments, loadTimeEntries, loadCustomFields, loadExpenses, loadCustomerName, loadContracts, loadContacts, loadAssets]);
+  }, [loadTicket, loadComments, loadTimeEntries, loadCustomFields, loadExpenses, loadCustomerName, loadContracts, loadContacts, loadAssets, loadAllCustomers]);
 
   // -------------------------------------------------------------------------
   // Ticket field updates
@@ -427,6 +464,25 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
         body: JSON.stringify({ [field]: value }),
       });
       setTicket(updated);
+    } finally {
+      setSavingField(null);
+    }
+  }
+
+  async function changeCustomer(newCustomerId: string) {
+    if (!newCustomerId || newCustomerId === ticket?.customerId) return;
+    setSavingField('customerId');
+    try {
+      // Backend clears contact/asset/contract references from the old customer
+      const updated = await api<Ticket>(`/tickets/${ticketId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ customerId: newCustomerId }),
+      });
+      setTicket(updated);
+      loadCustomerName(updated.customerId);
+      loadContracts(updated.customerId);
+      loadContacts(updated.customerId);
+      loadAssets(updated.customerId);
     } finally {
       setSavingField(null);
     }
@@ -446,26 +502,26 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
     if (!commentBody.trim()) return;
     setSubmittingComment(true);
     try {
-      await api(`/tickets/${ticketId}/comments`, {
+      const created = await api<Comment>(`/tickets/${ticketId}/comments`, {
         method: 'POST',
         body: JSON.stringify({ body: commentBody.trim(), isInternal }),
       });
 
-      // Upload attachments
-      if (commentFiles.length > 0) {
-        const commentData = await api<Comment[]>(`/tickets/${ticketId}/comments`);
-        const latestComment = commentData?.[commentData.length - 1];
-        if (latestComment) {
-          for (const file of commentFiles) {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('entityType', 'ticket_comment');
-            formData.append('entityId', latestComment.id);
-            await fetch(`${(import.meta as any).env?.VITE_API_URL || ''}/api/v1/attachments/upload`, {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-              body: formData,
-            }).catch(() => {});
+      // Upload attachments onto the comment we just created
+      if (commentFiles.length > 0 && created?.id) {
+        for (const file of commentFiles) {
+          const formData = new FormData();
+          formData.append('file', file);
+          try {
+            const res = await fetch(
+              `${API_BASE}/attachments?entityType=ticket_comment&entityId=${created.id}`,
+              { method: 'POST', headers: { Authorization: `Bearer ${getAccessToken()}` }, body: formData },
+            );
+            if (!res.ok) {
+              console.error('Attachment upload failed:', res.status, await res.text().catch(() => ''));
+            }
+          } catch (e) {
+            console.error('Attachment upload error:', e);
           }
         }
         setCommentFiles([]);
@@ -862,6 +918,21 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                             </span>
                           </div>
                           <div className="text-sm whitespace-pre-wrap leading-relaxed">{c.body}</div>
+                          {(commentAttachments[c.id]?.length ?? 0) > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {commentAttachments[c.id].map(att => (
+                                <button
+                                  key={att.id}
+                                  onClick={() => downloadAttachment(att)}
+                                  className="inline-flex items-center gap-1 text-xs bg-background border rounded px-2 py-1 hover:bg-muted transition-colors"
+                                  title={`Download ${att.fileName}`}
+                                >
+                                  <Paperclip className="h-3 w-3" />
+                                  <span className="truncate max-w-[160px]">{att.fileName}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1091,11 +1162,18 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
               {/* Customer */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Customer</Label>
+                <Combobox
+                  options={allCustomers.map(c => ({ value: c.id, label: c.name }))}
+                  value={ticket.customerId}
+                  onValueChange={(v) => { if (v) changeCustomer(v); }}
+                  placeholder={customerName || 'Select customer...'}
+                  disabled={savingField === 'customerId'}
+                />
                 <button
-                  className="text-sm text-primary hover:underline font-medium text-left w-full truncate"
+                  className="text-xs text-primary hover:underline"
                   onClick={() => onNavigateToCustomer(ticket.customerId)}
                 >
-                  {customerName || 'Loading...'}
+                  View {customerName || 'customer'} &rarr;
                 </button>
               </div>
 

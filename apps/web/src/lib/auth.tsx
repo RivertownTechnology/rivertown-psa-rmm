@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { api, setTokens, clearTokens, getAccessToken } from './api';
+import { api, setTokens, clearTokens, getAccessToken, getRefreshToken } from './api';
 
 interface User {
   id: string;
@@ -50,6 +50,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    // Revoke tokens server-side (best-effort), then clear locally
+    const refreshToken = getRefreshToken();
+    api('/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken }) }).catch(() => {});
     clearTokens();
     setUser(null);
   };

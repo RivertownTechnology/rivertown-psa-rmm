@@ -1,10 +1,11 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser, type ParsedMail } from 'mailparser';
-import { eq, and } from 'drizzle-orm';
-import { integrationConfigs, contacts, customers, tickets, ticketComments, emailMessages, tenantSequences, tenants } from '@rivertown/db';
+import { eq, and, sql } from 'drizzle-orm';
+import { integrationConfigs, contacts, customers, tickets, ticketComments, emailMessages, tenants } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import { stripQuotedReply, sendTicketCreatedEmail } from './email-notifications.js';
 import { readCredentials } from '../common/credentials.js';
+import { getNextTicketNumber } from '../common/ticket-number.js';
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -363,6 +364,37 @@ async function getOrCreateFallbackCustomer(db: Database, tenantId: string): Prom
   return created.id;
 }
 
+// --- Derive first/last name from an email display name or address ---
+function splitContactName(fromName: string | undefined, fromAddress: string): { firstName: string; lastName: string } {
+  const name = (fromName ?? '').trim();
+  if (name) {
+    const parts = name.split(/\s+/);
+    if (parts.length >= 2) {
+      return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] };
+    }
+    return { firstName: parts[0], lastName: '(unknown)' };
+  }
+  // Fall back to the address local part: "jane.doe@acme.com" -> Jane Doe
+  const local = fromAddress.split('@')[0];
+  const segs = local.split(/[._-]+/).filter(Boolean).map(s => s.charAt(0).toUpperCase() + s.slice(1));
+  if (segs.length >= 2) {
+    return { firstName: segs[0], lastName: segs.slice(1).join(' ') };
+  }
+  return { firstName: segs[0] || local, lastName: '(unknown)' };
+}
+
+// --- Match a sender domain to a customer via its email_domains list ---
+async function findCustomerByDomain(db: Database, tenantId: string, domain: string): Promise<string | null> {
+  if (!domain) return null;
+  const [match] = await db.select({ id: customers.id }).from(customers)
+    .where(and(
+      eq(customers.tenantId, tenantId),
+      sql`${customers.emailDomains} @> ARRAY[${domain}]::text[]`,
+    ))
+    .limit(1);
+  return match?.id ?? null;
+}
+
 // --- Get blocked email list ---
 async function getBlockedEmails(db: Database, tenantId: string): Promise<string[]> {
   const [config] = await db.select().from(integrationConfigs)
@@ -400,10 +432,28 @@ async function processEmail(db: Database, tenantId: string, email: {
     return { ticket: false, comment: false, blocked: true };
   }
 
-  // Match contact by sender email
+  // Match contact by sender email (case-insensitive — fromAddress is already lowercased)
   let [contact] = await db.select().from(contacts)
-    .where(and(eq(contacts.tenantId, tenantId), eq(contacts.email, email.fromAddress)))
+    .where(and(eq(contacts.tenantId, tenantId), sql`lower(${contacts.email}) = ${email.fromAddress}`))
     .limit(1);
+
+  // No exact contact match — if the sender's domain belongs to a customer,
+  // auto-create the contact under that customer so the ticket lands correctly
+  if (!contact) {
+    const domainCustomerId = await findCustomerByDomain(db, tenantId, senderDomain);
+    if (domainCustomerId) {
+      const { firstName, lastName } = splitContactName(email.fromName, email.fromAddress);
+      const [created] = await db.insert(contacts).values({
+        tenantId,
+        customerId: domainCustomerId,
+        firstName,
+        lastName,
+        email: email.fromAddress,
+      }).returning();
+      contact = created;
+      console.log(`[EMAIL] Auto-created contact ${email.fromAddress} under customer ${domainCustomerId} (matched domain ${senderDomain})`);
+    }
+  }
 
   // Check if this is a reply to an existing ticket (subject contains [Ticket #N])
   const ticketMatch = email.subject.match(/\[Ticket #(\d+)\]/);
@@ -469,11 +519,7 @@ async function processEmail(db: Database, tenantId: string, email: {
         }
       } else if (existingTicket.status === 'closed') {
         // Closed tickets: create a NEW ticket instead of reopening
-        const [seq] = await db.select().from(tenantSequences)
-          .where(and(eq(tenantSequences.tenantId, tenantId), eq(tenantSequences.sequenceName, 'ticket'))).limit(1);
-        const nextNumber = parseInt(seq?.currentValue ?? '0', 10) + 1;
-        await db.update(tenantSequences).set({ currentValue: String(nextNumber) })
-          .where(and(eq(tenantSequences.tenantId, tenantId), eq(tenantSequences.sequenceName, 'ticket')));
+        const nextNumber = await getNextTicketNumber(db, tenantId);
 
         await db.insert(tickets).values({
           tenantId,
@@ -495,12 +541,7 @@ async function processEmail(db: Database, tenantId: string, email: {
       ? contact.customerId
       : await getOrCreateFallbackCustomer(db, tenantId);
 
-    const [seq] = await db.select().from(tenantSequences)
-      .where(and(eq(tenantSequences.tenantId, tenantId), eq(tenantSequences.sequenceName, 'ticket')))
-      .limit(1);
-    const nextNum = parseInt(seq?.currentValue ?? '0', 10) + 1;
-    await db.update(tenantSequences).set({ currentValue: String(nextNum) })
-      .where(and(eq(tenantSequences.tenantId, tenantId), eq(tenantSequences.sequenceName, 'ticket')));
+    const nextNum = await getNextTicketNumber(db, tenantId);
 
     const senderLabel = email.fromName
       ? `${email.fromName} <${email.fromAddress}>`

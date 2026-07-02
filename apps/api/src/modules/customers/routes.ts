@@ -1,12 +1,21 @@
 import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, ilike, sql, count, inArray } from 'drizzle-orm';
-import { customers, tickets } from '@rivertown/db';
+import { customers, tickets, contacts, assets, contracts, invoices, sites } from '@rivertown/db';
 import { createCustomerSchema, updateCustomerSchema, paginationSchema } from '@rivertown/shared';
 import { requirePermission } from '../../auth/rbac.js';
-import { NotFoundError } from '../../common/errors.js';
+import { NotFoundError, ValidationError } from '../../common/errors.js';
 import { paginationToOffset, paginate } from '../../common/pagination.js';
 import { logAudit, diffChanges } from '../../common/audit.js';
+
+function normalizeEmailDomains(domains: string[] | undefined): string[] | undefined {
+  if (!domains) return undefined;
+  return [...new Set(
+    domains
+      .map(d => d.trim().toLowerCase().replace(/^@/, ''))
+      .filter(d => d.includes('.')),
+  )];
+}
 
 export async function customerRoutes(fastify: FastifyInstance) {
   // List customers
@@ -92,6 +101,7 @@ export async function customerRoutes(fastify: FastifyInstance) {
           state: (body as any).state,
           zip: (body as any).zip,
           website: (body as any).website,
+          emailDomains: normalizeEmailDomains(body.emailDomains),
           notes: body.notes,
         })
         .returning();
@@ -145,6 +155,10 @@ export async function customerRoutes(fastify: FastifyInstance) {
         .limit(1);
 
       if (!existing) throw new NotFoundError('Customer', id);
+
+      if (body.emailDomains) {
+        body.emailDomains = normalizeEmailDomains(body.emailDomains);
+      }
 
       const [updated] = await fastify.db
         .update(customers)
@@ -204,6 +218,41 @@ export async function customerRoutes(fastify: FastifyInstance) {
         .limit(1);
 
       if (!existing) throw new NotFoundError('Customer', id);
+
+      // Refuse deletion while other records still reference this customer —
+      // otherwise the FK constraints turn this into an opaque 500
+      const [
+        [{ total: ticketCount }],
+        [{ total: contactCount }],
+        [{ total: assetCount }],
+        [{ total: contractCount }],
+        [{ total: invoiceCount }],
+        [{ total: siteCount }],
+      ] = await Promise.all([
+        fastify.db.select({ total: count() }).from(tickets).where(eq(tickets.customerId, id)),
+        fastify.db.select({ total: count() }).from(contacts).where(eq(contacts.customerId, id)),
+        fastify.db.select({ total: count() }).from(assets).where(eq(assets.customerId, id)),
+        fastify.db.select({ total: count() }).from(contracts).where(eq(contracts.customerId, id)),
+        fastify.db.select({ total: count() }).from(invoices).where(eq(invoices.customerId, id)),
+        fastify.db.select({ total: count() }).from(sites).where(eq(sites.customerId, id)),
+      ]);
+
+      const blockers = ([
+        [ticketCount, 'ticket'],
+        [contactCount, 'contact'],
+        [assetCount, 'asset'],
+        [contractCount, 'contract'],
+        [invoiceCount, 'invoice'],
+        [siteCount, 'site'],
+      ] as Array<[number, string]>)
+        .filter(([n]) => n > 0)
+        .map(([n, label]) => `${n} ${label}${n === 1 ? '' : 's'}`);
+
+      if (blockers.length > 0) {
+        throw new ValidationError(
+          `Cannot delete this customer while it still has ${blockers.join(', ')}. Delete or reassign those records first.`,
+        );
+      }
 
       await fastify.db
         .delete(customers)

@@ -495,6 +495,14 @@ export async function executeAction(
           return { type: action.type, success: false, error: 'Missing webhook URL' };
         }
 
+        // SSRF guard — reject internal/metadata targets before fetching
+        const { assertPublicHttpUrl } = await import('../common/ssrf.js');
+        try {
+          await assertPublicHttpUrl(params.url as string);
+        } catch (e) {
+          return { type: action.type, success: false, error: `Webhook URL rejected: ${(e as Error).message}` };
+        }
+
         await fetch(params.url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

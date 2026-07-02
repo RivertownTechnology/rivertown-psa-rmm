@@ -21,7 +21,8 @@ function pushPath(path: string) {
 interface Customer {
   id: string; name: string; status: string; billingEmail: string | null; ccBillingEmail: string | null;
   phone: string | null; address: string | null; city: string | null; state: string | null;
-  zip: string | null; county: string | null; website: string | null; notes: string | null; createdAt: string;
+  zip: string | null; county: string | null; website: string | null; emailDomains: string[] | null;
+  notes: string | null; createdAt: string;
 }
 interface Contract { id: string; name: string; contractType: string; status: string; startDate: string; endDate: string | null; billingCycle: string; createdAt?: string; }
 interface Invoice { id: string; invoiceNumber: number; status: string; issueDate: string; dueDate: string; totalCents: number; amountPaidCents: number; notes: string | null; createdAt?: string; }
@@ -46,7 +47,7 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
 
   // Customer edit
   const [showEditCustomer, setShowEditCustomer] = useState(false);
-  const [custForm, setCustForm] = useState({ name: '', billingEmail: '', ccBillingEmail: '', phone: '', address: '', city: '', state: '', zip: '', website: '', notes: '', ncentralName: '', screenconnectCompany: '' });
+  const [custForm, setCustForm] = useState({ name: '', billingEmail: '', ccBillingEmail: '', phone: '', address: '', city: '', state: '', zip: '', website: '', emailDomains: '', notes: '', ncentralName: '', screenconnectCompany: '' });
 
   // Contact form
   const [showAddContact, setShowAddContact] = useState(false);
@@ -157,7 +158,8 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
     setCustForm({
       name: customer.name, billingEmail: customer.billingEmail ?? '', ccBillingEmail: customer.ccBillingEmail ?? '',
       phone: customer.phone ?? '', address: customer.address ?? '', city: customer.city ?? '',
-      state: customer.state ?? '', zip: customer.zip ?? '', website: customer.website ?? '', notes: customer.notes ?? '',
+      state: customer.state ?? '', zip: customer.zip ?? '', website: customer.website ?? '',
+      emailDomains: (customer.emailDomains ?? []).join(', '), notes: customer.notes ?? '',
       ncentralName: (customer as any).ncentralName ?? '', screenconnectCompany: (customer as any).screenconnectCompany ?? '',
     });
     setShowEditCustomer(true);
@@ -170,6 +172,7 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
         name: custForm.name, billingEmail: custForm.billingEmail || undefined, ccBillingEmail: custForm.ccBillingEmail || undefined,
         phone: custForm.phone || undefined, address: custForm.address || undefined, city: custForm.city || undefined,
         state: custForm.state || undefined, zip: custForm.zip || undefined, website: custForm.website || undefined,
+        emailDomains: custForm.emailDomains.split(',').map(d => d.trim()).filter(Boolean),
         notes: custForm.notes || undefined,
         ncentralName: custForm.ncentralName || null, screenconnectCompany: custForm.screenconnectCompany || null,
       })});
@@ -321,6 +324,16 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
                 {customer.ccBillingEmail && <div className="flex items-center gap-2"><Mail className="h-4 w-4 text-muted-foreground" /><span className="text-muted-foreground">CC: {customer.ccBillingEmail}</span></div>}
                 {customer.phone && <div className="flex items-center gap-2"><Phone className="h-4 w-4 text-muted-foreground" />{customer.phone}</div>}
                 {customer.website && <div className="flex items-center gap-2"><Globe className="h-4 w-4 text-muted-foreground" />{customer.website}</div>}
+                {(customer.emailDomains ?? []).length > 0 && (
+                  <div className="flex items-start gap-2"><Mail className="h-4 w-4 text-muted-foreground mt-0.5" />
+                    <div>
+                      <div className="flex flex-wrap gap-1">
+                        {(customer.emailDomains ?? []).map(d => <Badge key={d} variant="outline">@{d}</Badge>)}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5">Inbound email from these domains is matched to this customer</div>
+                    </div>
+                  </div>
+                )}
                 {(customer.address || customer.city) && (
                   <div className="flex items-start gap-2"><MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
                     <div>{customer.address && <div>{customer.address}</div>}{[customer.city, customer.state].filter(Boolean).join(', ')}{customer.zip ? ` ${customer.zip}` : ''}{customer.county ? <div className="text-xs text-muted-foreground">{customer.county} County</div> : ''}</div>
@@ -678,6 +691,10 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2"><Label>Phone</Label><Input value={custForm.phone} onChange={e => setCustForm({ ...custForm, phone: e.target.value })} /></div>
               <div className="space-y-2"><Label>Website</Label><Input value={custForm.website} onChange={e => setCustForm({ ...custForm, website: e.target.value })} /></div>
+            </div>
+            <div className="space-y-2"><Label>Email Domains</Label>
+              <Input value={custForm.emailDomains} onChange={e => setCustForm({ ...custForm, emailDomains: e.target.value })} placeholder="acme.com, acme.org" />
+              <p className="text-xs text-muted-foreground">Comma-separated. Inbound email from these domains auto-creates the contact under this customer and assigns their tickets here.</p>
             </div>
             <div className="space-y-2"><Label>Address</Label><Input value={custForm.address} onChange={e => setCustForm({ ...custForm, address: e.target.value })} /></div>
             <div className="grid grid-cols-3 gap-3">

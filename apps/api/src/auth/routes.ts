@@ -23,6 +23,8 @@ export async function authRoutes(fastify: FastifyInstance) {
       if (!token) throw new UnauthorizedError('Refresh token required');
 
       const payload = fastify.jwt.verify<{
+        jti?: string;
+        exp?: number;
         sub: string;
         tid: string;
         role: string;
@@ -31,6 +33,16 @@ export async function authRoutes(fastify: FastifyInstance) {
 
       if (payload.type !== 'refresh') {
         throw new UnauthorizedError('Invalid token type');
+      }
+
+      // Rotation with reuse detection: a refresh token is single-use. If it has
+      // already been consumed (blacklisted), reject — someone is replaying it.
+      const { isTokenBlacklisted, blacklistToken } = await import('../common/token-blacklist.js');
+      if (payload.jti) {
+        if (await isTokenBlacklisted(payload.jti)) {
+          throw new UnauthorizedError('Refresh token already used');
+        }
+        if (payload.exp) await blacklistToken(payload.jti, payload.exp);
       }
 
       const [user] = await fastify.db
@@ -80,12 +92,21 @@ export async function authRoutes(fastify: FastifyInstance) {
     return user;
   });
 
-  // Logout — blacklist current token
+  // Logout — blacklist current access token AND the caller's refresh token
   fastify.post('/api/v1/auth/logout', async (request) => {
     const { blacklistToken } = await import('../common/token-blacklist.js');
     const payload = request.user;
     if (payload.jti && payload.exp) {
       await blacklistToken(payload.jti, payload.exp);
+    }
+    // Revoke the refresh token too, if the client sends it — otherwise a "logged
+    // out" refresh token could still mint new access tokens.
+    const refreshToken = (request.body as { refreshToken?: string } | undefined)?.refreshToken;
+    if (refreshToken) {
+      try {
+        const rp = fastify.jwt.verify<{ jti?: string; exp?: number; type: string }>(refreshToken);
+        if (rp.type === 'refresh' && rp.jti && rp.exp) await blacklistToken(rp.jti, rp.exp);
+      } catch { /* ignore malformed refresh token on logout */ }
     }
     return { success: true };
   });

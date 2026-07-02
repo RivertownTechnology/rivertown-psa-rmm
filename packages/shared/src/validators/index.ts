@@ -56,6 +56,7 @@ export const createCustomerSchema = z.object({
   state: z.string().max(100).optional(),
   zip: z.string().max(20).optional(),
   website: z.string().max(200).optional(),
+  emailDomains: z.array(z.string().min(1).max(200)).optional(),
   notes: z.string().optional(),
   slaPolicyId: z.string().uuid().nullable().optional(),
   ncentralName: z.string().max(200).nullable().optional(),
@@ -128,8 +129,11 @@ export const createTicketSchema = z.object({
 });
 
 export const updateTicketSchema = z.object({
+  customerId: z.string().uuid().optional(),
   assignedTo: z.string().uuid().nullable().optional(),
   contactId: z.string().uuid().nullable().optional(),
+  assetId: z.string().uuid().nullable().optional(),
+  queueId: z.string().uuid().nullable().optional(),
   subject: z.string().min(1).max(500).optional(),
   description: z.string().optional(),
   status: z.enum(TICKET_STATUSES).optional(),

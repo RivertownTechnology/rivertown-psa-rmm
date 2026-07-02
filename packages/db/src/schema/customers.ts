@@ -19,6 +19,7 @@ export const customers = pgTable(
     zip: text('zip'),
     county: text('county'),
     website: text('website'),
+    emailDomains: text('email_domains').array().default([]), // inbound email from these domains auto-matches this customer
     notes: text('notes'),
     creditBalanceCents: integer('credit_balance_cents').default(0).notNull(),
     qboCustomerId: text('qbo_customer_id'),

@@ -383,7 +383,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
     try {
       await api('/tickets/bulk-update', {
         method: 'POST',
-        body: JSON.stringify({ ticketIds: [...selectedIds], assignedTo: bulkAssignTo }),
+        body: JSON.stringify({ ids: [...selectedIds], update: { assignedTo: bulkAssignTo } }),
       });
       setSelectedIds(new Set());
       setShowBulkAssign(false);
@@ -400,7 +400,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
     try {
       await api('/tickets/bulk-update', {
         method: 'POST',
-        body: JSON.stringify({ ticketIds: [...selectedIds], status: bulkStatus }),
+        body: JSON.stringify({ ids: [...selectedIds], update: { status: bulkStatus } }),
       });
       setSelectedIds(new Set());
       setShowBulkStatus(false);
@@ -417,7 +417,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
     try {
       await api('/tickets/bulk-update', {
         method: 'POST',
-        body: JSON.stringify({ ticketIds: [...selectedIds], status: 'closed' }),
+        body: JSON.stringify({ ids: [...selectedIds], update: { status: 'closed' } }),
       });
       setSelectedIds(new Set());
       fetchTickets();
@@ -432,7 +432,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
     try {
       await api('/tickets/bulk-delete', {
         method: 'POST',
-        body: JSON.stringify({ ticketIds: [...selectedIds] }),
+        body: JSON.stringify({ ids: [...selectedIds] }),
       });
       setSelectedIds(new Set());
       setShowBulkDelete(false);

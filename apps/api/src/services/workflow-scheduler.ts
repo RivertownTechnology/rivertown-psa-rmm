@@ -29,7 +29,9 @@ export function startWorkflowScheduler(db: any) {
       for (const rule of timedRules) {
         try {
           const timeConfig = (rule.timeConfig || {}) as Record<string, unknown>;
-          const delayMinutes = (timeConfig.delayMinutes as number) || 0;
+          // Coerce to a finite number — this value is interpolated into a SQL
+          // interval below, so it must never be attacker-controlled text.
+          const delayMinutes = Number.isFinite(Number(timeConfig.delayMinutes)) ? Number(timeConfig.delayMinutes) : 0;
           const maxExec = (timeConfig.maxExecutionsPerTicket as number) || 1;
           const trigger = rule.trigger as string;
 
@@ -42,7 +44,7 @@ export function startWorkflowScheduler(db: any) {
               .where(and(
                 eq(tickets.tenantId, rule.tenantId),
                 sql`${tickets.status} NOT IN ('resolved', 'closed')`,
-                sql`${tickets.updatedAt} < NOW() - INTERVAL '${sql.raw(String(delayMinutes))} minutes'`,
+                sql`${tickets.updatedAt} < NOW() - (${delayMinutes} * INTERVAL '1 minute')`,
               )).limit(200);
           } else if (trigger === 'ticket_in_status') {
             // Tickets that have been in their current status for longer than delay
@@ -50,7 +52,7 @@ export function startWorkflowScheduler(db: any) {
               .where(and(
                 eq(tickets.tenantId, rule.tenantId),
                 sql`${tickets.status} NOT IN ('closed')`,
-                sql`${tickets.updatedAt} < NOW() - INTERVAL '${sql.raw(String(delayMinutes))} minutes'`,
+                sql`${tickets.updatedAt} < NOW() - (${delayMinutes} * INTERVAL '1 minute')`,
               )).limit(200);
           } else if (trigger === 'sla_warning') {
             // Tickets where SLA due date is approaching
@@ -59,7 +61,7 @@ export function startWorkflowScheduler(db: any) {
                 eq(tickets.tenantId, rule.tenantId),
                 sql`${tickets.status} NOT IN ('resolved', 'closed')`,
                 sql`${tickets.slaResponseDueAt} IS NOT NULL`,
-                sql`${tickets.slaResponseDueAt} < NOW() + INTERVAL '${sql.raw(String(delayMinutes))} minutes'`,
+                sql`${tickets.slaResponseDueAt} < NOW() + (${delayMinutes} * INTERVAL '1 minute')`,
                 sql`${tickets.slaResponseDueAt} > NOW()`,
               )).limit(200);
           } else if (trigger === 'sla_breach') {

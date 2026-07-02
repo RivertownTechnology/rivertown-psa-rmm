@@ -1261,7 +1261,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     const body = request.body as { templateType: string; name: string; subject: string; bodyHtml: string; bodyText?: string };
     const [template] = await fastify.db.insert(emailTemplates).values({
-      tenantId: request.tenantId, ...body,
+      ...body, tenantId: request.tenantId,
     }).returning();
     reply.code(201);
     return template;
@@ -1901,7 +1901,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate, requirePermission('*')]
   }, async (request) => {
     const { id } = request.params as { id: string };
-    const body = request.body as Partial<{ name: string; description: string; sortOrder: number; isActive: boolean }>;
+    const { tenantId: _t, id: _i, ...body } = request.body as Record<string, unknown> & Partial<{ name: string }>;
     const update: Record<string, unknown> = { ...body };
     if (body.name) {
       update.slug = body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -1952,7 +1952,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate, requirePermission('*')]
   }, async (request) => {
     const { id } = request.params as { id: string };
-    const body = request.body as Partial<{ name: string; description: string; sortOrder: number; isActive: boolean }>;
+    const { tenantId: _t, id: _i, ...body } = request.body as Record<string, unknown> & Partial<{ name: string }>;
     const update: Record<string, unknown> = { ...body };
     if (body.name) {
       update.slug = body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -1998,12 +1998,12 @@ export async function settingsRoutes(fastify: FastifyInstance) {
   fastify.post('/api/v1/settings/recurring-tickets', {
     preHandler: [fastify.authenticate, requirePermission('*')]
   }, async (request, reply) => {
-    const body = request.body as any;
+    const { tenantId: _t, id: _i, ...body } = request.body as any;
     // Calculate initial nextRunAt
     const nextRunAt = calculateNextRun(body.frequency, body.dayOfWeek, body.dayOfMonth);
     const [rule] = await fastify.db.insert(recurringTicketRules).values({
-      tenantId: request.tenantId,
       ...body,
+      tenantId: request.tenantId,
       nextRunAt,
     }).returning();
     reply.code(201);
@@ -2014,7 +2014,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate, requirePermission('*')]
   }, async (request) => {
     const { id } = request.params as { id: string };
-    const body = request.body as any;
+    const { tenantId: _t, id: _i, ...body } = request.body as any;
     const update: Record<string, unknown> = { ...body, updatedAt: new Date() };
     // Recalculate nextRunAt if schedule changed
     if (body.frequency || body.dayOfWeek !== undefined || body.dayOfMonth !== undefined) {
@@ -2383,7 +2383,9 @@ export async function settingsRoutes(fastify: FastifyInstance) {
   }, async (request) => {
     const { id } = request.params as { id: string };
     const { hash } = await import('bcryptjs');
-    const newPassword = Math.random().toString(36).slice(-12);
+    const { randomBytes } = await import('crypto');
+    // Cryptographically-random temp password (Math.random is predictable)
+    const newPassword = randomBytes(18).toString('base64url').slice(0, 20);
     const passwordHash = await hash(newPassword, 12);
 
     await fastify.db.update(users).set({ passwordHash, updatedAt: new Date() })

@@ -64,7 +64,7 @@ export async function contactRoutes(fastify: FastifyInstance) {
         customerId: body.customerId,
         firstName: body.firstName,
         lastName: body.lastName,
-        email: body.email,
+        email: body.email.toLowerCase(),
         phone: body.phone,
         jobTitle: body.jobTitle,
         isPrimary: body.isPrimary,
@@ -88,6 +88,7 @@ export async function contactRoutes(fastify: FastifyInstance) {
     async (request) => {
       const { id } = request.params as { id: string };
       const body = updateContactSchema.parse(request.body);
+      if (body.email) body.email = body.email.toLowerCase();
       const [existing] = await fastify.db.select().from(contacts)
         .where(and(eq(contacts.id, id), eq(contacts.tenantId, request.tenantId))).limit(1);
       if (!existing) throw new NotFoundError('Contact', id);

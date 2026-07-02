@@ -1,4 +1,4 @@
-{
+﻿{
   "version": "7",
   "dialect": "postgresql",
   "entries": [
@@ -330,6 +330,8 @@
       "when": 1745195500000,
       "tag": "0046_proposal_versioning",
       "breakpoints": true
-    }
+    },
+    { "idx": 47, "version": "7", "when": 1745195600000, "tag": "0047_customer_email_domains", "breakpoints": true },
+    { "idx": 48, "version": "7", "when": 1745195700000, "tag": "0048_lowercase_contact_emails", "breakpoints": true }
   ]
 }
