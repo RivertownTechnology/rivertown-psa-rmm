@@ -137,6 +137,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     if (!existing) throw new NotFoundError('Invoice', id);
     if (existing.status === 'paid') throw new ValidationError('Cannot delete a paid invoice. Credit the invoice instead.');
     if (existing.status === 'cancelled') throw new ValidationError('Cannot delete a cancelled invoice.');
+    if (existing.status === 'void') throw new ValidationError('Cannot delete a void invoice.');
     if (existing.amountPaidCents > 0) throw new ValidationError('Cannot delete an invoice with payments recorded. Credit the invoice instead.');
     await fastify.db.delete(payments).where(and(eq(payments.invoiceId, id), eq(payments.tenantId, request.tenantId)));
     await fastify.db.delete(invoiceLineItems).where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.tenantId, request.tenantId)));
@@ -196,7 +197,11 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   fastify.delete('/api/v1/invoices/:id/line-items/:lineId', { preHandler: [fastify.authenticate, requirePermission('invoices:write')] }, async (request, reply) => {
     const { id, lineId } = request.params as { id: string; lineId: string };
     await fastify.db.delete(invoiceLineItems)
-      .where(and(eq(invoiceLineItems.id, lineId), eq(invoiceLineItems.tenantId, request.tenantId)));
+      .where(and(
+        eq(invoiceLineItems.id, lineId),
+        eq(invoiceLineItems.invoiceId, id),
+        eq(invoiceLineItems.tenantId, request.tenantId),
+      ));
 
     // Recalculate invoice totals
     await recalcInvoiceTotals(fastify.db, id, request.tenantId);
@@ -233,8 +238,11 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       .where(and(eq(invoices.id, id), eq(invoices.tenantId, request.tenantId))).limit(1);
     if (!existing) throw new NotFoundError('Invoice', id);
 
-    const remainingBalance = existing.totalCents - existing.amountPaidCents;
-    if (body.amountCents > remainingBalance && remainingBalance > 0) {
+    const remainingBalance = existing.totalCents - existing.amountPaidCents - existing.creditsAppliedCents;
+    if (remainingBalance <= 0) {
+      throw new ValidationError('Invoice is already fully paid — no further payment can be recorded.');
+    }
+    if (body.amountCents > remainingBalance) {
       throw new ValidationError(`Payment amount ($${(body.amountCents / 100).toFixed(2)}) exceeds remaining balance ($${(remainingBalance / 100).toFixed(2)})`);
     }
 
@@ -249,7 +257,12 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
     // Update invoice amountPaidCents and status
     const newPaid = existing.amountPaidCents + body.amountCents;
-    const newStatus = newPaid >= existing.totalCents ? 'paid' : existing.status === 'draft' ? 'sent' : existing.status;
+    const paidPlusCredits = newPaid + existing.creditsAppliedCents;
+    const newStatus = paidPlusCredits >= existing.totalCents
+      ? 'paid'
+      : paidPlusCredits > 0
+        ? 'partial'
+        : existing.status;
 
     await fastify.db.update(invoices).set({
       amountPaidCents: newPaid,
@@ -362,6 +375,17 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
       // Recalculate totals with proper tax
       await recalcInvoiceTotals(fastify.db, invoice.id, request.tenantId);
+
+      // Re-fetch the invoice so we use the fresh (post-tax) totals, not the stale in-memory row
+      const [freshInvoice] = await fastify.db.select().from(invoices)
+        .where(and(eq(invoices.id, invoice.id), eq(invoices.tenantId, request.tenantId))).limit(1);
+      if (freshInvoice) {
+        Object.assign(invoice, {
+          subtotalCents: freshInvoice.subtotalCents,
+          taxCents: freshInvoice.taxCents,
+          totalCents: freshInvoice.totalCents,
+        });
+      }
 
       // Auto-apply account credits if customer has a balance
       const [cust] = await fastify.db.select().from(customers).where(and(eq(customers.id, contract.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
@@ -509,30 +533,40 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       .where(and(eq(invoices.id, id), eq(invoices.tenantId, request.tenantId))).limit(1);
     if (!invoice) throw new NotFoundError('Invoice', id);
 
+    // Prevent replay: an already-cancelled/credited invoice must not be credited again
+    if (invoice.status === 'cancelled' || invoice.status === 'credited') {
+      throw new ValidationError('This invoice has already been cancelled/credited.');
+    }
+
     const [customer] = await fastify.db.select().from(customers)
       .where(and(eq(customers.id, invoice.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
     if (!customer) throw new NotFoundError('Customer', invoice.customerId);
 
-    // Credit the full invoice amount
-    const creditAmount = invoice.totalCents;
-    const newBalance = customer.creditBalanceCents + creditAmount;
+    // Only credit money that was actually collected on this invoice — never mint free
+    // credit for amounts the customer never paid.
+    const creditAmount = invoice.amountPaidCents;
+    let newBalance = customer.creditBalanceCents;
 
-    await fastify.db.insert(accountCredits).values({
-      tenantId: request.tenantId,
-      customerId: customer.id,
-      type: 'credit',
-      amountCents: creditAmount,
-      balanceAfterCents: newBalance,
-      invoiceId: id,
-      reason: body.reason || `Credit from Invoice #${invoice.invoiceNumber}`,
-      createdBy: request.user.sub,
-    });
+    if (creditAmount > 0) {
+      newBalance = customer.creditBalanceCents + creditAmount;
 
-    await fastify.db.update(customers).set({
-      creditBalanceCents: newBalance, updatedAt: new Date(),
-    }).where(eq(customers.id, customer.id));
+      await fastify.db.insert(accountCredits).values({
+        tenantId: request.tenantId,
+        customerId: customer.id,
+        type: 'credit',
+        amountCents: creditAmount,
+        balanceAfterCents: newBalance,
+        invoiceId: id,
+        reason: body.reason || `Credit from Invoice #${invoice.invoiceNumber}`,
+        createdBy: request.user.sub,
+      });
 
-    // Mark invoice as credited
+      await fastify.db.update(customers).set({
+        creditBalanceCents: newBalance, updatedAt: new Date(),
+      }).where(eq(customers.id, customer.id));
+    }
+
+    // Mark invoice as cancelled (records how much, if any, was returned to account credit)
     await fastify.db.update(invoices).set({
       status: 'cancelled', notes: `${invoice.notes ? invoice.notes + '\n' : ''}Credited to account: $${(creditAmount / 100).toFixed(2)} — ${body.reason || 'Invoice reversal'}`,
       updatedAt: new Date(),
@@ -773,41 +807,17 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       await fastify.db.update(customers).set({ stripeCustomerId }).where(eq(customers.id, customer.id));
     }
 
-    // Fetch line items for Stripe checkout detail
-    const lineItemRows = await fastify.db.select().from(invoiceLineItems)
-      .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.tenantId, tenantId)))
-      .orderBy(invoiceLineItems.sortOrder);
-
-    // Build Stripe line items from invoice line items
-    const stripeLineItems = lineItemRows.length > 0
-      ? lineItemRows.map(li => ({
-          price_data: {
-            currency: 'usd' as const,
-            unit_amount: li.unitPriceCents,
-            product_data: { name: li.description },
-          },
-          quantity: Math.max(1, Math.round(parseFloat(li.quantity ?? '1'))),
-        }))
-      : [{
-          price_data: {
-            currency: 'usd' as const,
-            unit_amount: balanceCents,
-            product_data: { name: `Invoice #${invoice.invoiceNumber}` },
-          },
-          quantity: 1,
-        }];
-
-    // Add tax as a separate line item if present
-    if (invoice.taxCents > 0 && lineItemRows.length > 0) {
-      stripeLineItems.push({
-        price_data: {
-          currency: 'usd',
-          unit_amount: invoice.taxCents,
-          product_data: { name: 'Sales Tax' },
-        },
-        quantity: 1,
-      });
-    }
+    // Charge only the outstanding balance (total minus prior payments and credits) as a
+    // single line item. Building per-line items at full price would overcharge on
+    // partial payments/credits and round fractional quantities incorrectly.
+    const stripeLineItems = [{
+      price_data: {
+        currency: 'usd' as const,
+        product_data: { name: `Invoice #${invoice.invoiceNumber} balance` },
+        unit_amount: balanceCents,
+      },
+      quantity: 1,
+    }];
 
     const apiBaseUrl = fastify.config.API_BASE_URL || 'https://rivertownapi-production.up.railway.app';
     const viewUrl = `${apiBaseUrl}/api/v1/invoices/${id}/view?token=${encodeURIComponent(token)}`;
@@ -882,39 +892,17 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       await fastify.db.update(customers).set({ stripeCustomerId }).where(eq(customers.id, customer.id));
     }
 
-    // Fetch line items for Stripe checkout detail
-    const lineItemRows = await fastify.db.select().from(invoiceLineItems)
-      .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.tenantId, tenantId)))
-      .orderBy(invoiceLineItems.sortOrder);
-
-    const stripeLineItems = lineItemRows.length > 0
-      ? lineItemRows.map(li => ({
-          price_data: {
-            currency: 'usd' as const,
-            unit_amount: li.unitPriceCents,
-            product_data: { name: li.description },
-          },
-          quantity: Math.max(1, Math.round(parseFloat(li.quantity ?? '1'))),
-        }))
-      : [{
-          price_data: {
-            currency: 'usd' as const,
-            unit_amount: balanceCents,
-            product_data: { name: `Invoice #${invoice.invoiceNumber}` },
-          },
-          quantity: 1,
-        }];
-
-    if (invoice.taxCents > 0 && lineItemRows.length > 0) {
-      stripeLineItems.push({
-        price_data: {
-          currency: 'usd',
-          unit_amount: invoice.taxCents,
-          product_data: { name: 'Sales Tax' },
-        },
-        quantity: 1,
-      });
-    }
+    // Charge only the outstanding balance (total minus prior payments and credits) as a
+    // single line item — avoids overcharging on partial payments/credits and fractional-qty
+    // rounding errors.
+    const stripeLineItems = [{
+      price_data: {
+        currency: 'usd' as const,
+        product_data: { name: `Invoice #${invoice.invoiceNumber} balance` },
+        unit_amount: balanceCents,
+      },
+      quantity: 1,
+    }];
 
     const apiBaseUrl = fastify.config.API_BASE_URL || 'https://rivertownapi-production.up.railway.app';
     const viewUrl = `${apiBaseUrl}/api/v1/invoices/${id}/view?token=${encodeURIComponent(token)}`;
@@ -936,22 +924,44 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   });
 }
 
-async function recalcInvoiceTotals(db: any, invoiceId: string, tenantId: string) {
-  const { taxRates } = await import('@rivertown/db');
-  const { ilike } = await import('drizzle-orm');
+// Item types that represent services (labor / recurring coverage) rather than tangible
+// products. Used to decide whether a tax rate's appliesToServices/appliesToProducts flag
+// covers a given line.
+const SERVICE_ITEM_TYPES = new Set([
+  'recurring', 'per_user', 'per_device', 'block_time', 'managed_service', 'labor', 'service', 'support',
+]);
+
+export async function recalcInvoiceTotals(db: any, invoiceId: string, tenantId: string) {
+  const { taxRates, serviceCatalogItems } = await import('@rivertown/db');
+  const { ilike, inArray } = await import('drizzle-orm');
 
   const items = await db.select().from(invoiceLineItems)
     .where(and(eq(invoiceLineItems.invoiceId, invoiceId), eq(invoiceLineItems.tenantId, tenantId)));
 
+  // Classify each taxable line as product vs service via its catalog item's itemType.
+  const catalogIds: string[] = [...new Set(items.map((i: any) => i.catalogItemId).filter(Boolean))] as string[];
+  const typeMap = new Map<string, string>();
+  if (catalogIds.length > 0) {
+    const cats = await db.select({ id: serviceCatalogItems.id, itemType: serviceCatalogItems.itemType })
+      .from(serviceCatalogItems)
+      .where(and(eq(serviceCatalogItems.tenantId, tenantId), inArray(serviceCatalogItems.id, catalogIds)));
+    for (const c of cats) typeMap.set(c.id, c.itemType);
+  }
+
   let subtotalCents = 0;
-  let taxableSubtotalCents = 0;
+  let taxableProductsCents = 0;
+  let taxableServicesCents = 0;
   for (const item of items) {
     subtotalCents += item.totalCents;
-    if (item.taxable !== false) taxableSubtotalCents += item.totalCents;
+    if (item.taxable === false) continue;
+    const itemType = item.catalogItemId ? typeMap.get(item.catalogItemId) : undefined;
+    const isService = itemType ? SERVICE_ITEM_TYPES.has(itemType) : false;
+    if (isService) taxableServicesCents += item.totalCents;
+    else taxableProductsCents += item.totalCents;
   }
 
   // Look up tax rate from customer's billing address
-  let taxRate = 0;
+  let rate: any = undefined;
   const [invoice] = await db.select({ customerId: invoices.customerId }).from(invoices)
     .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId))).limit(1);
   if (invoice) {
@@ -961,7 +971,7 @@ async function recalcInvoiceTotals(db: any, invoiceId: string, tenantId: string)
       const stateCode = normalizeStateCode(customer.state);
 
       // Try county match first (most accurate)
-      let [rate] = customer.county ? await db.select().from(taxRates)
+      [rate] = customer.county ? await db.select().from(taxRates)
         .where(and(
           eq(taxRates.tenantId, tenantId),
           eq(taxRates.state, stateCode),
@@ -990,11 +1000,18 @@ async function recalcInvoiceTotals(db: any, invoiceId: string, tenantId: string)
             eq(taxRates.isActive, true),
           )).limit(1);
       }
-      if (rate) taxRate = parseFloat(rate.combinedRate);
     }
   }
 
-  const taxCents = Math.round(taxableSubtotalCents * taxRate / 100);
+  // Only tax the buckets the resolved rate actually applies to.
+  let taxCents = 0;
+  if (rate) {
+    const taxRatePct = parseFloat(rate.combinedRate);
+    let taxableBase = 0;
+    if (rate.appliesToProducts) taxableBase += taxableProductsCents;
+    if (rate.appliesToServices) taxableBase += taxableServicesCents;
+    taxCents = Math.round(taxableBase * taxRatePct / 100);
+  }
   const totalCents = subtotalCents + taxCents;
 
   await db.update(invoices).set({

@@ -8,7 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Combobox } from '@/components/ui/combobox';
-import { Trash2, RefreshCw, Search } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
+import { useToast } from '@/lib/toast';
+import { Trash2, RefreshCw, Search, Receipt } from 'lucide-react';
 
 interface Invoice {
   id: string;
@@ -44,9 +48,12 @@ const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'o
 };
 
 export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavigateToCustomer: (id: string) => void; onSelectInvoice?: (id: string) => void }) {
+  const toast = useToast();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; invoiceNumber: number } | null>(null);
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -67,12 +74,20 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
   });
 
   const loadInvoices = useCallback(async () => {
-    const params = new URLSearchParams({ page: String(page), limit: '25' });
-    if (statusFilter) params.set('status', statusFilter);
-    const data = await api<PaginatedResponse>(`/invoices?${params}`);
-    setInvoices(data.data);
-    setTotal(data.pagination.total);
-  }, [page, statusFilter]);
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: '25' });
+      if (statusFilter) params.set('status', statusFilter);
+      const data = await api<PaginatedResponse>(`/invoices?${params}`);
+      setInvoices(data.data);
+      setTotal(data.pagination.total);
+    } catch (e) {
+      toast.error('Failed to load invoices', e instanceof Error ? e.message : undefined);
+    } finally {
+      setLoading(false);
+    }
+    // `toast` is a fresh object each render — intentionally omitted from deps.
+  }, [page, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadInvoices(); }, [loadInvoices]);
 
@@ -126,14 +141,18 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
     } finally { setSaving(false); }
   }
 
-  async function handleDelete(id: string, invoiceNumber: number) {
+  async function executeDelete() {
+    if (!deleteTarget) return;
+    const { id, invoiceNumber } = deleteTarget;
     setMessage('');
     try {
       await api(`/invoices/${id}`, { method: 'DELETE' });
       setMessage(`Invoice #${invoiceNumber} deleted.`);
+      setDeleteTarget(null);
       loadInvoices();
     } catch (e: unknown) {
-      setMessage(`Failed to delete: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      toast.error('Failed to delete invoice', e instanceof Error ? e.message : undefined);
+      throw e;
     }
   }
 
@@ -228,46 +247,71 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
                 <th className="w-10"></th>
               </tr></thead>
               <tbody>
-                {filteredInvoices.map(inv => {
-                  const isOverdue = inv.status === 'sent' && inv.dueDate < today;
-                  return (
-                  <tr key={inv.id} className="border-b hover:bg-muted/30">
-                    <td className="p-3 font-medium text-primary">
-                      {onSelectInvoice ? (
-                        <button className="hover:underline" onClick={() => onSelectInvoice(inv.id)}>INV-{inv.invoiceNumber}</button>
-                      ) : (
-                        <>INV-{inv.invoiceNumber}</>
-                      )}
-                    </td>
-                    <td className="p-3">
-                      <button className="text-primary hover:underline" onClick={() => onNavigateToCustomer(inv.customerId)}>
-                        {customerMap.get(inv.customerId) ?? '-'}
-                      </button>
-                    </td>
-                    <td className="p-3">
-                      <Badge variant={statusVariant[inv.status] ?? 'secondary'}>{inv.status}</Badge>
-                      {isOverdue && (
-                        <Badge variant="destructive" className="ml-1">Overdue</Badge>
-                      )}
-                    </td>
-                    <td className={`p-3 hidden md:table-cell ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'}`}>{inv.issueDate}</td>
-                    <td className={`p-3 ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'}`}>{inv.dueDate}</td>
-                    <td className="p-3 text-right font-medium">{formatCents(inv.totalCents)}</td>
-                    <td className="p-3 text-right text-muted-foreground hidden md:table-cell">{formatCents(inv.amountPaidCents)}</td>
-                    <td className="p-3 text-right font-medium">
-                      {formatCents(inv.totalCents - inv.amountPaidCents)}
-                    </td>
-                    <td className="p-3">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        onClick={() => handleDelete(inv.id, inv.invoiceNumber)}>
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                {loading ? (
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i} className="border-b">
+                      <td className="p-3"><Skeleton className="h-4 w-16" /></td>
+                      <td className="p-3"><Skeleton className="h-4 w-40" /></td>
+                      <td className="p-3"><Skeleton className="h-5 w-16 rounded-full" /></td>
+                      <td className="p-3 hidden md:table-cell"><Skeleton className="h-4 w-20" /></td>
+                      <td className="p-3"><Skeleton className="h-4 w-20" /></td>
+                      <td className="p-3 text-right"><Skeleton className="h-4 w-16 ml-auto" /></td>
+                      <td className="p-3 text-right hidden md:table-cell"><Skeleton className="h-4 w-16 ml-auto" /></td>
+                      <td className="p-3 text-right"><Skeleton className="h-4 w-16 ml-auto" /></td>
+                      <td className="p-3"><Skeleton className="h-7 w-7 rounded" /></td>
+                    </tr>
+                  ))
+                ) : filteredInvoices.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="p-0">
+                      <EmptyState
+                        icon={Receipt}
+                        title="No invoices found"
+                        description={search || statusFilter ? 'Try adjusting your search or filters.' : 'Create an invoice or generate them from contracts.'}
+                        action={!search && !statusFilter ? { label: 'New Invoice', onClick: () => setShowCreate(true) } : undefined}
+                      />
                     </td>
                   </tr>
-                  );
-                })}
-                {filteredInvoices.length === 0 && (
-                  <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">No invoices</td></tr>
+                ) : (
+                  filteredInvoices.map(inv => {
+                    const isOverdue = inv.status === 'sent' && inv.dueDate < today;
+                    return (
+                    <tr key={inv.id} className="border-b hover:bg-muted/30">
+                      <td className="p-3 font-medium text-primary">
+                        {onSelectInvoice ? (
+                          <button className="hover:underline" onClick={() => onSelectInvoice(inv.id)}>INV-{inv.invoiceNumber}</button>
+                        ) : (
+                          <>INV-{inv.invoiceNumber}</>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        <button className="text-primary hover:underline" onClick={() => onNavigateToCustomer(inv.customerId)}>
+                          {customerMap.get(inv.customerId) ?? '-'}
+                        </button>
+                      </td>
+                      <td className="p-3">
+                        <Badge variant={statusVariant[inv.status] ?? 'secondary'}>{inv.status}</Badge>
+                        {isOverdue && (
+                          <Badge variant="destructive" className="ml-1">Overdue</Badge>
+                        )}
+                      </td>
+                      <td className={`p-3 hidden md:table-cell ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'}`}>{inv.issueDate}</td>
+                      <td className={`p-3 ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'}`}>{inv.dueDate}</td>
+                      <td className="p-3 text-right font-medium">{formatCents(inv.totalCents)}</td>
+                      <td className="p-3 text-right text-muted-foreground hidden md:table-cell">{formatCents(inv.amountPaidCents)}</td>
+                      <td className="p-3 text-right font-medium">
+                        {formatCents(inv.totalCents - inv.amountPaidCents)}
+                      </td>
+                      <td className="p-3">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          aria-label={`Delete invoice INV-${inv.invoiceNumber}`}
+                          onClick={() => setDeleteTarget({ id: inv.id, invoiceNumber: inv.invoiceNumber })}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </td>
+                    </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -357,6 +401,16 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
           </form>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        title="Delete Invoice"
+        description={`Permanently delete invoice INV-${deleteTarget?.invoiceNumber}? This will remove all line items and cannot be undone.`}
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={executeDelete}
+      />
     </div>
   );
 }

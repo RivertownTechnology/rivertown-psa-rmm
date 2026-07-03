@@ -20,7 +20,7 @@ export async function serviceCatalogRoutes(fastify: FastifyInstance) {
   });
 
   // Create catalog item
-  fastify.post('/api/v1/service-catalog', { preHandler: [fastify.authenticate, requirePermission('contracts:read')] }, async (request, reply) => {
+  fastify.post('/api/v1/service-catalog', { preHandler: [fastify.authenticate, requirePermission('contracts:write')] }, async (request, reply) => {
     const body = createCatalogItemSchema.parse(request.body);
     const [item] = await fastify.db.insert(serviceCatalogItems).values({
       tenantId: request.tenantId, ...body,
@@ -30,7 +30,7 @@ export async function serviceCatalogRoutes(fastify: FastifyInstance) {
   });
 
   // Update catalog item
-  fastify.patch('/api/v1/service-catalog/:id', { preHandler: [fastify.authenticate, requirePermission('contracts:read')] }, async (request) => {
+  fastify.patch('/api/v1/service-catalog/:id', { preHandler: [fastify.authenticate, requirePermission('contracts:write')] }, async (request) => {
     const { id } = request.params as { id: string };
     const body = updateCatalogItemSchema.parse(request.body);
     const [existing] = await fastify.db.select().from(serviceCatalogItems)
@@ -42,7 +42,7 @@ export async function serviceCatalogRoutes(fastify: FastifyInstance) {
   });
 
   // Delete (soft)
-  fastify.delete('/api/v1/service-catalog/:id', { preHandler: [fastify.authenticate, requirePermission('contracts:read')] }, async (request) => {
+  fastify.delete('/api/v1/service-catalog/:id', { preHandler: [fastify.authenticate, requirePermission('contracts:write')] }, async (request) => {
     const { id } = request.params as { id: string };
     await fastify.db.update(serviceCatalogItems).set({ isActive: false, updatedAt: new Date() })
       .where(and(eq(serviceCatalogItems.id, id), eq(serviceCatalogItems.tenantId, request.tenantId)));
@@ -78,7 +78,7 @@ export async function serviceCatalogRoutes(fastify: FastifyInstance) {
   });
 
   // Create bundle
-  fastify.post('/api/v1/service-catalog/bundles', { preHandler: [fastify.authenticate, requirePermission('contracts:read')] }, async (request, reply) => {
+  fastify.post('/api/v1/service-catalog/bundles', { preHandler: [fastify.authenticate, requirePermission('contracts:write')] }, async (request, reply) => {
     const { name, description, items } = request.body as { name: string; description?: string; items: { catalogItemId: string; quantityMultiplier?: string; sortOrder?: number }[] };
     const [bundle] = await fastify.db.insert(serviceCatalogBundles).values({
       tenantId: request.tenantId, name, description,
@@ -95,7 +95,7 @@ export async function serviceCatalogRoutes(fastify: FastifyInstance) {
   });
 
   // Update bundle
-  fastify.patch('/api/v1/service-catalog/bundles/:id', { preHandler: [fastify.authenticate, requirePermission('contracts:read')] }, async (request) => {
+  fastify.patch('/api/v1/service-catalog/bundles/:id', { preHandler: [fastify.authenticate, requirePermission('contracts:write')] }, async (request) => {
     const { id } = request.params as { id: string };
     const { name, description, items } = request.body as { name?: string; description?: string; items?: { catalogItemId: string; quantityMultiplier?: string; sortOrder?: number }[] };
 
@@ -125,7 +125,7 @@ export async function serviceCatalogRoutes(fastify: FastifyInstance) {
   });
 
   // Delete bundle (soft)
-  fastify.delete('/api/v1/service-catalog/bundles/:id', { preHandler: [fastify.authenticate, requirePermission('contracts:read')] }, async (request) => {
+  fastify.delete('/api/v1/service-catalog/bundles/:id', { preHandler: [fastify.authenticate, requirePermission('contracts:write')] }, async (request) => {
     const { id } = request.params as { id: string };
     await fastify.db.update(serviceCatalogBundles).set({ isActive: false, updatedAt: new Date() })
       .where(and(eq(serviceCatalogBundles.id, id), eq(serviceCatalogBundles.tenantId, request.tenantId)));

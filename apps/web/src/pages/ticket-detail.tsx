@@ -24,6 +24,8 @@ import {
 } from '@/components/ui/dialog';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { useTimer } from '@/lib/timer';
+import { useToast } from '@/lib/toast';
+import { TICKET_STATUS_COLORS, PRIORITY_COLORS, statusBadgeClass } from '@/lib/badge-colors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,23 +87,6 @@ const PRIORITY_OPTIONS = [
   { value: 'critical', label: 'Critical' },
 ];
 
-const statusStyles: Record<string, string> = {
-  new: 'bg-blue-100 text-blue-800 border-blue-200',
-  open: 'bg-green-100 text-green-800 border-green-200',
-  pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-  scheduled: 'bg-indigo-100 text-indigo-800 border-indigo-200',
-  waiting_on_customer: 'bg-purple-100 text-purple-800 border-purple-200',
-  resolved: 'bg-gray-100 text-gray-600 border-gray-200',
-  closed: 'bg-gray-100 text-gray-500 border-gray-200',
-};
-
-const priorityStyles: Record<string, string> = {
-  low: 'bg-gray-100 text-gray-700 border-gray-200',
-  medium: 'bg-blue-100 text-blue-800 border-blue-200',
-  high: 'bg-orange-100 text-orange-800 border-orange-200',
-  critical: 'bg-red-100 text-red-800 border-red-200',
-};
-
 const priorityVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   low: 'secondary', medium: 'outline', high: 'default', critical: 'destructive',
 };
@@ -142,6 +127,52 @@ function formatDuration(minutes: number): string {
   if (h === 0) return `${m}m`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
+}
+
+// ---------------------------------------------------------------------------
+// SLA Countdown — owns its own 1s tick so the parent page doesn't re-render
+// every second.
+// ---------------------------------------------------------------------------
+
+function SlaCountdown({ ticket }: { ticket: Ticket }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (['resolved', 'closed'].includes(ticket.status)) return null;
+  if (!ticket.slaResolutionDueAt) return null;
+
+  const now = Date.now();
+  const due = new Date(ticket.slaResolutionDueAt).getTime();
+  // Account for paused time: shift the due date forward by total paused milliseconds
+  const totalPaused = (ticket.slaTotalPausedMs ?? 0) +
+    (ticket.slaPausedAt ? (now - new Date(ticket.slaPausedAt).getTime()) : 0);
+  const adjustedDue = due + totalPaused;
+  const remaining = adjustedDue - now;
+  const isPaused = ticket.status === 'waiting_on_customer' && !!ticket.slaPausedAt;
+
+  if (remaining <= 0 && !isPaused) return <Badge variant="destructive">SLA Breached</Badge>;
+  const hours = Math.floor(Math.abs(remaining) / 3600000);
+  const mins = Math.floor((Math.abs(remaining) % 3600000) / 60000);
+  const total = adjustedDue - new Date(ticket.createdAt).getTime();
+  const pct = Math.max(0, Math.min(100, ((total - remaining) / total) * 100));
+  const color = isPaused ? 'bg-purple-500' : remaining < total * 0.25 ? 'bg-yellow-500' : 'bg-green-500';
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground mb-1">
+        {isPaused ? (
+          <span className="text-purple-600 dark:text-purple-400 font-medium">SLA Paused — {hours}h {mins}m remaining when resumed</span>
+        ) : (
+          <>{hours}h {mins}m remaining</>
+        )}
+      </div>
+      <div className="w-full bg-muted rounded-full h-2">
+        <div className={`h-2 rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -246,6 +277,8 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
   const timer = useTimer();
   const isThisTicketTimer = timer.isRunning && timer.ticketId === ticketId;
 
+  const toast = useToast();
+
   // UI state
   const [editingSubject, setEditingSubject] = useState(false);
   const [subjectDraft, setSubjectDraft] = useState('');
@@ -300,6 +333,8 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
   // Saving states
   const [savingField, setSavingField] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTimeEntryId, setDeleteTimeEntryId] = useState<string | null>(null);
+  const [deleteExpenseId, setDeleteExpenseId] = useState<string | null>(null);
 
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
@@ -408,9 +443,6 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
     }
   }, [ticketId]);
 
-  // Live tick counter for SLA countdown
-  const [, setTick] = useState(0);
-
   useEffect(() => {
     async function init() {
       const t = await loadTicket();
@@ -443,12 +475,8 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
       loadTimeEntries();
     }, 30000);
 
-    // Tick every second for live SLA countdown + "updated X ago" display
-    const tickInterval = setInterval(() => setTick(t => t + 1), 1000);
-
     return () => {
       clearInterval(dataInterval);
-      clearInterval(tickInterval);
     };
   }, [loadTicket, loadComments, loadTimeEntries, loadCustomFields, loadExpenses, loadCustomerName, loadContracts, loadContacts, loadAssets, loadAllCustomers]);
 
@@ -464,9 +492,17 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
         body: JSON.stringify({ [field]: value }),
       });
       setTicket(updated);
+    } catch (e) {
+      toast.error('Update failed', e instanceof Error ? e.message : `Could not update ${field}.`);
     } finally {
       setSavingField(null);
     }
+  }
+
+  function saveCustomField(id: string, value: string | null) {
+    api(`/custom-fields/ticket/${ticketId}`, {
+      method: 'PUT', body: JSON.stringify({ [id]: value }),
+    }).catch((e) => toast.error('Failed to save field', e instanceof Error ? e.message : undefined));
   }
 
   async function changeCustomer(newCustomerId: string) {
@@ -483,6 +519,8 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
       loadContracts(updated.customerId);
       loadContacts(updated.customerId);
       loadAssets(updated.customerId);
+    } catch (e) {
+      toast.error('Update failed', e instanceof Error ? e.message : 'Could not change customer.');
     } finally {
       setSavingField(null);
     }
@@ -593,8 +631,13 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
   }
 
   async function deleteTimeEntry(entryId: string) {
-    await api(`/time-entries/${entryId}`, { method: 'DELETE' });
-    await loadTimeEntries();
+    try {
+      await api(`/time-entries/${entryId}`, { method: 'DELETE' });
+      await loadTimeEntries();
+    } catch (e) {
+      toast.error('Failed to delete time entry', e instanceof Error ? e.message : undefined);
+      throw e;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -658,14 +701,18 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
       const data = await api<Array<{id: string; name: string; color: string}>>(`/tickets/${ticketId}/tags`);
       setTicketTags(data);
       setShowAddTag(false);
-    } catch { /* */ }
+    } catch (e) {
+      toast.error('Failed to add tag', e instanceof Error ? e.message : undefined);
+    }
   }
 
   async function removeTag(tagId: string) {
     try {
       await api(`/tickets/${ticketId}/tags/${tagId}`, { method: 'DELETE' });
       setTicketTags(prev => prev.filter(t => t.id !== tagId));
-    } catch { /* */ }
+    } catch (e) {
+      toast.error('Failed to remove tag', e instanceof Error ? e.message : undefined);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -676,10 +723,16 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
     const result = await timer.stopTimer();
     if (!result) return;
     const now = new Date().toISOString();
-    await api(`/tickets/${ticketId}/time-entries`, {
-      method: 'POST',
-      body: JSON.stringify({ ticketId, startedAt: now, endedAt: now, durationMinutes: result.durationMinutes, isBillable: true, notes: 'Timer entry' }),
-    });
+    try {
+      await api(`/tickets/${ticketId}/time-entries`, {
+        method: 'POST',
+        body: JSON.stringify({ ticketId, startedAt: now, endedAt: now, durationMinutes: result.durationMinutes, isBillable: true, notes: 'Timer entry' }),
+      });
+    } catch (e) {
+      // Keep the running time so it isn't lost — let the user retry.
+      toast.error('Failed to save time entry', e instanceof Error ? e.message : 'Timer was kept running.');
+      return;
+    }
     timer.clearTimer();
     loadTimeEntries();
   }
@@ -703,8 +756,13 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
   }
 
   async function deleteExpense(id: string) {
-    await api(`/expenses/${id}`, { method: 'DELETE' });
-    loadExpenses();
+    try {
+      await api(`/expenses/${id}`, { method: 'DELETE' });
+      loadExpenses();
+    } catch (e) {
+      toast.error('Failed to delete expense', e instanceof Error ? e.message : undefined);
+      throw e;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -766,8 +824,8 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
           <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Button>
         <span className="text-muted-foreground text-sm font-mono">#{ticket.ticketNumber}</span>
-        <Badge className={priorityStyles[ticket.priority]}>{ticket.priority}</Badge>
-        <Badge className={statusStyles[ticket.status]}>{ticket.status.replace(/_/g, ' ')}</Badge>
+        <Badge className={statusBadgeClass(PRIORITY_COLORS, ticket.priority)}>{ticket.priority}</Badge>
+        <Badge className={statusBadgeClass(TICKET_STATUS_COLORS, ticket.status)}>{ticket.status.replace(/_/g, ' ')}</Badge>
         {isResolved && (
           <span className="text-xs text-muted-foreground italic ml-1">
             {ticket.status === 'resolved' ? 'Resolved' : 'Closed'} {ticket.resolvedAt ? relativeTime(ticket.resolvedAt) : ticket.closedAt ? relativeTime(ticket.closedAt) : ''}
@@ -1369,37 +1427,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                         {new Date(ticket.slaResolutionDueAt).toLocaleString()}
                       </span>
                     </div>
-                    {!['resolved', 'closed'].includes(ticket.status) && (() => {
-                      const now = Date.now();
-                      const due = new Date(ticket.slaResolutionDueAt).getTime();
-                      // Account for paused time: shift the due date forward by total paused milliseconds
-                      const totalPaused = (ticket.slaTotalPausedMs ?? 0) +
-                        (ticket.slaPausedAt ? (now - new Date(ticket.slaPausedAt).getTime()) : 0);
-                      const adjustedDue = due + totalPaused;
-                      const remaining = adjustedDue - now;
-                      const isPaused = ticket.status === 'waiting_on_customer' && !!ticket.slaPausedAt;
-
-                      if (remaining <= 0 && !isPaused) return <Badge variant="destructive">SLA Breached</Badge>;
-                      const hours = Math.floor(Math.abs(remaining) / 3600000);
-                      const mins = Math.floor((Math.abs(remaining) % 3600000) / 60000);
-                      const total = adjustedDue - new Date(ticket.createdAt).getTime();
-                      const pct = Math.max(0, Math.min(100, ((total - remaining) / total) * 100));
-                      const color = isPaused ? 'bg-purple-500' : remaining < total * 0.25 ? 'bg-yellow-500' : 'bg-green-500';
-                      return (
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-1">
-                            {isPaused ? (
-                              <span className="text-purple-600 dark:text-purple-400 font-medium">SLA Paused — {hours}h {mins}m remaining when resumed</span>
-                            ) : (
-                              <>{hours}h {mins}m remaining</>
-                            )}
-                          </div>
-                          <div className="w-full bg-muted rounded-full h-2">
-                            <div className={`h-2 rounded-full ${color}`} style={{ width: `${pct}%` }} />
-                          </div>
-                        </div>
-                      );
-                    })()}
+                    <SlaCountdown ticket={ticket} />
                     {ticket.slaBreached && <Badge variant="destructive">SLA Breached</Badge>}
                   </div>
                 </div>
@@ -1452,11 +1480,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                           const val = e.target.value;
                           setCustomFields(prev => prev.map(f => f.id === cf.id ? { ...f, value: val } : f));
                         }}
-                        onBlur={() => {
-                          api(`/custom-fields/ticket/${ticketId}`, {
-                            method: 'PUT', body: JSON.stringify({ [cf.id]: cf.value || null }),
-                          }).catch(() => {});
-                        }}
+                        onBlur={() => saveCustomField(cf.id, cf.value || null)}
                         placeholder={cf.fieldLabel}
                       />
                     )}
@@ -1468,11 +1492,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                           const val = e.target.value;
                           setCustomFields(prev => prev.map(f => f.id === cf.id ? { ...f, value: val } : f));
                         }}
-                        onBlur={() => {
-                          api(`/custom-fields/ticket/${ticketId}`, {
-                            method: 'PUT', body: JSON.stringify({ [cf.id]: cf.value || null }),
-                          }).catch(() => {});
-                        }}
+                        onBlur={() => saveCustomField(cf.id, cf.value || null)}
                         placeholder={cf.fieldLabel}
                       />
                     )}
@@ -1483,9 +1503,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                         onChange={e => {
                           const val = e.target.value;
                           setCustomFields(prev => prev.map(f => f.id === cf.id ? { ...f, value: val } : f));
-                          api(`/custom-fields/ticket/${ticketId}`, {
-                            method: 'PUT', body: JSON.stringify({ [cf.id]: val || null }),
-                          }).catch(() => {});
+                          saveCustomField(cf.id, val || null);
                         }}
                       />
                     )}
@@ -1495,9 +1513,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                         onChange={e => {
                           const val = e.target.value;
                           setCustomFields(prev => prev.map(f => f.id === cf.id ? { ...f, value: val } : f));
-                          api(`/custom-fields/ticket/${ticketId}`, {
-                            method: 'PUT', body: JSON.stringify({ [cf.id]: val || null }),
-                          }).catch(() => {});
+                          saveCustomField(cf.id, val || null);
                         }}
                         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                       >
@@ -1515,9 +1531,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                           onChange={e => {
                             const val = e.target.checked ? 'true' : 'false';
                             setCustomFields(prev => prev.map(f => f.id === cf.id ? { ...f, value: val } : f));
-                            api(`/custom-fields/ticket/${ticketId}`, {
-                              method: 'PUT', body: JSON.stringify({ [cf.id]: val }),
-                            }).catch(() => {});
+                            saveCustomField(cf.id, val);
                           }}
                           className="rounded border-gray-300"
                         />
@@ -1674,7 +1688,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                         </div>
                         <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                           <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditTime(entry)} aria-label="Edit time entry"><Pencil className="h-3 w-3" /></Button>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => deleteTimeEntry(entry.id)} aria-label="Delete time entry"><Trash2 className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => setDeleteTimeEntryId(entry.id)} aria-label="Delete time entry"><Trash2 className="h-3 w-3" /></Button>
                         </div>
                       </div>
                     )
@@ -1731,7 +1745,7 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium">${(e.amountCents / 100).toFixed(2)}</span>
-                    <button onClick={() => deleteExpense(e.id)} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive">
+                    <button onClick={() => setDeleteExpenseId(e.id)} aria-label="Delete expense" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive">
                       <Trash2 className="h-3 w-3" />
                     </button>
                   </div>
@@ -1760,6 +1774,32 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
         onConfirm={async () => {
           await api(`/tickets/${ticketId}`, { method: 'DELETE' });
           onBack();
+        }}
+      />
+
+      <ConfirmDialog
+        open={deleteTimeEntryId !== null}
+        onOpenChange={(open) => { if (!open) setDeleteTimeEntryId(null); }}
+        title="Delete Time Entry"
+        description="Permanently delete this time entry? This cannot be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={async () => {
+          if (deleteTimeEntryId) await deleteTimeEntry(deleteTimeEntryId);
+          setDeleteTimeEntryId(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={deleteExpenseId !== null}
+        onOpenChange={(open) => { if (!open) setDeleteExpenseId(null); }}
+        title="Delete Expense"
+        description="Permanently delete this expense? This cannot be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={async () => {
+          if (deleteExpenseId) await deleteExpense(deleteExpenseId);
+          setDeleteExpenseId(null);
         }}
       />
 

@@ -293,7 +293,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     } finally {
       emailPolling = false;
     }
-  }, 5000);
+  }, 30000);
 
   return fastify;
 }

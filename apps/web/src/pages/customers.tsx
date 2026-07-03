@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
+import { useToast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -52,11 +53,14 @@ const sortOptions = [
 ];
 
 export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: string) => void }) {
+  const toast = useToast();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sort, setSort] = useState('name_az');
   const [page, setPage] = useState(1);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [formData, setFormData] = useState({ name: '', billingEmail: '', ccBillingEmail: '', phone: '', address: '', city: '', state: '', zip: '', website: '' });
   const [saving, setSaving] = useState(false);
@@ -66,20 +70,34 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; description: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Debounce the search box so we don't refetch (and flash skeletons) on every
+  // keystroke — only 300ms after the user stops typing.
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search]);
+
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: '25' });
-      if (search) params.set('search', search);
+      if (debouncedSearch) params.set('search', debouncedSearch);
       const data = await api<PaginatedResponse>(`/customers?${params}`);
       setCustomers(data.data);
       setTotal(data.pagination.total);
-    } catch {
-      // handled
+    } catch (e) {
+      toast.error('Failed to load customers', e instanceof Error ? e.message : undefined);
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+    // `toast` is intentionally omitted — it's a fresh object each render.
+  }, [page, debouncedSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchCustomers();
@@ -112,8 +130,10 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
       await api(`/customers/${deleteTarget.id}`, { method: 'DELETE' });
       setDeleteTarget(null);
       fetchCustomers();
-    } catch {
-      // FK constraint may prevent
+    } catch (e) {
+      // FK constraint may prevent deletion
+      toast.error('Failed to delete customer', e instanceof Error ? e.message : 'This customer may have related records.');
+      throw e;
     } finally {
       setDeleting(false);
     }
@@ -140,6 +160,8 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
       setShowCreate(false);
       setFormData({ name: '', billingEmail: '', ccBillingEmail: '', phone: '', address: '', city: '', state: '', zip: '', website: '' });
       fetchCustomers();
+    } catch (e) {
+      toast.error('Failed to create customer', e instanceof Error ? e.message : undefined);
     } finally {
       setSaving(false);
     }
@@ -164,7 +186,7 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
             <Input
               placeholder="Search customers..."
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
             />
           </div>
@@ -232,6 +254,7 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
                         size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-destructive"
                         onClick={() => initiateDelete(c.id, c.name)}
+                        aria-label={`Delete ${c.name}`}
                       >
                         <Trash2 className="h-3 w-3" />
                       </Button>

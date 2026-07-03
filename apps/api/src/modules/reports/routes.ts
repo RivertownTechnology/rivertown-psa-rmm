@@ -186,11 +186,14 @@ export async function reportRoutes(fastify: FastifyInstance) {
       .orderBy(invoices.dueDate);
 
     const now = new Date();
+    // Normalize "today" to local midnight so it matches the date-only dueDate basis
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const buckets = { current: [] as any[], '1_30': [] as any[], '31_60': [] as any[], '61_90': [] as any[], '90_plus': [] as any[] };
 
     for (const inv of openInvoices) {
-      const due = new Date(inv.dueDate);
-      const daysOverdue = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+      // dueDate is a date-only string; parse as local midnight (not UTC) to compare like-for-like
+      const due = new Date(`${inv.dueDate}T00:00:00`);
+      const daysOverdue = Math.floor((todayMidnight.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
       const outstandingCents = inv.totalCents - inv.amountPaidCents;
       const item = { ...inv, daysOverdue, outstandingCents };
 
@@ -345,7 +348,7 @@ export async function reportRoutes(fastify: FastifyInstance) {
     const allTimeByTicket = await fastify.db.select({
       ticketId: ticketTimeEntries.ticketId,
       totalMinutes: sql<number>`COALESCE(SUM(${ticketTimeEntries.durationMinutes}), 0)::int`,
-    }).from(ticketTimeEntries).where(inArray(ticketTimeEntries.ticketId, ticketIds.slice(0, 50)))
+    }).from(ticketTimeEntries).where(inArray(ticketTimeEntries.ticketId, ticketIds))
       .groupBy(ticketTimeEntries.ticketId);
     const minutesByTicket = new Map(allTimeByTicket.map(r => [r.ticketId, r.totalMinutes]));
     const topTickets = periodTickets.map(t => ({

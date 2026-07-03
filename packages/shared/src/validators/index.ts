@@ -156,8 +156,8 @@ export const createTimeEntrySchema = z.object({
   endedAt: z.string().datetime().optional(),
   durationMinutes: z.number().int().min(1).optional(),
   isBillable: z.boolean().default(false),
-  rateCents: z.number().int().min(0).optional(),
-  notes: z.string().optional(),
+  rateCents: z.number().int().min(0).nullish(),
+  notes: z.string().nullish(),
 });
 
 export const updateTimeEntrySchema = createTimeEntrySchema.partial().omit({ ticketId: true });

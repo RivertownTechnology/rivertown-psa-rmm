@@ -14,6 +14,7 @@ import {
 } from '@rivertown/db';
 import { createQuoteSchema, updateQuoteSchema, paginationSchema } from '@rivertown/shared';
 import { requirePermission } from '../../auth/rbac.js';
+import { recalcInvoiceTotals } from '../invoices/routes.js';
 import { NotFoundError } from '../../common/errors.js';
 import { paginationToOffset, paginate } from '../../common/pagination.js';
 import { logAudit } from '../../common/audit.js';
@@ -91,7 +92,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     if (!quote) throw new NotFoundError('Quote', id);
 
     const lineItems = await fastify.db.select().from(quoteLineItems)
-      .where(eq(quoteLineItems.quoteId, id))
+      .where(and(eq(quoteLineItems.quoteId, id), eq(quoteLineItems.tenantId, request.tenantId)))
       .orderBy(quoteLineItems.sortOrder, quoteLineItems.createdAt);
 
     return { ...quote, lineItems };
@@ -169,6 +170,11 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const body = request.body as { description: string; itemType: string; unitPriceCents: number; quantity?: string; taxable?: boolean };
     const qty = parseFloat(body.quantity ?? '1');
+
+    // Verify the parent quote belongs to this tenant before attaching a line item
+    const [parentQuote] = await fastify.db.select({ id: quotes.id }).from(quotes)
+      .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);
+    if (!parentQuote) throw new NotFoundError('Quote', id);
 
     const [item] = await fastify.db.insert(quoteLineItems).values({
       tenantId: request.tenantId,
@@ -263,7 +269,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     if (!quote) throw new NotFoundError('Quote', id);
 
     const lineItems = await fastify.db.select().from(quoteLineItems)
-      .where(eq(quoteLineItems.quoteId, id))
+      .where(and(eq(quoteLineItems.quoteId, id), eq(quoteLineItems.tenantId, request.tenantId)))
       .orderBy(quoteLineItems.sortOrder, quoteLineItems.createdAt);
 
     if (body.convertTo === 'contract') {
@@ -357,6 +363,11 @@ export async function quoteRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // Recalculate totals so the converted invoice picks up tax like hand-built invoices
+      await recalcInvoiceTotals(fastify.db, invoice.id, request.tenantId);
+      const [freshInvoice] = await fastify.db.select().from(invoices)
+        .where(and(eq(invoices.id, invoice.id), eq(invoices.tenantId, request.tenantId))).limit(1);
+
       // Update quote with converted reference
       await fastify.db.update(quotes).set({
         status: 'converted',
@@ -370,7 +381,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
       });
 
       reply.code(201);
-      return { convertedTo: 'invoice', invoiceId: invoice.id, invoice };
+      return { convertedTo: 'invoice', invoiceId: invoice.id, invoice: freshInvoice ?? invoice };
     }
 
     throw new Error('convertTo must be "contract" or "invoice"');

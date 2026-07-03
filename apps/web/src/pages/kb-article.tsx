@@ -250,10 +250,10 @@ export function KBArticlePage({ slug, onNavigate }: { slug?: string; onNavigate?
               {article.category && (
                 <Badge variant="secondary">{article.category}</Badge>
               )}
-              <Badge variant="secondary" className={article.visibility === 'public' ? 'bg-green-100 text-green-800' : article.visibility === 'portal' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}>
+              <Badge variant="secondary" className={article.visibility === 'public' ? 'bg-green-500/10 text-green-600 dark:text-green-400' : article.visibility === 'portal' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'}>
                 {article.visibility}
               </Badge>
-              <Badge variant="secondary" className={article.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}>
+              <Badge variant="secondary" className={article.status === 'published' ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-gray-500/10 text-gray-600 dark:text-gray-400'}>
                 {article.status}
               </Badge>
               <span className="flex items-center gap-1 text-xs text-muted-foreground ml-auto">

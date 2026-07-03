@@ -21,16 +21,16 @@ interface RiskItem {
 }
 
 const RISK_COLORS: Record<number, string> = {
-  1: 'bg-green-100 text-green-800', 2: 'bg-green-100 text-green-800',
-  3: 'bg-yellow-100 text-yellow-800', 4: 'bg-yellow-100 text-yellow-800',
-  5: 'bg-orange-100 text-orange-800', 6: 'bg-orange-100 text-orange-800',
-  8: 'bg-orange-100 text-orange-800', 9: 'bg-red-100 text-red-800',
-  10: 'bg-red-100 text-red-800', 12: 'bg-red-100 text-red-800',
-  15: 'bg-red-100 text-red-800', 16: 'bg-red-100 text-red-800',
-  20: 'bg-red-200 text-red-900', 25: 'bg-red-200 text-red-900',
+  1: 'bg-green-500/10 text-green-600 dark:text-green-400', 2: 'bg-green-500/10 text-green-600 dark:text-green-400',
+  3: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400', 4: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
+  5: 'bg-orange-500/10 text-orange-600 dark:text-orange-400', 6: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+  8: 'bg-orange-500/10 text-orange-600 dark:text-orange-400', 9: 'bg-red-500/10 text-red-600 dark:text-red-400',
+  10: 'bg-red-500/10 text-red-600 dark:text-red-400', 12: 'bg-red-500/10 text-red-600 dark:text-red-400',
+  15: 'bg-red-500/10 text-red-600 dark:text-red-400', 16: 'bg-red-500/10 text-red-600 dark:text-red-400',
+  20: 'bg-red-500/20 text-red-700 dark:text-red-300', 25: 'bg-red-500/20 text-red-700 dark:text-red-300',
 };
 function riskColor(score: number) {
-  return RISK_COLORS[score] || (score >= 15 ? 'bg-red-200 text-red-900' : score >= 8 ? 'bg-orange-100 text-orange-800' : score >= 4 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800');
+  return RISK_COLORS[score] || (score >= 15 ? 'bg-red-500/20 text-red-700 dark:text-red-300' : score >= 8 ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400' : score >= 4 ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' : 'bg-green-500/10 text-green-600 dark:text-green-400');
 }
 
 const emptyForm = { title: '', description: '', category: 'technical', riskSource: 'manual', likelihood: '3', impact: '3', riskResponse: 'mitigate', responseDetails: '', customerId: '', reviewDate: '' };

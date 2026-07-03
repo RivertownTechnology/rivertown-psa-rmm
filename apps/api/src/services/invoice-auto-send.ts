@@ -1,5 +1,6 @@
 import { eq, and, sql } from 'drizzle-orm';
 import { tenants, contracts, contractLineItems, invoices, invoiceLineItems, tenantSequences, customers, accountCredits } from '@rivertown/db';
+import { recalcInvoiceTotals } from '../modules/invoices/routes.js';
 
 export function startInvoiceAutoSendScheduler(db: any) {
   let running = false;
@@ -26,24 +27,30 @@ export function startInvoiceAutoSendScheduler(db: any) {
 
           for (const contract of activeContracts) {
             try {
-              // Derive billing day from the contract's start date
+              // Derive billing day from the contract's start date, clamped to the number
+              // of days in the current month so contracts starting on the 29th-31st still
+              // bill in shorter months (e.g. a 31st contract bills on Feb 28/29).
               const startDate = new Date(contract.startDate + 'T00:00:00');
-              const billingDay = startDate.getDate();
+              const daysInCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+              const billingDay = Math.min(startDate.getDate(), daysInCurrentMonth);
               if (billingDay !== todayDayOfMonth) continue;
 
               // Only process monthly billing cycle contracts
               if (contract.billingCycle && contract.billingCycle !== 'monthly') continue;
 
-              // Check if we already generated an invoice for this contract today
+              // Check if we already generated an invoice for THIS contract today.
+              // The invoices table has no contractId column, so we tag each auto-generated
+              // invoice's notes with a deterministic marker and dedup on (issueDate, marker).
               const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+              const contractMarker = `[auto:${contract.id}]`;
               const existing = await db.select({ id: invoices.id }).from(invoices)
                 .where(and(
                   eq(invoices.tenantId, tenant.id),
-                  eq(invoices.customerId, contract.customerId),
                   eq(invoices.issueDate, todayStr),
+                  sql`${invoices.notes} LIKE ${'%' + contractMarker + '%'}`,
                 )).limit(1);
 
-              if (existing.length > 0) continue; // Already generated today
+              if (existing.length > 0) continue; // Already generated for this contract today
 
               // Get line items for this contract
               const lineItems = await db.select().from(contractLineItems)
@@ -106,7 +113,7 @@ export function startInvoiceAutoSendScheduler(db: any) {
                 taxCents: 0,
                 totalCents,
                 amountPaidCents: 0,
-                notes: `Services for ${servicePeriod} — ${contract.name}`,
+                notes: `Services for ${servicePeriod} — ${contract.name} ${contractMarker}`,
               }).returning();
 
               // Create invoice line items
@@ -123,11 +130,18 @@ export function startInvoiceAutoSendScheduler(db: any) {
                 });
               }
 
+              // Recalculate totals so auto-generated invoices include tax, matching the
+              // manual generate path.
+              await recalcInvoiceTotals(db, invoice.id, tenant.id);
+              const [freshInvoice] = await db.select().from(invoices)
+                .where(and(eq(invoices.id, invoice.id), eq(invoices.tenantId, tenant.id))).limit(1);
+              const invoiceTotalCents = freshInvoice?.totalCents ?? totalCents;
+
               // Auto-apply account credits if customer has a balance
               const [cust] = await db.select().from(customers)
                 .where(and(eq(customers.id, contract.customerId), eq(customers.tenantId, tenant.id))).limit(1);
               if (cust && cust.creditBalanceCents > 0) {
-                const toApply = Math.min(cust.creditBalanceCents, totalCents);
+                const toApply = Math.min(cust.creditBalanceCents, invoiceTotalCents);
                 if (toApply > 0) {
                   const newCreditBal = cust.creditBalanceCents - toApply;
                   await db.insert(accountCredits).values({
@@ -137,7 +151,7 @@ export function startInvoiceAutoSendScheduler(db: any) {
                     createdBy: '00000000-0000-0000-0000-000000000000',
                   });
                   await db.update(customers).set({ creditBalanceCents: newCreditBal, updatedAt: new Date() }).where(eq(customers.id, cust.id));
-                  const newStatus = toApply >= totalCents ? 'paid' : 'draft';
+                  const newStatus = toApply >= invoiceTotalCents ? 'paid' : 'draft';
                   await db.update(invoices).set({ creditsAppliedCents: toApply, status: newStatus, updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
                 }
               }

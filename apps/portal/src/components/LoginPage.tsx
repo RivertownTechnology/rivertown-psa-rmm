@@ -137,7 +137,15 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <a
+                  href="mailto:support@rivertowntechnology.com?subject=Portal%20password%20reset"
+                  className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  Forgot your password?
+                </a>
+              </div>
               <Input
                 id="password"
                 type="password"

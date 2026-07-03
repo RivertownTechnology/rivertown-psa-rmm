@@ -6,10 +6,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton, SkeletonList, SkeletonTable } from '@/components/ui/skeleton';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  Headset, LogOut, Ticket, FileText, Receipt, Monitor, Plus, User,
+  LogOut, Ticket, FileText, Receipt, Monitor, Plus, User,
   MessageSquare, ChevronLeft, Send, Users, Shield, ShieldCheck, Check, X,
-  Settings as SettingsIcon, KeyRound, Fingerprint, Trash2, CreditCard,
+  Settings as SettingsIcon, KeyRound, Fingerprint, Trash2, CreditCard, AlertCircle,
 } from 'lucide-react';
 
 // ===== Types =====
@@ -39,13 +41,20 @@ type TabId = 'tickets' | 'invoices' | 'quotes' | 'assets' | 'admin' | 'settings'
 // ===== Helpers =====
 
 const statusStyle: Record<string, string> = {
-  new: 'bg-blue-100 text-blue-800', open: 'bg-green-100 text-green-800',
-  pending: 'bg-yellow-100 text-yellow-800', waiting_on_customer: 'bg-purple-100 text-purple-800',
-  scheduled: 'bg-indigo-100 text-indigo-800', resolved: 'bg-gray-100 text-gray-600',
-  closed: 'bg-gray-100 text-gray-500', draft: 'bg-gray-100 text-gray-600',
-  sent: 'bg-blue-100 text-blue-800', paid: 'bg-green-100 text-green-800',
-  overdue: 'bg-red-100 text-red-800', cancelled: 'bg-gray-100 text-gray-500',
-  approved: 'bg-green-100 text-green-800', rejected: 'bg-red-100 text-red-800',
+  new: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
+  open: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
+  pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300',
+  waiting_on_customer: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
+  scheduled: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300',
+  resolved: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
+  closed: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+  draft: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
+  sent: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
+  paid: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
+  overdue: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+  cancelled: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+  approved: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
+  rejected: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
 };
 
 function fmtDate(d: string) { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
@@ -84,10 +93,8 @@ export function Dashboard({ userName, portalRole, portalPermissions, onLogout }:
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Headset className="h-4 w-4" />
-            </div>
-            <span className="text-lg font-semibold">Support Portal</span>
+            <img src="/logo.png" alt="Rivertown Technology" className="h-8 w-auto" />
+            <span className="text-lg font-semibold">Customer Portal</span>
           </div>
           <div className="flex items-center gap-3">
             {userName && (
@@ -181,7 +188,7 @@ function TicketsTab() {
         <Button size="sm" onClick={() => setShowNew(true)}><Plus className="h-4 w-4 mr-1" />New Ticket</Button>
       </CardHeader>
       <CardContent>
-        {!loaded ? <p className="text-center py-8 text-muted-foreground">Loading...</p> :
+        {!loaded ? <SkeletonList rows={4} /> :
          tickets.length === 0 ? (
           <EmptyState icon={Ticket} title="No tickets yet" description="Submit a support request and it will appear here." />
         ) : (
@@ -193,7 +200,7 @@ function TicketsTab() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs text-muted-foreground">#{t.ticketNumber}</span>
-                      <Badge className={`text-xs ${statusStyle[t.status] ?? ''}`}>{t.status.replace(/_/g, ' ')}</Badge>
+                      <Badge variant="status" className={`text-xs ${statusStyle[t.status] ?? ''}`}>{t.status.replace(/_/g, ' ')}</Badge>
                       <Badge variant="outline" className="text-xs capitalize">{t.priority}</Badge>
                     </div>
                     <div className="font-medium truncate">{t.subject}</div>
@@ -214,11 +221,21 @@ function TicketDetail({ ticketId, onBack }: { ticketId: string; onBack: () => vo
   const [comments, setComments] = useState<Comment[]>([]);
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    api<TicketData>(`/portal/tickets/${ticketId}`).then(setTicket).catch(() => {});
-    api<Comment[]>(`/portal/tickets/${ticketId}/comments`).then(setComments).catch(() => {});
+  const load = useCallback(() => {
+    setLoading(true); setLoadError(false);
+    Promise.all([
+      api<TicketData>(`/portal/tickets/${ticketId}`),
+      api<Comment[]>(`/portal/tickets/${ticketId}/comments`),
+    ])
+      .then(([t, c]) => { setTicket(t); setComments(c); })
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
   }, [ticketId]);
+
+  useEffect(() => { load(); }, [load]);
 
   async function sendComment() {
     if (!body.trim()) return;
@@ -231,7 +248,43 @@ function TicketDetail({ ticketId, onBack }: { ticketId: string; onBack: () => vo
     } finally { setSending(false); }
   }
 
-  if (!ticket) return <p className="text-center py-8 text-muted-foreground">Loading...</p>;
+  if (loadError || (!loading && !ticket)) {
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" size="sm" onClick={onBack}><ChevronLeft className="h-4 w-4 mr-1" />Back to Tickets</Button>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+              <AlertCircle className="h-6 w-6 text-destructive" />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium">Couldn't load this ticket</h3>
+              <p className="text-sm text-muted-foreground">Something went wrong. Please try again.</p>
+            </div>
+            <Button size="sm" variant="outline" onClick={load}>Retry</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (loading || !ticket) {
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" size="sm" onClick={onBack}><ChevronLeft className="h-4 w-4 mr-1" />Back to Tickets</Button>
+        <Card>
+          <CardHeader className="space-y-2">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-6 w-3/5" />
+            <Skeleton className="h-3 w-32" />
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardContent className="pt-6"><SkeletonList rows={3} /></CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -240,7 +293,7 @@ function TicketDetail({ ticketId, onBack }: { ticketId: string; onBack: () => vo
         <CardHeader>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-sm text-muted-foreground">#{ticket.ticketNumber}</span>
-            <Badge className={`text-xs ${statusStyle[ticket.status] ?? ''}`}>{ticket.status.replace(/_/g, ' ')}</Badge>
+            <Badge variant="status" className={`text-xs ${statusStyle[ticket.status] ?? ''}`}>{ticket.status.replace(/_/g, ' ')}</Badge>
             <Badge variant="outline" className="text-xs capitalize">{ticket.priority}</Badge>
           </div>
           <CardTitle>{ticket.subject}</CardTitle>
@@ -270,7 +323,7 @@ function TicketDetail({ ticketId, onBack }: { ticketId: string; onBack: () => vo
             <textarea value={body} onChange={e => setBody(e.target.value)} placeholder="Add a comment..."
               className="flex-1 min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment(); } }} />
-            <Button size="sm" onClick={sendComment} disabled={sending || !body.trim()} className="self-end">
+            <Button size="sm" onClick={sendComment} disabled={sending || !body.trim()} className="self-end" aria-label="Send comment">
               <Send className="h-4 w-4" />
             </Button>
           </div>
@@ -317,21 +370,21 @@ function NewTicket({ onBack }: { onBack: () => void }) {
           {error && <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-md mb-4">{error}</div>}
           <form onSubmit={submit} className="space-y-4">
             <div className="space-y-2">
-              <Label>Subject</Label>
-              <Input required value={subject} onChange={e => setSubject(e.target.value)} placeholder="Brief description of your issue" />
+              <Label htmlFor="ticket-subject">Subject</Label>
+              <Input id="ticket-subject" required value={subject} onChange={e => setSubject(e.target.value)} placeholder="Brief description of your issue" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>Category</Label>
-                <select value={categoryId} onChange={e => { setCategoryId(e.target.value); setSubcategoryId(''); }}
+                <Label htmlFor="ticket-category">Category</Label>
+                <select id="ticket-category" value={categoryId} onChange={e => { setCategoryId(e.target.value); setSubcategoryId(''); }}
                   className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
                   <option value="">Select category</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
               <div className="space-y-2">
-                <Label>Subcategory</Label>
-                <select value={subcategoryId} onChange={e => setSubcategoryId(e.target.value)} disabled={!categoryId}
+                <Label htmlFor="ticket-subcategory">Subcategory</Label>
+                <select id="ticket-subcategory" value={subcategoryId} onChange={e => setSubcategoryId(e.target.value)} disabled={!categoryId}
                   className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
                   <option value="">{categoryId ? 'Select subcategory' : 'Select category first'}</option>
                   {selectedCat?.subcategories.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -339,8 +392,8 @@ function NewTicket({ onBack }: { onBack: () => void }) {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Description</Label>
-              <textarea value={description} onChange={e => setDescription(e.target.value)}
+              <Label htmlFor="ticket-description">Description</Label>
+              <textarea id="ticket-description" value={description} onChange={e => setDescription(e.target.value)}
                 className="w-full min-h-[120px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
                 placeholder="Describe the issue in detail..." />
             </div>
@@ -365,7 +418,12 @@ function InvoicesTab() {
     api<InvoiceData[]>('/portal/invoices').then(d => { setInvoices(d); setLoaded(true); }).catch(() => setLoaded(true));
   }, []);
 
-  if (!loaded) return <p className="text-center py-8 text-muted-foreground">Loading...</p>;
+  if (!loaded) return (
+    <Card>
+      <CardHeader><CardTitle>Invoices</CardTitle></CardHeader>
+      <CardContent><SkeletonTable rows={5} columns={7} /></CardContent>
+    </Card>
+  );
 
   return (
     <Card>
@@ -391,7 +449,7 @@ function InvoicesTab() {
                   return (
                     <tr key={inv.id} className="border-b hover:bg-muted/30">
                       <td className="p-3 font-medium">INV-{inv.invoiceNumber}</td>
-                      <td className="p-3"><Badge className={`text-xs ${statusStyle[inv.status] ?? ''}`}>{inv.status}</Badge></td>
+                      <td className="p-3"><Badge variant="status" className={`text-xs ${statusStyle[inv.status] ?? ''}`}>{inv.status}</Badge></td>
                       <td className="p-3">{fmtDate(inv.issueDate)}</td>
                       <td className="p-3">{fmtDate(inv.dueDate)}</td>
                       <td className="p-3 text-right font-mono">{formatCents(inv.totalCents)}</td>
@@ -414,6 +472,9 @@ function InvoicesTab() {
 function QuotesTab() {
   const [quotes, setQuotes] = useState<QuoteData[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [pending, setPending] = useState<{ quote: QuoteData; action: 'approve' | 'reject' } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const load = useCallback(() => {
     api<QuoteData[]>('/portal/quotes').then(d => { setQuotes(d); setLoaded(true); }).catch(() => setLoaded(true));
@@ -421,16 +482,27 @@ function QuotesTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function approve(id: string) {
-    await api(`/portal/quotes/${id}/approve`, { method: 'POST' });
-    load();
-  }
-  async function reject(id: string) {
-    await api(`/portal/quotes/${id}/reject`, { method: 'POST' });
-    load();
+  async function confirmAction() {
+    if (!pending || submitting) return;
+    setSubmitting(true); setError('');
+    try {
+      const endpoint = pending.action === 'approve' ? 'approve' : 'reject';
+      await api(`/portal/quotes/${pending.quote.id}/${endpoint}`, { method: 'POST' });
+      setPending(null);
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : `Failed to ${pending.action} quote. Please try again.`);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
-  if (!loaded) return <p className="text-center py-8 text-muted-foreground">Loading...</p>;
+  if (!loaded) return (
+    <Card>
+      <CardHeader><CardTitle>Quotes</CardTitle></CardHeader>
+      <CardContent><SkeletonList rows={3} /></CardContent>
+    </Card>
+  );
 
   return (
     <Card>
@@ -446,15 +518,15 @@ function QuotesTab() {
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs text-muted-foreground">Q-{q.quoteNumber}</span>
-                      <Badge className={`text-xs ${statusStyle[q.status] ?? ''}`}>{q.status}</Badge>
+                      <Badge variant="status" className={`text-xs ${statusStyle[q.status] ?? ''}`}>{q.status}</Badge>
                     </div>
                     <div className="font-medium">{q.title}</div>
                     <div className="text-sm text-muted-foreground">{formatCents(q.totalCents)} - {fmtDate(q.createdAt)}</div>
                   </div>
                   {q.status === 'sent' && (
                     <div className="flex gap-2 shrink-0">
-                      <Button size="sm" variant="outline" onClick={() => reject(q.id)}><X className="h-4 w-4 mr-1" />Decline</Button>
-                      <Button size="sm" onClick={() => approve(q.id)}><Check className="h-4 w-4 mr-1" />Approve</Button>
+                      <Button size="sm" variant="outline" onClick={() => { setError(''); setPending({ quote: q, action: 'reject' }); }}><X className="h-4 w-4 mr-1" />Decline</Button>
+                      <Button size="sm" onClick={() => { setError(''); setPending({ quote: q, action: 'approve' }); }}><Check className="h-4 w-4 mr-1" />Approve</Button>
                     </div>
                   )}
                 </div>
@@ -463,6 +535,24 @@ function QuotesTab() {
           </div>
         )}
       </CardContent>
+
+      <ConfirmDialog
+        open={!!pending}
+        onOpenChange={(o) => { if (!o && !submitting) { setPending(null); setError(''); } }}
+        title={pending?.action === 'approve' ? 'Approve this quote?' : 'Decline this quote?'}
+        description={
+          pending
+            ? pending.action === 'approve'
+              ? `Approving Q-${pending.quote.quoteNumber} "${pending.quote.title}" for ${formatCents(pending.quote.totalCents)} authorizes the work and is a financial commitment. Continue?`
+              : `Decline Q-${pending.quote.quoteNumber} "${pending.quote.title}"? Your account manager will be notified.`
+            : ''
+        }
+        confirmLabel={pending?.action === 'approve' ? 'Approve Quote' : 'Decline Quote'}
+        variant={pending?.action === 'approve' ? 'default' : 'destructive'}
+        onConfirm={confirmAction}
+        loading={submitting}
+        error={error}
+      />
     </Card>
   );
 }
@@ -477,7 +567,12 @@ function AssetsTab() {
     api<AssetData[]>('/portal/assets').then(d => { setAssets(d); setLoaded(true); }).catch(() => setLoaded(true));
   }, []);
 
-  if (!loaded) return <p className="text-center py-8 text-muted-foreground">Loading...</p>;
+  if (!loaded) return (
+    <Card>
+      <CardHeader><CardTitle>Assets</CardTitle></CardHeader>
+      <CardContent><SkeletonTable rows={5} columns={4} /></CardContent>
+    </Card>
+  );
 
   return (
     <Card>
@@ -521,7 +616,13 @@ function AdminTab() {
   const [invitePassword, setInvitePassword] = useState('');
   const [invitePerms, setInvitePerms] = useState<string[]>(['tickets']);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [inviteError, setInviteError] = useState('');
+  const [revokeTarget, setRevokeTarget] = useState<PortalUserData | null>(null);
+  const [revoking, setRevoking] = useState(false);
+
+  const MIN_PASSWORD_LENGTH = 12;
+  const passwordTooShort = invitePassword.length > 0 && invitePassword.length < MIN_PASSWORD_LENGTH;
 
   const load = useCallback(() => {
     api<PortalUserData[]>('/portal/users').then(d => { setUsers(d); setLoaded(true); }).catch(() => setLoaded(true));
@@ -530,17 +631,21 @@ function AdminTab() {
   useEffect(() => { load(); }, [load]);
 
   async function enableUser() {
-    if (!showInvite || !invitePassword) return;
-    setSaving(true); setMessage('');
+    if (!showInvite) return;
+    if (invitePassword.length < MIN_PASSWORD_LENGTH) {
+      setInviteError(`Must be at least ${MIN_PASSWORD_LENGTH} characters`);
+      return;
+    }
+    setSaving(true); setInviteError(''); setMessage(null);
     try {
       await api(`/portal/users/${showInvite}/enable`, {
         method: 'POST', body: JSON.stringify({ password: invitePassword, permissions: invitePerms }),
       });
       setShowInvite(null); setInvitePassword(''); setInvitePerms(['tickets']);
-      setMessage('Portal access granted');
+      setMessage({ type: 'success', text: 'Portal access granted' });
       load();
     } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : 'Failed');
+      setInviteError(err instanceof Error ? err.message : 'Failed to grant access');
     } finally { setSaving(false); }
   }
 
@@ -549,20 +654,32 @@ function AdminTab() {
     load();
   }
 
-  async function revoke(contactId: string) {
-    if (!confirm('Revoke this user\'s portal access?')) return;
-    await api(`/portal/users/${contactId}/revoke`, { method: 'POST' });
-    load();
+  async function confirmRevoke() {
+    if (!revokeTarget || revoking) return;
+    setRevoking(true); setMessage(null);
+    try {
+      await api(`/portal/users/${revokeTarget.id}/revoke`, { method: 'POST' });
+      setRevokeTarget(null);
+      setMessage({ type: 'success', text: 'Portal access revoked' });
+      load();
+    } catch (err: unknown) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to revoke access' });
+      setRevokeTarget(null);
+    } finally { setRevoking(false); }
   }
 
-  if (!loaded) return <p className="text-center py-8 text-muted-foreground">Loading...</p>;
+  if (!loaded) return <SkeletonList rows={4} />;
 
   const activeUsers = users.filter(u => u.portalEnabled);
   const inactiveUsers = users.filter(u => !u.portalEnabled);
 
   return (
     <div className="space-y-4">
-      {message && <div className="bg-green-50 text-green-800 text-sm p-3 rounded-md border border-green-200">{message}</div>}
+      {message && (
+        <div className={`text-sm p-3 rounded-md border ${message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-900' : 'bg-red-50 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-900'}`}>
+          {message.text}
+        </div>
+      )}
 
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" />Active Portal Users</CardTitle></CardHeader>
@@ -577,7 +694,7 @@ function AdminTab() {
                       <div className="font-medium">{u.firstName} {u.lastName}</div>
                       <div className="text-xs text-muted-foreground">{u.email}</div>
                       <div className="flex gap-1 mt-1">
-                        {u.portalRole === 'admin' && <Badge className="text-xs bg-purple-100 text-purple-800">Admin</Badge>}
+                        {u.portalRole === 'admin' && <Badge variant="status" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">Admin</Badge>}
                         {perms.includes('tickets') && <Badge variant="outline" className="text-xs">Tickets</Badge>}
                         {perms.includes('billing') && <Badge variant="outline" className="text-xs">Billing</Badge>}
                       </div>
@@ -590,7 +707,7 @@ function AdminTab() {
                           <option value="billing">Billing only</option>
                           <option value="tickets,billing">Tickets + Billing</option>
                         </select>
-                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => revoke(u.id)}>Revoke</Button>
+                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setRevokeTarget(u)}>Revoke</Button>
                       </div>
                     )}
                   </div>
@@ -613,7 +730,7 @@ function AdminTab() {
                     <div className="font-medium">{u.firstName} {u.lastName}</div>
                     <div className="text-xs text-muted-foreground">{u.email}</div>
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => { setShowInvite(u.id); setInvitePassword(''); setInvitePerms(['tickets']); }}>
+                  <Button size="sm" variant="outline" onClick={() => { setShowInvite(u.id); setInvitePassword(''); setInvitePerms(['tickets']); setInviteError(''); }}>
                     Grant Access
                   </Button>
                 </div>
@@ -633,9 +750,11 @@ function AdminTab() {
             <p className="text-sm text-muted-foreground">
               Set a temporary password for <strong>{users.find(u => u.id === showInvite)?.email}</strong>
             </p>
+            {inviteError && <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{inviteError}</div>}
             <div className="space-y-2">
-              <Label>Password (minimum 8 characters)</Label>
-              <Input type="password" value={invitePassword} onChange={e => setInvitePassword(e.target.value)} placeholder="Temporary password" />
+              <Label htmlFor="invite-password">Password (minimum {MIN_PASSWORD_LENGTH} characters)</Label>
+              <Input id="invite-password" type="password" value={invitePassword} onChange={e => { setInvitePassword(e.target.value); setInviteError(''); }} placeholder="Temporary password" aria-invalid={passwordTooShort} />
+              {passwordTooShort && <p className="text-xs text-destructive">Must be at least {MIN_PASSWORD_LENGTH} characters</p>}
             </div>
             <div className="space-y-2">
               <Label>Permissions</Label>
@@ -654,13 +773,24 @@ function AdminTab() {
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setShowInvite(null)}>Cancel</Button>
-              <Button onClick={enableUser} disabled={saving || invitePassword.length < 12}>
+              <Button onClick={enableUser} disabled={saving || invitePassword.length < MIN_PASSWORD_LENGTH}>
                 {saving ? 'Saving...' : 'Grant Access'}
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
+
+      <ConfirmDialog
+        open={!!revokeTarget}
+        onOpenChange={(o) => { if (!o && !revoking) setRevokeTarget(null); }}
+        title="Revoke portal access?"
+        description={revokeTarget ? `${revokeTarget.firstName} ${revokeTarget.lastName} (${revokeTarget.email}) will no longer be able to sign in to the portal.` : ''}
+        confirmLabel="Revoke Access"
+        variant="destructive"
+        onConfirm={confirmRevoke}
+        loading={revoking}
+      />
     </div>
   );
 }
@@ -694,27 +824,43 @@ interface BillingData {
   state: string | null; zip: string | null; creditBalanceCents: number;
 }
 
+type Msg = { type: 'success' | 'error'; text: string } | null;
+
+function MessageBanner({ msg }: { msg: Msg }) {
+  if (!msg) return null;
+  const isError = msg.type === 'error';
+  return (
+    <div className={`mb-3 rounded-md border px-3 py-2 text-sm ${isError
+      ? 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/30 dark:border-red-900 dark:text-red-300'
+      : 'bg-green-50 border-green-200 text-green-800 dark:bg-green-900/30 dark:border-green-900 dark:text-green-300'}`}>
+      {msg.text}
+    </div>
+  );
+}
+
 function SettingsTab({ isAdmin }: { isAdmin: boolean }) {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', phone: '', jobTitle: '' });
   const [savingProfile, setSavingProfile] = useState(false);
-  const [profileMsg, setProfileMsg] = useState('');
+  const [profileMsg, setProfileMsg] = useState<Msg>(null);
 
   // Password
   const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
   const [savingPw, setSavingPw] = useState(false);
-  const [pwMsg, setPwMsg] = useState('');
+  const [pwMsg, setPwMsg] = useState<Msg>(null);
 
   // Passkeys
   const [passkeys, setPasskeys] = useState<PasskeyData[]>([]);
-  const [passkeyMsg, setPasskeyMsg] = useState('');
+  const [passkeyMsg, setPasskeyMsg] = useState<Msg>(null);
   const [registering, setRegistering] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<PasskeyData | null>(null);
+  const [deletingPasskey, setDeletingPasskey] = useState(false);
 
   // Billing (admin)
   const [billing, setBilling] = useState<BillingData | null>(null);
   const [billingForm, setBillingForm] = useState({ billingEmail: '', ccBillingEmail: '', phone: '', address: '', city: '', state: '', zip: '' });
   const [savingBilling, setSavingBilling] = useState(false);
-  const [billingMsg, setBillingMsg] = useState('');
+  const [billingMsg, setBillingMsg] = useState<Msg>(null);
 
   useEffect(() => {
     api<ProfileData>('/portal/me').then(p => {
@@ -747,61 +893,67 @@ function SettingsTab({ isAdmin }: { isAdmin: boolean }) {
   }
 
   async function saveProfile(e: React.FormEvent) {
-    e.preventDefault(); setSavingProfile(true); setProfileMsg('');
+    e.preventDefault(); setSavingProfile(true); setProfileMsg(null);
     try {
       await api('/portal/me', { method: 'PATCH', body: JSON.stringify(profileForm) });
-      setProfileMsg('Profile updated');
+      setProfileMsg({ type: 'success', text: 'Profile updated' });
       const p = await api<ProfileData>('/portal/me');
       setProfile(p);
-    } catch (err: any) { setProfileMsg(err.message || 'Failed to update'); }
+    } catch (err: any) { setProfileMsg({ type: 'error', text: err.message || 'Failed to update' }); }
     finally { setSavingProfile(false); }
   }
 
   async function savePassword(e: React.FormEvent) {
-    e.preventDefault(); setSavingPw(true); setPwMsg('');
-    if (pwForm.next !== pwForm.confirm) { setPwMsg('Passwords do not match'); setSavingPw(false); return; }
-    if (pwForm.next.length < 15) { setPwMsg('Password must be at least 15 characters'); setSavingPw(false); return; }
+    e.preventDefault(); setSavingPw(true); setPwMsg(null);
+    if (pwForm.next !== pwForm.confirm) { setPwMsg({ type: 'error', text: 'Passwords do not match' }); setSavingPw(false); return; }
+    if (pwForm.next.length < 15) { setPwMsg({ type: 'error', text: 'Password must be at least 15 characters' }); setSavingPw(false); return; }
     try {
       await api('/portal/auth/change-password', {
         method: 'POST',
         body: JSON.stringify({ currentPassword: pwForm.current, newPassword: pwForm.next }),
       });
-      setPwMsg('Password changed successfully');
+      setPwMsg({ type: 'success', text: 'Password changed successfully' });
       setPwForm({ current: '', next: '', confirm: '' });
-    } catch (err: any) { setPwMsg(err.message || 'Failed to change password'); }
+    } catch (err: any) { setPwMsg({ type: 'error', text: err.message || 'Failed to change password' }); }
     finally { setSavingPw(false); }
   }
 
   async function registerPasskey() {
-    setRegistering(true); setPasskeyMsg('');
+    setRegistering(true); setPasskeyMsg(null);
     try {
       const { startRegistration } = await import('@simplewebauthn/browser');
       const options = await api<any>('/portal/auth/passkey/register-options', { method: 'POST', body: JSON.stringify({}) });
       const attResp = await startRegistration({ optionsJSON: options });
       await api('/portal/auth/passkey/register', { method: 'POST', body: JSON.stringify(attResp) });
-      setPasskeyMsg('Passkey registered successfully');
+      setPasskeyMsg({ type: 'success', text: 'Passkey registered successfully' });
       await loadPasskeys();
     } catch (err: any) {
-      setPasskeyMsg(err.message || 'Failed to register passkey');
+      setPasskeyMsg({ type: 'error', text: err.message || 'Failed to register passkey' });
     } finally { setRegistering(false); }
   }
 
-  async function deletePasskey(id: string) {
-    if (!confirm('Delete this passkey? You won\'t be able to use it to sign in anymore.')) return;
+  async function confirmDeletePasskey() {
+    if (!deleteTarget || deletingPasskey) return;
+    setDeletingPasskey(true); setPasskeyMsg(null);
     try {
-      await api(`/portal/me/passkeys/${id}`, { method: 'DELETE' });
+      await api(`/portal/me/passkeys/${deleteTarget.id}`, { method: 'DELETE' });
+      setDeleteTarget(null);
+      setPasskeyMsg({ type: 'success', text: 'Passkey deleted' });
       await loadPasskeys();
-    } catch (err: any) { setPasskeyMsg(err.message || 'Failed to delete passkey'); }
+    } catch (err: any) {
+      setDeleteTarget(null);
+      setPasskeyMsg({ type: 'error', text: err.message || 'Failed to delete passkey' });
+    } finally { setDeletingPasskey(false); }
   }
 
   async function saveBilling(e: React.FormEvent) {
-    e.preventDefault(); setSavingBilling(true); setBillingMsg('');
+    e.preventDefault(); setSavingBilling(true); setBillingMsg(null);
     try {
       await api('/portal/billing', { method: 'PATCH', body: JSON.stringify(billingForm) });
-      setBillingMsg('Billing info updated');
+      setBillingMsg({ type: 'success', text: 'Billing info updated' });
       const b = await api<BillingData>('/portal/billing');
       setBilling(b);
-    } catch (err: any) { setBillingMsg(err.message || 'Failed to update billing'); }
+    } catch (err: any) { setBillingMsg({ type: 'error', text: err.message || 'Failed to update billing' }); }
     finally { setSavingBilling(false); }
   }
 
@@ -813,16 +965,16 @@ function SettingsTab({ isAdmin }: { isAdmin: boolean }) {
           <CardTitle className="flex items-center gap-2"><User className="h-5 w-5" />My Profile</CardTitle>
         </CardHeader>
         <CardContent>
-          {profileMsg && <div className="mb-3 rounded-md bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">{profileMsg}</div>}
+          <MessageBanner msg={profileMsg} />
           <form onSubmit={saveProfile} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1"><Label>First Name</Label><Input value={profileForm.firstName} onChange={e => setProfileForm(f => ({ ...f, firstName: e.target.value }))} /></div>
-              <div className="space-y-1"><Label>Last Name</Label><Input value={profileForm.lastName} onChange={e => setProfileForm(f => ({ ...f, lastName: e.target.value }))} /></div>
+              <div className="space-y-1"><Label htmlFor="profile-firstName">First Name</Label><Input id="profile-firstName" value={profileForm.firstName} onChange={e => setProfileForm(f => ({ ...f, firstName: e.target.value }))} /></div>
+              <div className="space-y-1"><Label htmlFor="profile-lastName">Last Name</Label><Input id="profile-lastName" value={profileForm.lastName} onChange={e => setProfileForm(f => ({ ...f, lastName: e.target.value }))} /></div>
             </div>
-            <div className="space-y-1"><Label>Email</Label><Input value={profile?.email || ''} disabled /><p className="text-xs text-muted-foreground">Contact your account manager to change your email address.</p></div>
+            <div className="space-y-1"><Label htmlFor="profile-email">Email</Label><Input id="profile-email" value={profile?.email || ''} disabled /><p className="text-xs text-muted-foreground">Contact your account manager to change your email address.</p></div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1"><Label>Phone</Label><Input value={profileForm.phone} onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))} placeholder="(555) 555-5555" /></div>
-              <div className="space-y-1"><Label>Job Title</Label><Input value={profileForm.jobTitle} onChange={e => setProfileForm(f => ({ ...f, jobTitle: e.target.value }))} placeholder="IT Manager" /></div>
+              <div className="space-y-1"><Label htmlFor="profile-phone">Phone</Label><Input id="profile-phone" value={profileForm.phone} onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))} placeholder="(555) 555-5555" /></div>
+              <div className="space-y-1"><Label htmlFor="profile-jobTitle">Job Title</Label><Input id="profile-jobTitle" value={profileForm.jobTitle} onChange={e => setProfileForm(f => ({ ...f, jobTitle: e.target.value }))} placeholder="IT Manager" /></div>
             </div>
             <Button type="submit" disabled={savingProfile}>{savingProfile ? 'Saving...' : 'Save Profile'}</Button>
           </form>
@@ -835,11 +987,11 @@ function SettingsTab({ isAdmin }: { isAdmin: boolean }) {
           <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" />Change Password</CardTitle>
         </CardHeader>
         <CardContent>
-          {pwMsg && <div className={`mb-3 rounded-md border px-3 py-2 text-sm ${pwMsg.includes('success') ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>{pwMsg}</div>}
+          <MessageBanner msg={pwMsg} />
           <form onSubmit={savePassword} className="space-y-4">
-            <div className="space-y-1"><Label>Current Password</Label><Input type="password" value={pwForm.current} onChange={e => setPwForm(f => ({ ...f, current: e.target.value }))} required /></div>
-            <div className="space-y-1"><Label>New Password</Label><Input type="password" value={pwForm.next} onChange={e => setPwForm(f => ({ ...f, next: e.target.value }))} required minLength={15} /><p className="text-xs text-muted-foreground">At least 15 characters.</p></div>
-            <div className="space-y-1"><Label>Confirm New Password</Label><Input type="password" value={pwForm.confirm} onChange={e => setPwForm(f => ({ ...f, confirm: e.target.value }))} required /></div>
+            <div className="space-y-1"><Label htmlFor="pw-current">Current Password</Label><Input id="pw-current" type="password" value={pwForm.current} onChange={e => setPwForm(f => ({ ...f, current: e.target.value }))} required /></div>
+            <div className="space-y-1"><Label htmlFor="pw-next">New Password</Label><Input id="pw-next" type="password" value={pwForm.next} onChange={e => setPwForm(f => ({ ...f, next: e.target.value }))} required minLength={15} /><p className="text-xs text-muted-foreground">At least 15 characters.</p></div>
+            <div className="space-y-1"><Label htmlFor="pw-confirm">Confirm New Password</Label><Input id="pw-confirm" type="password" value={pwForm.confirm} onChange={e => setPwForm(f => ({ ...f, confirm: e.target.value }))} required /></div>
             <Button type="submit" disabled={savingPw}>{savingPw ? 'Saving...' : 'Change Password'}</Button>
           </form>
         </CardContent>
@@ -857,7 +1009,7 @@ function SettingsTab({ isAdmin }: { isAdmin: boolean }) {
           <p className="text-sm text-muted-foreground mt-2">Passkeys let you sign in with your fingerprint, face, or security key — no password needed.</p>
         </CardHeader>
         <CardContent>
-          {passkeyMsg && <div className="mb-3 rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">{passkeyMsg}</div>}
+          <MessageBanner msg={passkeyMsg} />
           {passkeys.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4 text-center">No passkeys yet. Add one to sign in without a password.</p>
           ) : (
@@ -871,7 +1023,7 @@ function SettingsTab({ isAdmin }: { isAdmin: boolean }) {
                       <div className="text-xs text-muted-foreground">Added {fmtDate(pk.createdAt)}{pk.backedUp ? ' • Backed up' : ''}</div>
                     </div>
                   </div>
-                  <Button size="sm" variant="ghost" onClick={() => deletePasskey(pk.id)}>
+                  <Button size="sm" variant="ghost" onClick={() => setDeleteTarget(pk)} aria-label="Delete passkey">
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
@@ -889,16 +1041,16 @@ function SettingsTab({ isAdmin }: { isAdmin: boolean }) {
             <p className="text-sm text-muted-foreground mt-2">Billing details for {billing?.name}. This is where invoices will be sent.</p>
           </CardHeader>
           <CardContent>
-            {billingMsg && <div className="mb-3 rounded-md bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">{billingMsg}</div>}
+            <MessageBanner msg={billingMsg} />
             <form onSubmit={saveBilling} className="space-y-4">
-              <div className="space-y-1"><Label>Billing Email</Label><Input type="email" value={billingForm.billingEmail} onChange={e => setBillingForm(f => ({ ...f, billingEmail: e.target.value }))} placeholder="billing@company.com" /></div>
-              <div className="space-y-1"><Label>CC Billing Email</Label><Input type="email" value={billingForm.ccBillingEmail} onChange={e => setBillingForm(f => ({ ...f, ccBillingEmail: e.target.value }))} placeholder="accounting@company.com (optional)" /></div>
-              <div className="space-y-1"><Label>Billing Phone</Label><Input value={billingForm.phone} onChange={e => setBillingForm(f => ({ ...f, phone: e.target.value }))} placeholder="(555) 555-5555" /></div>
-              <div className="space-y-1"><Label>Address</Label><Input value={billingForm.address} onChange={e => setBillingForm(f => ({ ...f, address: e.target.value }))} /></div>
+              <div className="space-y-1"><Label htmlFor="billing-email">Billing Email</Label><Input id="billing-email" type="email" value={billingForm.billingEmail} onChange={e => setBillingForm(f => ({ ...f, billingEmail: e.target.value }))} placeholder="billing@company.com" /></div>
+              <div className="space-y-1"><Label htmlFor="billing-ccEmail">CC Billing Email</Label><Input id="billing-ccEmail" type="email" value={billingForm.ccBillingEmail} onChange={e => setBillingForm(f => ({ ...f, ccBillingEmail: e.target.value }))} placeholder="accounting@company.com (optional)" /></div>
+              <div className="space-y-1"><Label htmlFor="billing-phone">Billing Phone</Label><Input id="billing-phone" value={billingForm.phone} onChange={e => setBillingForm(f => ({ ...f, phone: e.target.value }))} placeholder="(555) 555-5555" /></div>
+              <div className="space-y-1"><Label htmlFor="billing-address">Address</Label><Input id="billing-address" value={billingForm.address} onChange={e => setBillingForm(f => ({ ...f, address: e.target.value }))} /></div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1"><Label>City</Label><Input value={billingForm.city} onChange={e => setBillingForm(f => ({ ...f, city: e.target.value }))} /></div>
-                <div className="space-y-1"><Label>State</Label><Input value={billingForm.state} onChange={e => setBillingForm(f => ({ ...f, state: e.target.value }))} /></div>
-                <div className="space-y-1"><Label>ZIP</Label><Input value={billingForm.zip} onChange={e => setBillingForm(f => ({ ...f, zip: e.target.value }))} /></div>
+                <div className="space-y-1"><Label htmlFor="billing-city">City</Label><Input id="billing-city" value={billingForm.city} onChange={e => setBillingForm(f => ({ ...f, city: e.target.value }))} /></div>
+                <div className="space-y-1"><Label htmlFor="billing-state">State</Label><Input id="billing-state" value={billingForm.state} onChange={e => setBillingForm(f => ({ ...f, state: e.target.value }))} /></div>
+                <div className="space-y-1"><Label htmlFor="billing-zip">ZIP</Label><Input id="billing-zip" value={billingForm.zip} onChange={e => setBillingForm(f => ({ ...f, zip: e.target.value }))} /></div>
               </div>
               {billing && billing.creditBalanceCents > 0 && (
                 <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm">
@@ -910,6 +1062,17 @@ function SettingsTab({ isAdmin }: { isAdmin: boolean }) {
           </CardContent>
         </Card>
       )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => { if (!o && !deletingPasskey) setDeleteTarget(null); }}
+        title="Delete this passkey?"
+        description="You won't be able to use it to sign in anymore. You can add a new passkey at any time."
+        confirmLabel="Delete Passkey"
+        variant="destructive"
+        onConfirm={confirmDeletePasskey}
+        loading={deletingPasskey}
+      />
     </div>
   );
 }

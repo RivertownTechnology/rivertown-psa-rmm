@@ -72,8 +72,6 @@ interface OnboardingStep {
 
 const ONBOARDING_STEPS: OnboardingStep[] = [
   { id: 'customer', label: 'Add your first customer', description: 'Create a customer to start managing their IT', href: '/customers', check: s => s.customers.total > 0 },
-  { id: 'contract', label: 'Create a contract', description: 'Set up a managed services or block time contract', href: '/billing/contracts', check: () => false },
-  { id: 'catalog', label: 'Set up your service catalog', description: 'Define your products and services with pricing', href: '/catalog', check: () => false },
   { id: 'ticket', label: 'Create your first ticket', description: 'Log a service request or incident', href: '/tickets', check: s => s.tickets.open > 0 || s.tickets.new > 0 },
 ];
 
@@ -345,13 +343,13 @@ export function DashboardPage() {
                       const d = new Date(v + 'T00:00:00');
                       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     }}
-                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <YAxis
                     allowDecimals={false}
-                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                     axisLine={false}
                     tickLine={false}
                     width={30}

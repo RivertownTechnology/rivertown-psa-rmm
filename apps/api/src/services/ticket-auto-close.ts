@@ -50,5 +50,6 @@ export function startTicketAutoCloseScheduler(db: any) {
     } finally {
       running = false;
     }
-  }, 60_000);
+    // Day-granularity cutoff — hourly is plenty (was 60s)
+  }, 3_600_000);
 }

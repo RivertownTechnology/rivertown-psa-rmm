@@ -45,6 +45,7 @@ export async function determineTimeBillability(
     case 'block_time': {
       // Sum block hours from line items
       const lineItems = await db.select({
+        id: contractLineItems.id,
         blockHours: contractLineItems.blockHours,
         blockHoursUsed: contractLineItems.blockHoursUsed,
         unitPriceCents: contractLineItems.unitPriceCents,
@@ -66,6 +67,25 @@ export async function determineTimeBillability(
 
       const hoursToAdd = durationMinutes / 60;
       if (totalUsed + hoursToAdd <= totalBlockHours) {
+        // Deplete the block-hour allotment: fill each line item up to its capacity
+        // (in order) until the covered hours are consumed.
+        let remaining = hoursToAdd;
+        for (const item of lineItems) {
+          if (remaining <= 0) break;
+          const capacity = parseFloat(item.blockHours ?? '0');
+          const used = parseFloat(item.blockHoursUsed ?? '0');
+          const available = capacity - used;
+          if (available <= 0) continue;
+          const add = Math.min(available, remaining);
+          await db.update(contractLineItems).set({
+            blockHoursUsed: (used + add).toString(),
+            updatedAt: new Date(),
+          }).where(and(
+            eq(contractLineItems.id, item.id),
+            eq(contractLineItems.tenantId, tenantId),
+          ));
+          remaining -= add;
+        }
         return { isBillable: false, rateCents: null, reason: 'block_time_covered' };
       } else {
         return { isBillable: true, rateCents: overageRate, reason: 'block_time_exceeded' };

@@ -5,7 +5,6 @@ import {
   tickets,
   ticketComments,
   ticketTagAssignments,
-  customers,
   users,
   notifications,
 } from '@rivertown/db';
@@ -564,59 +563,6 @@ export async function logExecution(
     // Don't let logging failures break workflow execution
     console.error('[workflow] Failed to log execution:', err instanceof Error ? err.message : err);
   }
-}
-
-// ── Template Variables ───────────────────────────────────────────────
-
-/**
- * Build a template variable map for use in notification/email templates.
- */
-export async function buildTicketVariables(
-  db: any,
-  tenantId: string,
-  ticket: Record<string, unknown>,
-): Promise<Record<string, string>> {
-  let customerName = 'Unknown Customer';
-  let technicianName = 'Unassigned';
-
-  // Fetch customer name
-  if (ticket.customerId) {
-    const [customer] = await db
-      .select({ name: customers.name })
-      .from(customers)
-      .where(eq(customers.id, ticket.customerId as string))
-      .limit(1);
-    if (customer) customerName = customer.name;
-  }
-
-  // Fetch technician name
-  if (ticket.assignedTo) {
-    const [tech] = await db
-      .select({ displayName: users.displayName })
-      .from(users)
-      .where(eq(users.id, ticket.assignedTo as string))
-      .limit(1);
-    if (tech) technicianName = tech.displayName;
-  }
-
-  // Compute days waiting since last update
-  const updatedAt = ticket.updatedAt as Date | string | null;
-  let daysWaiting = 0;
-  if (updatedAt) {
-    const d = typeof updatedAt === 'string' ? new Date(updatedAt) : updatedAt;
-    daysWaiting = Math.floor((Date.now() - d.getTime()) / 86_400_000);
-  }
-
-  return {
-    customer_name: customerName,
-    ticket_number: String(ticket.ticketNumber ?? ''),
-    ticket_subject: String(ticket.subject ?? ''),
-    technician_name: technicianName,
-    status: String(ticket.status ?? ''),
-    priority: String(ticket.priority ?? ''),
-    days_waiting: String(daysWaiting),
-    portal_link: `/portal/tickets/${ticket.id}`,
-  };
 }
 
 // ── Main Workflow Engine ─────────────────────────────────────────────

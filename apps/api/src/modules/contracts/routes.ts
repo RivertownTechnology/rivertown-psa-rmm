@@ -43,7 +43,7 @@ export async function contractRoutes(fastify: FastifyInstance) {
 
     // Get line items
     const lineItems = await fastify.db.select().from(contractLineItems)
-      .where(eq(contractLineItems.contractId, id))
+      .where(and(eq(contractLineItems.contractId, id), eq(contractLineItems.tenantId, request.tenantId)))
       .orderBy(contractLineItems.sortOrder, contractLineItems.createdAt);
 
     const enrichedItems = lineItems.map(item => ({
@@ -117,7 +117,7 @@ export async function contractRoutes(fastify: FastifyInstance) {
           ticketSubject: tickets.subject,
         }).from(ticketTimeEntries)
           .innerJoin(tickets, eq(ticketTimeEntries.ticketId, tickets.id))
-          .where(eq(ticketTimeEntries.ticketId, ticketId))
+          .where(and(eq(ticketTimeEntries.ticketId, ticketId), eq(ticketTimeEntries.tenantId, request.tenantId)))
           .orderBy(desc(ticketTimeEntries.startedAt));
 
         for (const e of entries) {
@@ -241,6 +241,10 @@ export async function contractRoutes(fastify: FastifyInstance) {
   fastify.post('/api/v1/contracts/:id/line-items', { preHandler: [fastify.authenticate, requirePermission('contracts:write')] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = createLineItemSchema.parse(request.body);
+    // Verify the parent contract belongs to this tenant before attaching a line item
+    const [parentContract] = await fastify.db.select({ id: contracts.id }).from(contracts)
+      .where(and(eq(contracts.id, id), eq(contracts.tenantId, request.tenantId))).limit(1);
+    if (!parentContract) throw new NotFoundError('Contract', id);
     const [item] = await fastify.db.insert(contractLineItems).values({
       tenantId: request.tenantId, contractId: id,
       description: body.description, itemType: body.itemType, category: body.category,
@@ -282,6 +286,11 @@ export async function contractRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { catalogItemId, bundleId, quantity } = request.body as { catalogItemId?: string; bundleId?: string; quantity?: string };
     const qty = quantity ?? '1';
+
+    // Verify the parent contract belongs to this tenant before attaching line items
+    const [parentContract] = await fastify.db.select({ id: contracts.id }).from(contracts)
+      .where(and(eq(contracts.id, id), eq(contracts.tenantId, request.tenantId))).limit(1);
+    if (!parentContract) throw new NotFoundError('Contract', id);
 
     if (catalogItemId) {
       const [catalogItem] = await fastify.db.select().from(serviceCatalogItems)

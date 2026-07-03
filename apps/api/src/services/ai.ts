@@ -1,4 +1,4 @@
-import { eq, and, sql, desc } from 'drizzle-orm';
+import { eq, and, sql, desc, inArray } from 'drizzle-orm';
 import { tickets, ticketComments, integrationConfigs, customers, contacts, contracts, contractLineItems, invoices, assets, serviceCatalogItems, govOpportunities, govProposals, govComplianceItems, govDocumentLibrary, govDocuments } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import { readCredentials } from '../common/credentials.js';
@@ -134,6 +134,18 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
   const context: string[] = [];
   const msgLower = userMessage.toLowerCase();
 
+  // Lazily fetch the tenant's customer id -> name map once and reuse it across
+  // the various context branches below (avoids re-selecting all customers per branch).
+  let custNameMapCache: Map<string, string> | null = null;
+  const getCustNames = async (): Promise<Map<string, string>> => {
+    if (!custNameMapCache) {
+      const custs = await db.select({ id: customers.id, name: customers.name })
+        .from(customers).where(eq(customers.tenantId, tenantId));
+      custNameMapCache = new Map(custs.map(c => [c.id, c.name]));
+    }
+    return custNameMapCache;
+  };
+
   // Always include a high-level summary
   const [customerCount] = await db.select({ count: sql<number>`count(*)::int` }).from(customers)
     .where(eq(customers.tenantId, tenantId));
@@ -154,12 +166,7 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
     const ctcts = await db.select({ firstName: contacts.firstName, lastName: contacts.lastName, email: contacts.email, phone: contacts.phone, jobTitle: contacts.jobTitle, customerId: contacts.customerId })
       .from(contacts).where(eq(contacts.tenantId, tenantId)).limit(50);
     // Get customer names for context
-    const custNames = new Map<string, string>();
-    const custIds = [...new Set(ctcts.map(c => c.customerId))];
-    if (custIds.length > 0) {
-      const custs = await db.select({ id: customers.id, name: customers.name }).from(customers).where(eq(customers.tenantId, tenantId));
-      custs.forEach(c => custNames.set(c.id, c.name));
-    }
+    const custNames = await getCustNames();
     context.push(`Contacts (${ctcts.length}):\n${ctcts.map(c => `- ${c.firstName} ${c.lastName}${c.jobTitle ? ` (${c.jobTitle})` : ''} at ${custNames.get(c.customerId) || 'Unknown'} — ${c.email || 'no email'}${c.phone ? ` — ${c.phone}` : ''}`).join('\n')}`);
   }
 
@@ -168,9 +175,7 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
     const tix = await db.select({ ticketNumber: tickets.ticketNumber, subject: tickets.subject, status: tickets.status, priority: tickets.priority, createdAt: tickets.createdAt, customerId: tickets.customerId })
       .from(tickets).where(and(eq(tickets.tenantId, tenantId), sql`${tickets.status} NOT IN ('closed')`))
       .orderBy(desc(tickets.createdAt)).limit(25);
-    const custNames = new Map<string, string>();
-    const custs = await db.select({ id: customers.id, name: customers.name }).from(customers).where(eq(customers.tenantId, tenantId));
-    custs.forEach(c => custNames.set(c.id, c.name));
+    const custNames = await getCustNames();
     context.push(`Open/active tickets (${tix.length}):\n${tix.map(t => `- #${t.ticketNumber} [${t.status}/${t.priority}] ${t.subject} — ${custNames.get(t.customerId) || 'Unknown'}`).join('\n')}`);
   }
 
@@ -178,14 +183,23 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
   if (msgLower.match(/contract|pricing|price|revenue|mrr|cost|margin|how much|subscription/)) {
     const ctrs = await db.select({ id: contracts.id, name: contracts.name, status: contracts.status, contractType: contracts.contractType, customerId: contracts.customerId, billingCycle: contracts.billingCycle })
       .from(contracts).where(and(eq(contracts.tenantId, tenantId), eq(contracts.status, 'active'))).limit(25);
-    const custNames = new Map<string, string>();
-    const custs = await db.select({ id: customers.id, name: customers.name }).from(customers).where(eq(customers.tenantId, tenantId));
-    custs.forEach(c => custNames.set(c.id, c.name));
+    const custNames = await getCustNames();
 
-    // Get line items for pricing info
+    // Fetch all line items for these contracts in one query, then group by contract
+    const ctrIds = ctrs.map(c => c.id);
+    const allItems = ctrIds.length > 0
+      ? await db.select({ contractId: contractLineItems.contractId, description: contractLineItems.description, unitPriceCents: contractLineItems.unitPriceCents, unitCostCents: contractLineItems.unitCostCents, quantity: contractLineItems.quantity })
+          .from(contractLineItems).where(inArray(contractLineItems.contractId, ctrIds))
+      : [];
+    const itemsByContract = new Map<string, typeof allItems>();
+    for (const item of allItems) {
+      const arr = itemsByContract.get(item.contractId) ?? [];
+      arr.push(item);
+      itemsByContract.set(item.contractId, arr);
+    }
+
     for (const ctr of ctrs) {
-      const items = await db.select({ description: contractLineItems.description, unitPriceCents: contractLineItems.unitPriceCents, unitCostCents: contractLineItems.unitCostCents, quantity: contractLineItems.quantity })
-        .from(contractLineItems).where(eq(contractLineItems.contractId, ctr.id));
+      const items = itemsByContract.get(ctr.id) ?? [];
       const totalRevenue = items.reduce((s, i) => s + i.unitPriceCents * parseFloat(i.quantity ?? '1'), 0);
       context.push(`Contract: ${ctr.name} (${ctr.contractType}) for ${custNames.get(ctr.customerId) || 'Unknown'} — ${ctr.billingCycle} — $${(totalRevenue/100).toFixed(2)}/period\n  Items: ${items.map(i => `${i.description}: $${(i.unitPriceCents/100).toFixed(2)}/ea x${i.quantity ?? '1'}`).join(', ')}`);
     }
@@ -203,9 +217,7 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
     const invs = await db.select({ invoiceNumber: invoices.invoiceNumber, status: invoices.status, totalCents: invoices.totalCents, amountPaidCents: invoices.amountPaidCents, customerId: invoices.customerId, dueDate: invoices.dueDate })
       .from(invoices).where(and(eq(invoices.tenantId, tenantId), sql`${invoices.status} IN ('sent', 'partial', 'overdue')`))
       .limit(25);
-    const custNames = new Map<string, string>();
-    const custs = await db.select({ id: customers.id, name: customers.name }).from(customers).where(eq(customers.tenantId, tenantId));
-    custs.forEach(c => custNames.set(c.id, c.name));
+    const custNames = await getCustNames();
     context.push(`Open invoices (${invs.length}):\n${invs.map(i => `- INV-${i.invoiceNumber} [${i.status}] ${custNames.get(i.customerId) || 'Unknown'} — $${((i.totalCents - i.amountPaidCents)/100).toFixed(2)} outstanding — due ${i.dueDate}`).join('\n')}`);
   }
 
@@ -213,9 +225,7 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
   if (msgLower.match(/asset|device|computer|server|machine|workstation/)) {
     const devs = await db.select({ name: assets.name, assetType: assets.assetType, osName: assets.osName, ipAddress: assets.ipAddress, screenconnectOnline: assets.screenconnectOnline, customerId: assets.customerId })
       .from(assets).where(eq(assets.tenantId, tenantId)).limit(30);
-    const custNames = new Map<string, string>();
-    const custs = await db.select({ id: customers.id, name: customers.name }).from(customers).where(eq(customers.tenantId, tenantId));
-    custs.forEach(c => custNames.set(c.id, c.name));
+    const custNames = await getCustNames();
     context.push(`Assets (${devs.length}):\n${devs.map(d => `- ${d.name} [${d.assetType}] ${d.osName || ''} ${d.ipAddress || ''} — ${custNames.get(d.customerId) || 'Unknown'} ${d.screenconnectOnline ? '(online)' : '(offline)'}`).join('\n')}`);
   }
 
@@ -227,7 +237,7 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
       estimatedValue: govOpportunities.estimatedValue, setAsideType: govOpportunities.setAsideType,
       submissionDeadline: govOpportunities.submissionDeadline, winProbability: govOpportunities.winProbability,
       contractType: govOpportunities.contractType, samNumber: govOpportunities.samNumber,
-      notes: govOpportunities.notes,
+      notes: govOpportunities.notes, aiAnalysis: govOpportunities.aiAnalysis,
     }).from(govOpportunities).where(eq(govOpportunities.tenantId, tenantId)).orderBy(desc(govOpportunities.createdAt)).limit(25);
 
     if (opps.length > 0) {
@@ -245,10 +255,8 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
 
         if (mentioned && o.id) {
           // First include the full structured AI analysis (compact, covers everything)
-          const [fullOpp] = await db.select({ aiAnalysis: govOpportunities.aiAnalysis })
-            .from(govOpportunities).where(eq(govOpportunities.id, o.id)).limit(1);
-          if (fullOpp?.aiAnalysis) {
-            const analysisStr = JSON.stringify(fullOpp.aiAnalysis);
+          if (o.aiAnalysis) {
+            const analysisStr = JSON.stringify(o.aiAnalysis);
             context.push(`Detailed RFP Analysis for "${o.title}":\n${analysisStr.substring(0, 6000)}`);
           }
 
@@ -285,10 +293,8 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
       const agencyLower = o.agency?.toLowerCase() || '';
       const alreadyIncluded = (titleWords && msgLower.includes(titleWords)) || (agencyLower && msgLower.includes(agencyLower));
       if (!alreadyIncluded && o.id) {
-        const [fullOpp] = await db.select({ aiAnalysis: govOpportunities.aiAnalysis })
-          .from(govOpportunities).where(eq(govOpportunities.id, o.id)).limit(1);
-        if (fullOpp?.aiAnalysis) {
-          const analysis = fullOpp.aiAnalysis as Record<string, unknown>;
+        if (o.aiAnalysis) {
+          const analysis = o.aiAnalysis as Record<string, unknown>;
           const summary = (analysis.summary as string) || '';
           if (summary) {
             context.push(`RFP Analysis for "${o.title}": ${summary.substring(0, 500)}`);

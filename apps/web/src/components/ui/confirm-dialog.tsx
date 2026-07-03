@@ -31,10 +31,17 @@ function ConfirmDialog({
 
   const busy = loading || isLoading
 
-  const handleConfirm = async () => {
+  const handleConfirm = async (e: React.MouseEvent) => {
+    // Prevent Radix AlertDialog.Action from auto-closing so the dialog stays
+    // open (with a visible spinner) while an async onConfirm runs. Only close
+    // on success — on failure we keep it open so the error is recoverable.
+    e.preventDefault()
     try {
       setIsLoading(true)
       await onConfirm()
+      onOpenChange(false)
+    } catch {
+      // keep dialog open on failure
     } finally {
       setIsLoading(false)
     }

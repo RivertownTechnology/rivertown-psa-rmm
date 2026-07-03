@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { LogOut, User, Sun, Moon, Menu, Settings as SettingsIcon, Bell, Play, Square } from 'lucide-react';
 import { useTimer } from '@/lib/timer';
+import { useToast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 
 interface HeaderProps {
@@ -25,6 +26,7 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
   const { user, logout } = useAuth();
   const { mode, setMode } = useTheme();
   const timer = useTimer();
+  const toast = useToast();
 
   async function handleStopTimer() {
     const result = await timer.stopTimer();
@@ -32,16 +34,22 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
     if (timer.ticketId) {
       // Auto-create time entry
       const now = new Date().toISOString();
-      await api(`/tickets/${timer.ticketId}/time-entries`, {
-        method: 'POST',
-        body: JSON.stringify({
-          ticketId: timer.ticketId,
-          startedAt: now, endedAt: now,
-          durationMinutes: result.durationMinutes,
-          isBillable: true,
-          notes: 'Timer entry',
-        }),
-      }).catch(() => {});
+      try {
+        await api(`/tickets/${timer.ticketId}/time-entries`, {
+          method: 'POST',
+          body: JSON.stringify({
+            ticketId: timer.ticketId,
+            startedAt: now, endedAt: now,
+            durationMinutes: result.durationMinutes,
+            isBillable: true,
+            notes: 'Timer entry',
+          }),
+        });
+      } catch (e) {
+        // Keep the tracked time so it isn't lost — let the user retry.
+        toast.error('Failed to save time entry', e instanceof Error ? e.message : 'Timer was kept — try again.');
+        return;
+      }
       timer.clearTimer();
     } else {
       // No ticket associated
@@ -75,7 +83,7 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
   return (
     <header className="h-14 border-b bg-card px-3 sm:px-6 flex items-center justify-between sticky top-0 z-10 gap-2">
       <div className="flex items-center gap-2 min-w-0">
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 lg:hidden" onClick={onMenuToggle}>
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 lg:hidden" onClick={onMenuToggle} aria-label="Toggle navigation menu">
           <Menu className="h-5 w-5" />
         </Button>
         <h2 className="text-lg font-semibold truncate">{title}</h2>
@@ -118,7 +126,7 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
           }
         }}>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8 relative">
+            <Button variant="ghost" size="icon" className="h-8 w-8 relative" aria-label="Notifications">
               <Bell className="h-4 w-4" />
               {unreadCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1">
@@ -162,6 +170,7 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
           size="icon"
           className="h-8 w-8"
           onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
+          aria-label={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
         >
           {mode === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>

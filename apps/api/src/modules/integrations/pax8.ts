@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and, isNull, isNotNull } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, inArray } from 'drizzle-orm';
 import {
   integrationConfigs,
   pax8Subscriptions,
@@ -573,33 +573,44 @@ export async function pax8Routes(fastify: FastifyInstance) {
       .where(and(eq(serviceCatalogItems.tenantId, request.tenantId), isNotNull(serviceCatalogItems.pax8ProductName)));
     const catalogPriceMap = new Map(catalogItems.map((ci) => [ci.pax8ProductName, ci.defaultUnitPriceCents]));
 
+    // Pre-fetch linked contract line items + their contracts in two batched queries
+    // (avoids a per-subscription N+1 inside the enrichment map below)
+    const lineItemIds = [...new Set(localSubs.map((s) => s.contractLineItemId).filter((v): v is string => Boolean(v)))];
+    const lineItemToContract = new Map<string, string>();
+    const contractNameMap = new Map<string, string>();
+    if (lineItemIds.length > 0) {
+      const lineItemRows = await fastify.db
+        .select({ id: contractLineItems.id, contractId: contractLineItems.contractId })
+        .from(contractLineItems)
+        .where(inArray(contractLineItems.id, lineItemIds));
+      for (const li of lineItemRows) lineItemToContract.set(li.id, li.contractId);
+
+      const contractIds = [...new Set(lineItemRows.map((li) => li.contractId))];
+      if (contractIds.length > 0) {
+        const contractRows = await fastify.db
+          .select({ id: contracts.id, name: contracts.name })
+          .from(contracts)
+          .where(inArray(contracts.id, contractIds));
+        for (const c of contractRows) contractNameMap.set(c.id, c.name);
+      }
+    }
+
     // Enrich with contract line item link status and sell price
-    const enriched = await Promise.all(
-      localSubs.map(async (sub) => {
-        let linkedContract: { contractId: string; contractName: string } | null = null;
-        // Sell price: catalog price > MSRP from Pax8 subscription price > null
-        // sub.rawData.price = MSRP (what customer pays), sub.unitPriceCents = partner cost
-        const rawData = (sub.rawData ?? {}) as Record<string, unknown>;
-        const subPrice = typeof rawData.price === 'number' ? Math.round(rawData.price * 100) : null;
-        const sellPriceCents = catalogPriceMap.get(sub.productName) ?? subPrice;
-        if (sub.contractLineItemId) {
-          const [li] = await fastify.db
-            .select({ contractId: contractLineItems.contractId })
-            .from(contractLineItems)
-            .where(eq(contractLineItems.id, sub.contractLineItemId))
-            .limit(1);
-          if (li) {
-            const [c] = await fastify.db
-              .select({ name: contracts.name })
-              .from(contracts)
-              .where(eq(contracts.id, li.contractId))
-              .limit(1);
-            linkedContract = { contractId: li.contractId, contractName: c?.name ?? '' };
-          }
+    const enriched = localSubs.map((sub) => {
+      let linkedContract: { contractId: string; contractName: string } | null = null;
+      // Sell price: catalog price > MSRP from Pax8 subscription price > null
+      // sub.rawData.price = MSRP (what customer pays), sub.unitPriceCents = partner cost
+      const rawData = (sub.rawData ?? {}) as Record<string, unknown>;
+      const subPrice = typeof rawData.price === 'number' ? Math.round(rawData.price * 100) : null;
+      const sellPriceCents = catalogPriceMap.get(sub.productName) ?? subPrice;
+      if (sub.contractLineItemId) {
+        const contractId = lineItemToContract.get(sub.contractLineItemId);
+        if (contractId) {
+          linkedContract = { contractId, contractName: contractNameMap.get(contractId) ?? '' };
         }
-        return { ...sub, linkedContract, sellPriceCents };
-      }),
-    );
+      }
+      return { ...sub, linkedContract, sellPriceCents };
+    });
 
     return {
       subscriptions: enriched,

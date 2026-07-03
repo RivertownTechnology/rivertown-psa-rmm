@@ -359,18 +359,18 @@ export function GovAnalyticsPage() {
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis
                     dataKey="month"
-                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                     axisLine={false}
                     tickLine={false}
-                    label={{ value: 'Month', position: 'insideBottom', offset: -2, fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    label={{ value: 'Month', position: 'insideBottom', offset: -2, fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                   />
                   <YAxis
-                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                     axisLine={false}
                     tickLine={false}
                     width={64}
                     tickFormatter={(v: number) => formatDollars(v * 100)}
-                    label={{ value: 'Revenue', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    label={{ value: 'Revenue', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                   />
                   <Tooltip
                     formatter={(value) => [formatDollarsLong(Number(value) * 100), 'Revenue']}
@@ -410,15 +410,15 @@ export function GovAnalyticsPage() {
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" horizontal={false} />
                 <XAxis
                   type="number"
-                  tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                  tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                   axisLine={false}
                   tickLine={false}
-                  label={{ value: 'Opportunities', position: 'insideBottom', offset: -2, fontSize: 11, fill: 'var(--muted-foreground)' }}
+                  label={{ value: 'Opportunities', position: 'insideBottom', offset: -2, fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                 />
                 <YAxis
                   type="category"
                   dataKey="name"
-                  tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                  tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                   axisLine={false}
                   tickLine={false}
                   width={90}
@@ -457,15 +457,15 @@ export function GovAnalyticsPage() {
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" horizontal={false} />
                   <XAxis
                     type="number"
-                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                     axisLine={false}
                     tickLine={false}
-                    label={{ value: 'Count', position: 'insideBottom', offset: -2, fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    label={{ value: 'Count', position: 'insideBottom', offset: -2, fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                   />
                   <YAxis
                     type="category"
                     dataKey="name"
-                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                     axisLine={false}
                     tickLine={false}
                     width={120}

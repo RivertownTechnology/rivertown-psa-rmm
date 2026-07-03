@@ -82,13 +82,22 @@ export function startWorkflowScheduler(db: any) {
               )).limit(500);
           }
 
+          // Pre-fetch existing execution trackers for all candidate tickets in one query
+          const candidateIds = candidateTickets.map(t => t.id);
+          const execRows = candidateIds.length > 0
+            ? await db.select().from(workflowTicketExecutions)
+                .where(and(
+                  eq(workflowTicketExecutions.ruleId, rule.id),
+                  inArray(workflowTicketExecutions.ticketId, candidateIds),
+                ))
+            : [];
+          const execByTicket = new Map<string, any>(execRows.map((e: any) => [e.ticketId, e]));
+
           // Process each candidate ticket
           for (const ticket of candidateTickets) {
             try {
-              // Check per-ticket execution tracker
-              const [existing] = await db.select().from(workflowTicketExecutions)
-                .where(and(eq(workflowTicketExecutions.ruleId, rule.id), eq(workflowTicketExecutions.ticketId, ticket.id)))
-                .limit(1);
+              // Check per-ticket execution tracker (from pre-fetched map)
+              const existing = execByTicket.get(ticket.id);
 
               if (existing) {
                 if (existing.suppressed) continue;

@@ -20,8 +20,8 @@ export function App() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [loadingUser, setLoadingUser] = useState(() => !!getAccessToken());
 
-  // MFA challenge state
-  const [mfaChallenge, setMfaChallenge] = useState<{ mfaToken: string; phoneHint: string } | null>(null);
+  // MFA challenge state (credentials retained to allow re-sending the SMS code)
+  const [mfaChallenge, setMfaChallenge] = useState<{ mfaToken: string; phoneHint: string; email: string; password: string } | null>(null);
 
   // Forced MFA setup
   const [mustSetupMfa, setMustSetupMfa] = useState(false);
@@ -48,7 +48,7 @@ export function App() {
 
     // MFA required — show challenge
     if (data.mfaRequired) {
-      setMfaChallenge({ mfaToken: data.mfaToken, phoneHint: data.phoneHint });
+      setMfaChallenge({ mfaToken: data.mfaToken, phoneHint: data.phoneHint, email, password });
       return;
     }
 
@@ -89,6 +89,15 @@ export function App() {
     setIsAuthenticated(true);
   }, [mfaChallenge]);
 
+  const handleMfaResend = useCallback(async () => {
+    if (!mfaChallenge) return;
+    // Re-authenticating issues a fresh challenge token and sends a new SMS code.
+    const data = await apiLogin(mfaChallenge.email, mfaChallenge.password);
+    if (data.mfaRequired) {
+      setMfaChallenge(prev => prev && { ...prev, mfaToken: data.mfaToken, phoneHint: data.phoneHint });
+    }
+  }, [mfaChallenge]);
+
   const handlePasswordChanged = useCallback(() => {
     setMustChangePassword(false);
     setCurrentPassword('');
@@ -112,7 +121,7 @@ export function App() {
 
   if (!isAuthenticated) {
     if (mfaChallenge) {
-      return <MfaChallenge phoneHint={mfaChallenge.phoneHint} onVerify={handleMfaVerified} onCancel={() => setMfaChallenge(null)} />;
+      return <MfaChallenge phoneHint={mfaChallenge.phoneHint} onVerify={handleMfaVerified} onCancel={() => setMfaChallenge(null)} onResend={handleMfaResend} />;
     }
     return <LoginPage onLogin={handleLogin} />;
   }

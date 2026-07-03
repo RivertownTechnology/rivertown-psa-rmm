@@ -12,12 +12,11 @@ import {
   ticketTags,
   ticketTagAssignments,
   tenants,
-  users,
-  contacts,
   customers,
   calendarEvents,
   emailMessages,
   csatRatings,
+  contracts,
 } from '@rivertown/db';
 import {
   createTicketSchema,
@@ -33,6 +32,7 @@ import { logAudit } from '../../common/audit.js';
 import { moduleEvents } from '../registry.js';
 import { determineTimeBillability } from '../contracts/billing-logic.js';
 import { getNextTicketNumber } from '../../common/ticket-number.js';
+import { resolveAuthorNames } from '../../common/author-names.js';
 
 export async function ticketRoutes(fastify: FastifyInstance) {
   // Verify a ticket belongs to the caller's tenant, or 404. Used by child-record
@@ -116,6 +116,17 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     { preHandler: [fastify.authenticate, requirePermission('tickets:write')] },
     async (request, reply) => {
       const body = createTicketSchema.parse(request.body);
+
+      // Validate referenced records belong to the caller's tenant before insert
+      const [customer] = await fastify.db.select({ id: customers.id }).from(customers)
+        .where(and(eq(customers.id, body.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
+      if (!customer) throw new NotFoundError('Customer', body.customerId);
+      if (body.contractId) {
+        const [contract] = await fastify.db.select({ id: contracts.id }).from(contracts)
+          .where(and(eq(contracts.id, body.contractId), eq(contracts.tenantId, request.tenantId))).limit(1);
+        if (!contract) throw new NotFoundError('Contract', body.contractId);
+      }
+
       const ticketNumber = await getNextTicketNumber(fastify.db, request.tenantId);
 
       const [ticket] = await fastify.db
@@ -400,15 +411,8 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         )
         .orderBy(ticketComments.createdAt);
 
-      // Resolve author names
-      const authorIds = [...new Set(rows.filter(r => r.authorId && r.authorId !== '00000000-0000-0000-0000-000000000000').map(r => r.authorId))];
-      const nameMap: Record<string, string> = {};
-      for (const aid of authorIds) {
-        const [user] = await fastify.db.select({ displayName: users.displayName }).from(users).where(eq(users.id, aid)).limit(1);
-        if (user) { nameMap[aid] = user.displayName; continue; }
-        const [contact] = await fastify.db.select({ firstName: contacts.firstName, lastName: contacts.lastName }).from(contacts).where(eq(contacts.id, aid)).limit(1);
-        if (contact) { nameMap[aid] = `${contact.firstName} ${contact.lastName}`; }
-      }
+      // Resolve author names (batched)
+      const nameMap = await resolveAuthorNames(fastify.db, rows.map(r => r.authorId));
 
       return rows.map(r => ({ ...r, authorName: nameMap[r.authorId] || (r.authorType === 'system' ? 'System' : undefined) }));
     },
@@ -420,6 +424,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     { preHandler: [fastify.authenticate, requirePermission('tickets:write')] },
     async (request, reply) => {
       const { id } = request.params as { id: string };
+      await assertTicketInTenant(id, request.tenantId);
       const body = createTicketCommentSchema.parse(request.body);
 
       const [comment] = await fastify.db
@@ -478,6 +483,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     { preHandler: [fastify.authenticate, requirePermission('time-entries:write')] },
     async (request, reply) => {
       const { id } = request.params as { id: string };
+      await assertTicketInTenant(id, request.tenantId);
       const body = createTimeEntrySchema.parse(request.body);
 
       const [entry] = await fastify.db
@@ -569,6 +575,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     { preHandler: [fastify.authenticate, requirePermission('tickets:write')] },
     async (request, reply) => {
       const { id } = request.params as { id: string };
+      await assertTicketInTenant(id, request.tenantId);
       const body = request.body as {
         expenseType: string;
         description?: string;

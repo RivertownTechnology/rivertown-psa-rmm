@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Combobox } from '@/components/ui/combobox';
 import { PopoverFilter } from '@/components/ui/popover-filter';
 import { EmptyState } from '@/components/ui/empty-state';
+import { useToast } from '@/lib/toast';
 import {
   Dialog,
   DialogContent,
@@ -142,6 +143,7 @@ const DEFAULT_STATUSES = STATUS_OPTIONS.filter(s => s.value !== 'closed').map(s 
 
 export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (id: string) => void; onNavigate?: (path: string) => void }) {
   const { user } = useAuth();
+  const toast = useToast();
 
   // Data state
   const [tickets, setTickets] = useState<TicketRow[]>([]);
@@ -395,6 +397,8 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
       setShowBulkAssign(false);
       setBulkAssignTo('');
       fetchTickets();
+    } catch (e) {
+      toast.error('Bulk assign failed', e instanceof Error ? e.message : undefined);
     } finally {
       setBulkLoading(false);
     }
@@ -412,6 +416,8 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
       setShowBulkStatus(false);
       setBulkStatus('');
       fetchTickets();
+    } catch (e) {
+      toast.error('Bulk status update failed', e instanceof Error ? e.message : undefined);
     } finally {
       setBulkLoading(false);
     }
@@ -427,6 +433,8 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
       });
       setSelectedIds(new Set());
       fetchTickets();
+    } catch (e) {
+      toast.error('Bulk close failed', e instanceof Error ? e.message : undefined);
     } finally {
       setBulkLoading(false);
     }
@@ -443,6 +451,8 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
       setSelectedIds(new Set());
       setShowBulkDelete(false);
       fetchTickets();
+    } catch (e) {
+      toast.error('Bulk delete failed', e instanceof Error ? e.message : undefined);
     } finally {
       setBulkLoading(false);
     }
@@ -608,7 +618,14 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
                 className="rounded-lg border bg-card px-4 py-3.5 cursor-pointer transition-all hover:bg-muted/50 hover:border-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 flex items-start gap-3"
               >
                 {/* Selection indicator */}
-                <div className="pt-0.5 shrink-0" onClick={e => { e.stopPropagation(); toggleSelect(t.id); }}>
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={selectedIds.has(t.id)}
+                  aria-label="Select ticket"
+                  className="pt-0.5 shrink-0"
+                  onClick={e => { e.stopPropagation(); toggleSelect(t.id); }}
+                >
                   <div className={`h-5 w-5 rounded-md border-2 flex items-center justify-center cursor-pointer transition-all duration-150 ${
                     selectedIds.has(t.id)
                       ? 'bg-primary border-primary text-primary-foreground'
@@ -620,7 +637,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
                       </svg>
                     )}
                   </div>
-                </div>
+                </button>
                 <div className="flex-1 min-w-0" onClick={() => onSelectTicket?.(t.id)}>
                 {/* Line 1: number + subject + relative time */}
                 <div className="flex items-center justify-between gap-3">
@@ -800,7 +817,12 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBulkQueue(false)}>Cancel</Button>
             <Button onClick={async () => {
-              await api('/tickets/bulk-update', { method: 'POST', body: JSON.stringify({ ids: [...selectedIds], update: { queueId: bulkQueueId || null } }) }).catch(() => {});
+              try {
+                await api('/tickets/bulk-update', { method: 'POST', body: JSON.stringify({ ids: [...selectedIds], update: { queueId: bulkQueueId || null } }) });
+              } catch (e) {
+                toast.error('Failed to change queue', e instanceof Error ? e.message : undefined);
+                return;
+              }
               setShowBulkQueue(false);
               setBulkQueueId('');
               setSelectedIds(new Set());
@@ -849,8 +871,14 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
             <Button disabled={!mergeTargetId || merging} onClick={async () => {
               setMerging(true);
               const sources = [...selectedIds].filter(id => id !== mergeTargetId);
-              for (const sourceId of sources) {
-                await api(`/tickets/${sourceId}/merge`, { method: 'POST', body: JSON.stringify({ targetTicketId: mergeTargetId }) }).catch(() => {});
+              try {
+                for (const sourceId of sources) {
+                  await api(`/tickets/${sourceId}/merge`, { method: 'POST', body: JSON.stringify({ targetTicketId: mergeTargetId }) });
+                }
+              } catch (e) {
+                toast.error('Merge failed', e instanceof Error ? e.message : undefined);
+                setMerging(false);
+                return;
               }
               setMerging(false);
               setShowBulkMerge(false);

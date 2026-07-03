@@ -7,9 +7,12 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Search, Trash2 } from 'lucide-react';
+import { Plus, Search, Trash2, FileText } from 'lucide-react';
 import { Combobox } from '@/components/ui/combobox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
+import { useToast } from '@/lib/toast';
 
 interface Quote {
   id: string;
@@ -43,9 +46,11 @@ const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'o
 };
 
 export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigateToCustomer: (id: string) => void; onSelectQuote?: (id: string) => void }) {
+  const toast = useToast();
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -61,12 +66,20 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
   const [confirmState, setConfirmState] = useState<{open: boolean; id?: string; quoteNumber?: number}>({open: false});
 
   const loadQuotes = useCallback(async () => {
-    const params = new URLSearchParams({ page: String(page), limit: '25' });
-    if (statusFilter) params.set('status', statusFilter);
-    const data = await api<PaginatedResponse>(`/quotes?${params}`);
-    setQuotes(data.data);
-    setTotal(data.pagination.total);
-  }, [page, statusFilter]);
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: '25' });
+      if (statusFilter) params.set('status', statusFilter);
+      const data = await api<PaginatedResponse>(`/quotes?${params}`);
+      setQuotes(data.data);
+      setTotal(data.pagination.total);
+    } catch (e) {
+      toast.error('Failed to load quotes', e instanceof Error ? e.message : undefined);
+    } finally {
+      setLoading(false);
+    }
+    // `toast` is a fresh object each render — intentionally omitted from deps.
+  }, [page, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadQuotes(); }, [loadQuotes]);
 
@@ -102,7 +115,10 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
     try {
       await api(`/quotes/${confirmState.id}`, { method: 'DELETE' });
       loadQuotes();
-    } catch { /* */ }
+    } catch (e) {
+      toast.error('Failed to delete quote', e instanceof Error ? e.message : undefined);
+      throw e;
+    }
     setConfirmState({open: false});
   }
 
@@ -121,6 +137,8 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
       setShowCreate(false);
       setForm({ customerId: '', title: '', summary: '', validUntil: '' });
       loadQuotes();
+    } catch (e) {
+      toast.error('Failed to create quote', e instanceof Error ? e.message : undefined);
     } finally {
       setSaving(false);
     }
@@ -184,31 +202,55 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
                 <th className="w-10"></th>
               </tr></thead>
               <tbody>
-                {filteredQuotes.map(q => (
-                  <tr key={q.id} className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => onSelectQuote?.(q.id)}>
-                    <td className="p-3 font-medium text-primary hover:underline">Q-{q.quoteNumber}</td>
-                    <td className="p-3 font-medium">{q.title}</td>
-                    <td className="p-3">
-                      <button className="text-primary hover:underline" onClick={() => onNavigateToCustomer(q.customerId)}>
-                        {customerMap.get(q.customerId) ?? '-'}
-                      </button>
-                    </td>
-                    <td className="p-3">
-                      <Badge variant={statusVariant[q.status] ?? 'secondary'}>{q.status}</Badge>
-                    </td>
-                    <td className="p-3 text-right font-medium">{formatCents(q.totalCents)}</td>
-                    <td className="p-3 text-muted-foreground">{q.validUntil ?? '-'}</td>
-                    <td className="p-3 text-muted-foreground">{new Date(q.createdAt).toLocaleDateString()}</td>
-                    <td className="p-3">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        onClick={() => handleDelete(q.id, q.quoteNumber)}>
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                {loading ? (
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i} className="border-b">
+                      <td className="p-3"><Skeleton className="h-4 w-14" /></td>
+                      <td className="p-3"><Skeleton className="h-4 w-40" /></td>
+                      <td className="p-3"><Skeleton className="h-4 w-32" /></td>
+                      <td className="p-3"><Skeleton className="h-5 w-16 rounded-full" /></td>
+                      <td className="p-3 text-right"><Skeleton className="h-4 w-16 ml-auto" /></td>
+                      <td className="p-3"><Skeleton className="h-4 w-20" /></td>
+                      <td className="p-3"><Skeleton className="h-4 w-20" /></td>
+                      <td className="p-3"><Skeleton className="h-7 w-7 rounded" /></td>
+                    </tr>
+                  ))
+                ) : filteredQuotes.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="p-0">
+                      <EmptyState
+                        icon={FileText}
+                        title="No quotes found"
+                        description={search || statusFilter ? 'Try adjusting your search or filters.' : 'Create your first quote to get started.'}
+                        action={!search && !statusFilter ? { label: 'New Quote', onClick: () => setShowCreate(true) } : undefined}
+                      />
                     </td>
                   </tr>
-                ))}
-                {filteredQuotes.length === 0 && (
-                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No quotes</td></tr>
+                ) : (
+                  filteredQuotes.map(q => (
+                    <tr key={q.id} className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => onSelectQuote?.(q.id)}>
+                      <td className="p-3 font-medium text-primary hover:underline">Q-{q.quoteNumber}</td>
+                      <td className="p-3 font-medium">{q.title}</td>
+                      <td className="p-3">
+                        <button className="text-primary hover:underline" onClick={(e) => { e.stopPropagation(); onNavigateToCustomer(q.customerId); }}>
+                          {customerMap.get(q.customerId) ?? '-'}
+                        </button>
+                      </td>
+                      <td className="p-3">
+                        <Badge variant={statusVariant[q.status] ?? 'secondary'}>{q.status}</Badge>
+                      </td>
+                      <td className="p-3 text-right font-medium">{formatCents(q.totalCents)}</td>
+                      <td className="p-3 text-muted-foreground">{q.validUntil ?? '-'}</td>
+                      <td className="p-3 text-muted-foreground">{new Date(q.createdAt).toLocaleDateString()}</td>
+                      <td className="p-3">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          aria-label={`Delete quote Q-${q.quoteNumber}`}
+                          onClick={(e) => { e.stopPropagation(); handleDelete(q.id, q.quoteNumber); }}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>

@@ -18,6 +18,10 @@ interface EmailOptions {
   text?: string;
   replyTo?: string;
   attachments?: EmailAttachment[];
+  // Threading headers so replies stay in the same mail conversation
+  messageId?: string;
+  inReplyTo?: string;
+  references?: string;
 }
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -136,6 +140,9 @@ function buildRfc2822Message(options: EmailOptions & { fromAddress: string; from
   if (options.replyTo) {
     lines.push(`Reply-To: ${options.replyTo}`);
   }
+  if (options.messageId) lines.push(`Message-ID: ${options.messageId}`);
+  if (options.inReplyTo) lines.push(`In-Reply-To: ${options.inReplyTo}`);
+  if (options.references) lines.push(`References: ${options.references}`);
 
   if (options.attachments?.length) {
     lines.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
@@ -232,6 +239,9 @@ export async function sendEmail(db: Database, tenantId: string, options: EmailOp
       html: options.html,
       text: options.text ?? options.html?.replace(/<[^>]*>/g, ''),
       replyTo: options.replyTo,
+      messageId: options.messageId,
+      inReplyTo: options.inReplyTo,
+      references: options.references,
       attachments: options.attachments?.map(a => ({
         filename: a.filename,
         content: a.content,
@@ -325,49 +335,4 @@ export async function sendBillingEmail(db: Database, tenantId: string, options: 
     console.error(`[BILLING-EMAIL] Failed to=${options.to}:`, err);
     return false;
   }
-}
-
-// Convenience functions for common emails
-export async function sendTicketNotification(db: Database, tenantId: string, to: string, ticketNumber: number, subject: string, body: string) {
-  return sendEmail(db, tenantId, {
-    to,
-    subject: `[Ticket #${ticketNumber}] ${subject}`,
-    html: `<div style="font-family:system-ui,sans-serif;max-width:600px">
-      <h2 style="color:#2563eb">Ticket #${ticketNumber}</h2>
-      <p>${body}</p>
-      <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0">
-      <p style="color:#6b7280;font-size:12px">This is an automated message from Rivertown PSA.</p>
-    </div>`,
-  });
-}
-
-export async function sendQuoteEmail(db: Database, tenantId: string, to: string, quoteNumber: number, title: string, totalCents: number, portalUrl?: string) {
-  const total = (totalCents / 100).toFixed(2);
-  return sendEmail(db, tenantId, {
-    to,
-    subject: `Quote #${quoteNumber}: ${title}`,
-    html: `<div style="font-family:system-ui,sans-serif;max-width:600px">
-      <h2 style="color:#2563eb">Quote #${quoteNumber}</h2>
-      <p><strong>${title}</strong></p>
-      <p style="font-size:24px;font-weight:bold;color:#16a34a">$${total}</p>
-      ${portalUrl ? `<p><a href="${portalUrl}" style="color:#2563eb">View and approve in the customer portal</a></p>` : ''}
-      <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0">
-      <p style="color:#6b7280;font-size:12px">This is an automated message from Rivertown PSA.</p>
-    </div>`,
-  });
-}
-
-export async function sendInvoiceEmail(db: Database, tenantId: string, to: string, invoiceNumber: number, totalCents: number, dueDate: string) {
-  const total = (totalCents / 100).toFixed(2);
-  return sendEmail(db, tenantId, {
-    to,
-    subject: `Invoice #${invoiceNumber} - $${total} due ${dueDate}`,
-    html: `<div style="font-family:system-ui,sans-serif;max-width:600px">
-      <h2 style="color:#2563eb">Invoice #${invoiceNumber}</h2>
-      <p style="font-size:24px;font-weight:bold">$${total}</p>
-      <p>Due: ${dueDate}</p>
-      <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0">
-      <p style="color:#6b7280;font-size:12px">This is an automated message from Rivertown PSA.</p>
-    </div>`,
-  });
 }

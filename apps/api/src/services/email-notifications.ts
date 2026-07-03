@@ -1,8 +1,30 @@
+import crypto from 'crypto';
 import { eq, and, desc } from 'drizzle-orm';
-import { tickets, ticketComments, contacts, customers, emailTemplates, tenants, users, csatRatings } from '@rivertown/db';
+import { tickets, ticketComments, contacts, customers, emailTemplates, tenants, users, csatRatings, emailMessages } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import { sendEmail } from './email.js';
 import { renderTemplate } from './template-renderer.js';
+import { resolveAuthorNames } from '../common/author-names.js';
+
+// Build In-Reply-To / References from the ticket's stored email messages so
+// outbound replies stay in the same conversation in the customer's (and our) inbox.
+async function getTicketThreadHeaders(db: Database, tenantId: string, ticketId: string): Promise<{ inReplyTo?: string; references?: string }> {
+  const rows = await db.select({ messageId: emailMessages.messageId })
+    .from(emailMessages)
+    .where(and(eq(emailMessages.tenantId, tenantId), eq(emailMessages.ticketId, ticketId)))
+    .orderBy(emailMessages.createdAt);
+  const ids = rows.map(r => r.messageId).filter((m): m is string => !!m);
+  if (!ids.length) return {};
+  return { inReplyTo: ids[ids.length - 1], references: ids.join(' ') };
+}
+
+// Record an outbound email so subsequent replies keep threading.
+async function recordOutboundEmail(db: Database, tenantId: string, ticketId: string, fromAddress: string, to: string, subject: string, messageId: string): Promise<void> {
+  await db.insert(emailMessages).values({
+    tenantId, messageId, fromAddress, toAddress: to, subject,
+    ticketId, direction: 'outbound', processedAt: new Date(),
+  }).catch(() => { /* ignore duplicate message ids */ });
+}
 
 // Thread separator — inserted at the bottom of every outbound email
 // When customers reply, we strip everything below this line
@@ -138,28 +160,34 @@ export async function sendTicketReplyEmail(db: Database, tenantId: string, ticke
   const to = await getTicketRecipient(db, tenantId, ticket);
   if (!to) return;
 
+  const businessVars = await getBusinessVars(db, tenantId);
   const vars: Record<string, string> = {
-    ...await getBusinessVars(db, tenantId),
+    ...businessVars,
     ticketNumber: String(ticket.ticketNumber),
     ticketSubject: ticket.subject,
     commentBody: commentBody.replace(/\n/g, '<br>'),
     contactName: '',
   };
 
+  // Threading: reference the customer's prior messages so Gmail keeps the thread
+  const thread = await getTicketThreadHeaders(db, tenantId, ticketId);
+  const fromEmail = businessVars.businessEmail || `support@${to.split('@')[1] || 'localhost'}`;
+  const domain = fromEmail.split('@')[1] || 'localhost';
+  const messageId = `<${crypto.randomUUID()}@${domain}>`;
+
   const template = await getTemplate(db, tenantId, 'ticket_reply');
-  if (!template) {
-    await sendEmail(db, tenantId, {
-      to,
-      subject: `Re: [Ticket #${ticket.ticketNumber}] ${ticket.subject}`,
-      html: `<p>${commentBody.replace(/\n/g, '<br>')}</p>${THREAD_SEPARATOR}`,
-    });
-    return;
-  }
+  const subject = template
+    ? renderTemplate(template.subject, vars)
+    : `Re: [Ticket #${ticket.ticketNumber}] ${ticket.subject}`;
+  const bodyHtml = (template
+    ? renderTemplate(template.bodyHtml, vars)
+    : `<p>${commentBody.replace(/\n/g, '<br>')}</p>`) + THREAD_SEPARATOR;
 
-  const subject = renderTemplate(template.subject, vars);
-  const bodyHtml = renderTemplate(template.bodyHtml, vars) + THREAD_SEPARATOR;
-
-  await sendEmail(db, tenantId, { to, subject, html: bodyHtml });
+  await sendEmail(db, tenantId, {
+    to, subject, html: bodyHtml,
+    messageId, inReplyTo: thread.inReplyTo, references: thread.references,
+  });
+  await recordOutboundEmail(db, tenantId, ticketId, fromEmail, to, subject, messageId);
 }
 
 /**
@@ -246,15 +274,8 @@ export async function sendTicketAssignedEmail(db: Database, tenantId: string, ti
     .where(and(eq(ticketComments.ticketId, ticketId), eq(ticketComments.tenantId, tenantId)))
     .orderBy(desc(ticketComments.createdAt));
 
-  // Resolve comment author names
-  const authorIds = [...new Set(comments.map(c => c.authorId).filter(Boolean))];
-  const authorNames: Record<string, string> = {};
-  for (const aid of authorIds) {
-    const [u] = await db.select({ displayName: users.displayName }).from(users).where(eq(users.id, aid)).limit(1);
-    if (u) { authorNames[aid] = u.displayName; continue; }
-    const [c] = await db.select({ firstName: contacts.firstName, lastName: contacts.lastName }).from(contacts).where(eq(contacts.id, aid)).limit(1);
-    if (c) authorNames[aid] = `${c.firstName} ${c.lastName}`;
-  }
+  // Resolve comment author names (batched)
+  const authorNames = await resolveAuthorNames(db, comments.map(c => c.authorId));
 
   const contactName = contact ? `${contact.firstName} ${contact.lastName}` : '';
   const contactPhone = contact?.phone || customer?.phone || '';

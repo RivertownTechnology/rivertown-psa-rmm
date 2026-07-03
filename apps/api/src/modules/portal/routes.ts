@@ -2,8 +2,9 @@ import { FastifyInstance } from 'fastify';
 import { randomUUID } from 'crypto';
 import { eq, and, desc, sql, count } from 'drizzle-orm';
 import { compare, hash } from 'bcryptjs';
-import { contacts, tickets, ticketComments, quotes, invoices, assets, tenantSequences } from '@rivertown/db';
+import { contacts, tickets, ticketComments, quotes, invoices, assets } from '@rivertown/db';
 import { ValidationError, NotFoundError } from '../../common/errors.js';
+import { getNextTicketNumber } from '../../common/ticket-number.js';
 
 type PortalUser = { sub: string; tid: string; cid: string; role: string; portalRole: string; perms: string[] };
 
@@ -476,13 +477,8 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
     if (!subject?.trim()) throw new ValidationError('Subject is required');
 
-    // Proper ticket numbering using tenant sequences
-    const [seq] = await fastify.db.select().from(tenantSequences)
-      .where(and(eq(tenantSequences.tenantId, user.tid), eq(tenantSequences.sequenceName, 'ticket')))
-      .limit(1);
-    const nextNum = parseInt(seq?.currentValue ?? '0', 10) + 1;
-    await fastify.db.update(tenantSequences).set({ currentValue: String(nextNum) })
-      .where(and(eq(tenantSequences.tenantId, user.tid), eq(tenantSequences.sequenceName, 'ticket')));
+    // Atomic ticket numbering (avoids read-then-write race)
+    const nextNum = await getNextTicketNumber(fastify.db, user.tid);
 
     const values: Record<string, unknown> = {
       tenantId: user.tid, ticketNumber: nextNum, customerId: user.cid,

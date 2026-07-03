@@ -1,6 +1,6 @@
 import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
-import { eq, and, sql, desc, count } from 'drizzle-orm';
+import { eq, and, sql, desc, count, inArray } from 'drizzle-orm';
 import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues, ticketQueues, ticketTags, ticketTagAssignments, ticketCategories, ticketSubcategories, recurringTicketRules, workflowRules, workflowExecutionLog, businessDocuments, apiKeys } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
@@ -45,15 +45,13 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       fastify.db.select({ total: count() }).from(auditLog).where(and(...conditions)),
     ]);
 
-    // Resolve actor names
-    const actorIds = [...new Set(data.map(d => d.actorId))];
+    // Resolve actor names (batched)
+    const actorIds = [...new Set(data.map(d => d.actorId).filter((id): id is string => Boolean(id)))];
     const actorMap = new Map<string, string>();
     if (actorIds.length > 0) {
-      for (const id of actorIds) {
-        const [u] = await fastify.db.select({ displayName: users.displayName, email: users.email })
-          .from(users).where(eq(users.id, id)).limit(1);
-        if (u) actorMap.set(id, u.displayName || u.email);
-      }
+      const actorRows = await fastify.db.select({ id: users.id, displayName: users.displayName, email: users.email })
+        .from(users).where(inArray(users.id, actorIds));
+      for (const u of actorRows) actorMap.set(u.id, u.displayName || u.email);
     }
 
     const enriched = data.map(d => ({
@@ -1462,92 +1460,78 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate]
   }, async (request) => {
     const tid = request.tenantId;
+    const today = new Date().toISOString().split('T')[0];
 
-    // Parallel fetch all data
-    const [
-      customerCount,
-      ticketCounts,
-      invoiceData,
-      contractData,
-      timeData,
-    ] = await Promise.all([
-      // Customer count
-      fastify.db.select({ count: sql<number>`count(*)::int` }).from(customers)
-        .where(eq(customers.tenantId, tid)),
-      // Ticket counts by status
-      fastify.db.select().from(tickets).where(eq(tickets.tenantId, tid)),
-      // Invoice data
-      fastify.db.select().from(invoices).where(eq(invoices.tenantId, tid)),
-      // Contract line items (for revenue/cost)
-      fastify.db.select({
-        contractId: contractLineItems.contractId,
-        unitPriceCents: contractLineItems.unitPriceCents,
-        unitCostCents: contractLineItems.unitCostCents,
-        quantity: contractLineItems.quantity,
-      }).from(contractLineItems)
-        .innerJoin(contracts, eq(contractLineItems.contractId, contracts.id))
-        .where(and(eq(contracts.tenantId, tid), eq(contracts.status, 'active'))),
-      // Time entries
-      fastify.db.select({
-        durationMinutes: ticketTimeEntries.durationMinutes,
-        isBillable: ticketTimeEntries.isBillable,
-        isBilled: ticketTimeEntries.isBilled,
-        rateCents: ticketTimeEntries.rateCents,
-        userId: ticketTimeEntries.userId,
-      }).from(ticketTimeEntries).where(eq(ticketTimeEntries.tenantId, tid)),
-    ]);
-
-    // Customer stats
-    const totalCustomers = customerCount[0]?.count ?? 0;
-
-    // Ticket stats
-    const openTickets = ticketCounts.filter(t => !['resolved', 'closed'].includes(t.status)).length;
-    const criticalTickets = ticketCounts.filter(t => t.priority === 'critical' && !['resolved', 'closed'].includes(t.status)).length;
-    const newTickets = ticketCounts.filter(t => t.status === 'new').length;
-    const slaBreached = ticketCounts.filter(t => t.slaBreached === true).length;
-
-    // Invoice stats
-    const openInvoices = invoiceData.filter(i => ['sent', 'partial'].includes(i.status)).length;
-    const overdueInvoices = invoiceData.filter(i => {
-      if (i.status !== 'sent') return false;
-      return i.dueDate < new Date().toISOString().split('T')[0];
-    }).length;
-    const totalOutstandingCents = invoiceData
-      .filter(i => ['sent', 'partial', 'overdue'].includes(i.status))
-      .reduce((s, i) => s + (i.totalCents - i.amountPaidCents), 0);
-    const totalPaidThisMonth = invoiceData
-      .filter(i => i.status === 'paid')
-      .reduce((s, i) => s + i.amountPaidCents, 0);
-
-    // Contract P&L (company-wide from active contracts)
-    let totalRevenueCents = 0;
-    let totalProductCostCents = 0;
-    for (const li of contractData) {
-      const qty = parseFloat(li.quantity ?? '1');
-      totalRevenueCents += Math.round(li.unitPriceCents * qty);
-      if (li.unitCostCents) totalProductCostCents += Math.round(li.unitCostCents * qty);
-    }
-
-    // Labor costs
+    // Tenant default labor cost (needed before the labor aggregate below)
     const [tenant] = await fastify.db.select({ defaultCost: tenants.defaultInternalCostCents })
       .from(tenants).where(eq(tenants.id, tid)).limit(1);
     const defaultCost = tenant?.defaultCost ?? 7500;
 
-    // Get per-tech costs
-    const techUsers = await fastify.db.select({ id: users.id, internalCostCents: users.internalCostCents })
-      .from(users).where(eq(users.tenantId, tid));
-    const techCostMap = new Map(techUsers.map(u => [u.id, u.internalCostCents ?? defaultCost]));
+    // Parallel aggregate queries — push all counting/summing into SQL
+    const [
+      customerAgg,
+      ticketAgg,
+      invoiceAgg,
+      contractAgg,
+      laborAgg,
+    ] = await Promise.all([
+      // Customer count
+      fastify.db.select({ count: sql<number>`count(*)::int` }).from(customers)
+        .where(eq(customers.tenantId, tid)),
+      // Ticket counts by status/priority/SLA
+      fastify.db.select({
+        open: sql<number>`(count(*) filter (where ${tickets.status} not in ('resolved','closed')))::int`,
+        critical: sql<number>`(count(*) filter (where ${tickets.priority} = 'critical' and ${tickets.status} not in ('resolved','closed')))::int`,
+        new: sql<number>`(count(*) filter (where ${tickets.status} = 'new'))::int`,
+        slaBreached: sql<number>`(count(*) filter (where ${tickets.slaBreached} = true))::int`,
+      }).from(tickets).where(eq(tickets.tenantId, tid)),
+      // Invoice stats
+      fastify.db.select({
+        open: sql<number>`(count(*) filter (where ${invoices.status} in ('sent','partial')))::int`,
+        overdue: sql<number>`(count(*) filter (where ${invoices.status} = 'sent' and ${invoices.dueDate} < ${today}))::int`,
+        outstandingCents: sql<number>`(coalesce(sum(${invoices.totalCents} - ${invoices.amountPaidCents}) filter (where ${invoices.status} in ('sent','partial','overdue')), 0))::int`,
+        paidCents: sql<number>`(coalesce(sum(${invoices.amountPaidCents}) filter (where ${invoices.status} = 'paid'), 0))::int`,
+      }).from(invoices).where(eq(invoices.tenantId, tid)),
+      // Contract P&L (company-wide from active contracts)
+      fastify.db.select({
+        revenueCents: sql<number>`(coalesce(sum(round(${contractLineItems.unitPriceCents} * coalesce(${contractLineItems.quantity}, '1')::numeric)), 0))::int`,
+        productCostCents: sql<number>`(coalesce(sum(round(coalesce(${contractLineItems.unitCostCents}, 0) * coalesce(${contractLineItems.quantity}, '1')::numeric)) filter (where ${contractLineItems.unitCostCents} is not null), 0))::int`,
+      }).from(contractLineItems)
+        .innerJoin(contracts, eq(contractLineItems.contractId, contracts.id))
+        .where(and(eq(contracts.tenantId, tid), eq(contracts.status, 'active'))),
+      // Labor: total/unbilled minutes and cost (per-tech rate via join, fallback to tenant default)
+      fastify.db.select({
+        totalMinutes: sql<number>`(coalesce(sum(coalesce(${ticketTimeEntries.durationMinutes}, 0)), 0))::int`,
+        unbilledMinutes: sql<number>`(coalesce(sum(coalesce(${ticketTimeEntries.durationMinutes}, 0)) filter (where ${ticketTimeEntries.isBillable} = true and ${ticketTimeEntries.isBilled} = false), 0))::int`,
+        laborCostCents: sql<number>`(coalesce(sum(round((coalesce(${ticketTimeEntries.durationMinutes}, 0)::numeric / 60) * coalesce(${users.internalCostCents}, ${defaultCost}))), 0))::int`,
+      }).from(ticketTimeEntries)
+        .leftJoin(users, eq(ticketTimeEntries.userId, users.id))
+        .where(eq(ticketTimeEntries.tenantId, tid)),
+    ]);
 
-    let totalLaborCostCents = 0;
-    let totalLaborMinutes = 0;
-    let unbilledMinutes = 0;
-    for (const te of timeData) {
-      const mins = te.durationMinutes ?? 0;
-      totalLaborMinutes += mins;
-      const costRate = techCostMap.get(te.userId) ?? defaultCost;
-      totalLaborCostCents += Math.round((mins / 60) * costRate);
-      if (te.isBillable && !te.isBilled) unbilledMinutes += mins;
-    }
+    // Customer stats
+    const totalCustomers = customerAgg[0]?.count ?? 0;
+
+    // Ticket stats
+    const openTickets = ticketAgg[0]?.open ?? 0;
+    const criticalTickets = ticketAgg[0]?.critical ?? 0;
+    const newTickets = ticketAgg[0]?.new ?? 0;
+    const slaBreached = ticketAgg[0]?.slaBreached ?? 0;
+
+    // Invoice stats
+    const openInvoices = invoiceAgg[0]?.open ?? 0;
+    const overdueInvoices = invoiceAgg[0]?.overdue ?? 0;
+    const totalOutstandingCents = invoiceAgg[0]?.outstandingCents ?? 0;
+    const totalPaidThisMonth = invoiceAgg[0]?.paidCents ?? 0;
+
+    // Contract P&L
+    const totalRevenueCents = contractAgg[0]?.revenueCents ?? 0;
+    const totalProductCostCents = contractAgg[0]?.productCostCents ?? 0;
+
+    // Labor
+    const totalLaborMinutes = laborAgg[0]?.totalMinutes ?? 0;
+    const unbilledMinutes = laborAgg[0]?.unbilledMinutes ?? 0;
+    const totalLaborCostCents = laborAgg[0]?.laborCostCents ?? 0;
 
     const totalCostCents = totalProductCostCents + totalLaborCostCents;
     const trueProfitCents = totalRevenueCents - totalCostCents;
@@ -1989,7 +1973,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     const customerNames = new Map<string, string>();
     if (customerIds.length > 0) {
       const custs = await fastify.db.select({ id: customers.id, name: customers.name }).from(customers)
-        .where(and(eq(customers.tenantId, request.tenantId)));
+        .where(and(eq(customers.tenantId, request.tenantId), inArray(customers.id, customerIds)));
       for (const c of custs) customerNames.set(c.id, c.name);
     }
     return rules.map(r => ({ ...r, customerName: r.customerId ? customerNames.get(r.customerId) ?? null : null }));

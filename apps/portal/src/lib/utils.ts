@@ -5,7 +5,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const currencyFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+});
+
 export function formatCents(cents: number | null | undefined): string {
   if (cents == null) return '-';
-  return `$${(cents / 100).toFixed(2)}`;
+  return currencyFormatter.format(cents / 100);
 }
