@@ -66,4 +66,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Portainer stack redeploy
-        run: curl -fsSL -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}"
+        env:
+          URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
+        run: |
+          if [ -z "$URL" ]; then
+            echo "PORTAINER_WEBHOOK_URL not set yet — skipping redeploy trigger."
+            exit 0
+          fi
+          curl -fsSL -X POST "$URL"
