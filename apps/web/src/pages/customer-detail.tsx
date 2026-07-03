@@ -9,9 +9,11 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, Plus, Mail, Phone, MapPin, Monitor, Ticket, FileText, Pencil, Trash2, Globe, Key, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { Plus, Mail, Phone, MapPin, Monitor, Ticket, FileText, Pencil, Trash2, Globe, Key, CheckCircle2, XCircle, Loader2, MoreHorizontal } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { Combobox } from '@/components/ui/combobox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { statusBadgeClass, formatStatus, CUSTOMER_STATUS_COLORS, CUSTOMER_STATUS_LABELS } from '@/lib/badge-colors';
 
 function pushPath(path: string) {
   window.history.pushState(null, '', path);
@@ -261,45 +263,76 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
         </DialogContent>
       </Dialog>
 
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
-        <h2 className="text-xl font-semibold">{customer.name}</h2>
-        <Button variant="outline" size="sm" onClick={openEditCustomer}><Pencil className="h-3 w-3 mr-1" />Edit</Button>
-        {!(customer as any).ncentralName && (
-          <Button variant="outline" size="sm" onClick={() => { setNcResult(null); setShowNcentralDialog(true); }}>
-            <Globe className="h-3 w-3 mr-1" /> Create in N-central
-          </Button>
-        )}
-        {(customer as any).ncentralName && (
-          <Badge variant="outline" className="text-xs">N-central: {(customer as any).ncentralName}</Badge>
-        )}
-        <Combobox
-          options={[
-            {value: 'active', label: 'Active Client'},
-            {value: 'inactive', label: 'Former Client'},
-            {value: 'prospect', label: 'Prospective Client'},
-          ]}
-          value={customer.status}
-          onValueChange={async (v) => {
-            await api(`/customers/${customerId}`, { method: 'PATCH', body: JSON.stringify({ status: v }) });
-            load();
-          }}
-          placeholder="Select status..."
-          className="w-40"
-        />
-        <Combobox
-          options={[
-            {value: '', label: 'SLA: Default'},
-            ...slaPolicies.map(p => ({value: p.id, label: p.name})),
-          ]}
-          value={(customer as any).slaPolicyId ?? ''}
-          onValueChange={async (v) => {
-            await api(`/customers/${customerId}`, { method: 'PATCH', body: JSON.stringify({ slaPolicyId: v || null }) });
-            load();
-          }}
-          placeholder="Select SLA..."
-          className="w-44"
-        />
+      {/* Two-tier header: identity + status/chips on the left, controls on the right */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="h-11 w-11 rounded-lg bg-primary/10 text-primary flex items-center justify-center text-sm font-semibold shrink-0">
+            {customer.name.split(' ').map(w => w[0]).filter(Boolean).join('').toUpperCase().slice(0, 2) || '?'}
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground truncate">{customer.name}</h1>
+              <Badge className={statusBadgeClass(CUSTOMER_STATUS_COLORS, customer.status)}>{formatStatus(customer.status, CUSTOMER_STATUS_LABELS)}</Badge>
+              {(customer as any).ncentralName && (
+                <Badge variant="outline" className="text-xs">N-central: {(customer as any).ncentralName}</Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-1 text-xs text-muted-foreground">
+              <span>{contacts.length} contact{contacts.length === 1 ? '' : 's'}</span>
+              {tickets.length > 0 && (
+                <><span className="opacity-40">·</span><span className="text-blue-600 dark:text-blue-400">{tickets.filter(t => !['resolved', 'closed'].includes(t.status)).length} open tickets</span></>
+              )}
+              {customerContracts.length > 0 && (
+                <><span className="opacity-40">·</span><span>{customerContracts.filter(c => c.status === 'active').length} active contracts</span></>
+              )}
+              {customerInvoices.filter(i => i.status === 'overdue').length > 0 && (
+                <><span className="opacity-40">·</span><span className="text-red-600">{customerInvoices.filter(i => i.status === 'overdue').length} overdue</span></>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Combobox
+            options={[
+              {value: 'active', label: 'Active Client'},
+              {value: 'inactive', label: 'Former Client'},
+              {value: 'prospect', label: 'Prospective Client'},
+            ]}
+            value={customer.status}
+            onValueChange={async (v) => {
+              await api(`/customers/${customerId}`, { method: 'PATCH', body: JSON.stringify({ status: v }) });
+              load();
+            }}
+            placeholder="Select status..."
+            className="w-40"
+          />
+          <Combobox
+            options={[
+              {value: '', label: 'SLA: Default'},
+              ...slaPolicies.map(p => ({value: p.id, label: p.name})),
+            ]}
+            value={(customer as any).slaPolicyId ?? ''}
+            onValueChange={async (v) => {
+              await api(`/customers/${customerId}`, { method: 'PATCH', body: JSON.stringify({ slaPolicyId: v || null }) });
+              load();
+            }}
+            placeholder="Select SLA..."
+            className="w-44"
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="h-9 w-9" aria-label="More actions"><MoreHorizontal className="h-4 w-4" /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={openEditCustomer}><Pencil className="h-4 w-4 mr-2" />Edit customer</DropdownMenuItem>
+              {!(customer as any).ncentralName && (
+                <DropdownMenuItem onClick={() => { setNcResult(null); setShowNcentralDialog(true); }}>
+                  <Globe className="h-4 w-4 mr-2" />Create in N-central
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>

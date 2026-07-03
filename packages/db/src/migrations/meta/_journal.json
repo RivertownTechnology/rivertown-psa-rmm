@@ -1,4 +1,4 @@
-﻿{
+{
   "version": "7",
   "dialect": "postgresql",
   "entries": [
@@ -332,6 +332,7 @@
       "breakpoints": true
     },
     { "idx": 47, "version": "7", "when": 1745195600000, "tag": "0047_customer_email_domains", "breakpoints": true },
-    { "idx": 48, "version": "7", "when": 1745195700000, "tag": "0048_lowercase_contact_emails", "breakpoints": true }
+    { "idx": 48, "version": "7", "when": 1745195700000, "tag": "0048_lowercase_contact_emails", "breakpoints": true },
+    { "idx": 49, "version": "7", "when": 1745195800000, "tag": "0049_compliance_control_example", "breakpoints": true }
   ]
 }

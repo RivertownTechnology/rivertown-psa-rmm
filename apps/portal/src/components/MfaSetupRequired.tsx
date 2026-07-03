@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { BrandLockup } from '@/components/ui/brand-lockup';
 import { Shield, Fingerprint, MessageSquare, LogOut, Check } from 'lucide-react';
 
 export function MfaSetupRequired({ onDone, onLogout }: { onDone: () => void; onLogout: () => void }) {
@@ -55,7 +56,10 @@ export function MfaSetupRequired({ onDone, onLogout }: { onDone: () => void; onL
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
       <Card className="w-full max-w-lg">
         <CardHeader>
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+          <div className="mb-4 flex justify-center">
+            <BrandLockup size="md" />
+          </div>
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
             <Shield className="h-7 w-7" />
           </div>
           <CardTitle className="text-center">Secure your account</CardTitle>
@@ -73,14 +77,14 @@ export function MfaSetupRequired({ onDone, onLogout }: { onDone: () => void; onL
           {step === 'choose' && !choice && (
             <div className="space-y-3">
               <button onClick={() => setChoice('passkey')} className="w-full text-left border rounded-lg p-4 hover:bg-muted/50 transition-colors flex items-start gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-blue-100 text-blue-700 shrink-0"><Fingerprint className="h-5 w-5" /></div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0"><Fingerprint className="h-5 w-5" /></div>
                 <div>
                   <div className="font-semibold">Use a Passkey (Recommended)</div>
                   <div className="text-sm text-muted-foreground">Sign in with your fingerprint, face, or security key. No codes to type.</div>
                 </div>
               </button>
               <button onClick={() => { setChoice('sms'); setStep('phone'); }} className="w-full text-left border rounded-lg p-4 hover:bg-muted/50 transition-colors flex items-start gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-green-100 text-green-700 shrink-0"><MessageSquare className="h-5 w-5" /></div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shrink-0"><MessageSquare className="h-5 w-5" /></div>
                 <div>
                   <div className="font-semibold">Use SMS Text Message</div>
                   <div className="text-sm text-muted-foreground">Get a 6-digit code sent to your phone when you sign in.</div>
@@ -91,7 +95,7 @@ export function MfaSetupRequired({ onDone, onLogout }: { onDone: () => void; onL
 
           {choice === 'passkey' && step === 'choose' && (
             <div className="space-y-3">
-              <div className="bg-blue-50 border border-blue-200 p-3 rounded-md text-sm">
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm dark:border-blue-900 dark:bg-blue-900/30">
                 When you click below, your device will prompt you to create a passkey using your fingerprint, face, or PIN.
               </div>
               <Button onClick={setupPasskey} className="w-full h-11" disabled={loading}>
@@ -122,8 +126,8 @@ export function MfaSetupRequired({ onDone, onLogout }: { onDone: () => void; onL
 
           {choice === 'sms' && step === 'verify' && (
             <div className="space-y-3">
-              <div className="bg-green-50 border border-green-200 p-3 rounded-md text-sm flex items-center gap-2">
-                <Check className="h-4 w-4 text-green-700" /> Code sent to {phoneHint}
+              <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 p-3 text-sm dark:border-green-900 dark:bg-green-900/30">
+                <Check className="h-4 w-4 text-green-700 dark:text-green-400" /> Code sent to {phoneHint}
               </div>
               <Label>Enter 6-digit code</Label>
               <Input

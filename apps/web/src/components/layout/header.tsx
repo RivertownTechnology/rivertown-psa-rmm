@@ -11,10 +11,38 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LogOut, User, Sun, Moon, Menu, Settings as SettingsIcon, Bell, Play, Square } from 'lucide-react';
+import { LogOut, User, Sun, Moon, Menu, Settings as SettingsIcon, Bell, Play, Square, Ticket, Receipt, FileText, DollarSign, AlertCircle } from 'lucide-react';
 import { useTimer } from '@/lib/timer';
 import { useToast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
+import { formatDateTime } from '@/lib/utils';
+
+// Compact relative-time helper for notification items ("2h ago")
+function relativeTime(dateStr: string): string {
+  const then = new Date(dateStr).getTime();
+  if (isNaN(then)) return '';
+  const diff = Date.now() - then;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(dateStr).toLocaleDateString();
+}
+
+// Icon per notification entity/type
+function NotificationIcon({ entityType }: { entityType: string }) {
+  const cls = 'h-4 w-4';
+  switch (entityType) {
+    case 'ticket': return <Ticket className={`${cls} text-blue-500`} />;
+    case 'invoice': return <Receipt className={`${cls} text-emerald-500`} />;
+    case 'quote': return <FileText className={`${cls} text-violet-500`} />;
+    case 'payment': return <DollarSign className={`${cls} text-emerald-500`} />;
+    default: return <AlertCircle className={`${cls} text-amber-500`} />;
+  }
+}
 
 interface HeaderProps {
   title: string;
@@ -86,7 +114,7 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
         <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 lg:hidden" onClick={onMenuToggle} aria-label="Toggle navigation menu">
           <Menu className="h-5 w-5" />
         </Button>
-        <h2 className="text-lg font-semibold truncate">{title}</h2>
+        <h2 className="text-lg font-semibold tracking-tight truncate">{title}</h2>
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2 shrink-0">
@@ -150,17 +178,35 @@ export function Header({ title, onNavigate, onMenuToggle }: HeaderProps) {
             {notificationList.length === 0 ? (
               <div className="p-4 text-center text-sm text-muted-foreground">No notifications</div>
             ) : (
-              notificationList.slice(0, 10).map(n => (
-                <DropdownMenuItem key={n.id} className={`flex flex-col items-start gap-0.5 p-3 ${!n.isRead ? 'bg-primary/5' : ''}`}
-                  onClick={() => {
-                    api(`/notifications/${n.id}/read`, { method: 'PATCH' }).catch(() => {});
-                    if (n.entityType === 'ticket' && n.entityId) onNavigate(`/tickets/${n.entityId}`);
-                  }}>
-                  <span className="text-sm font-medium">{n.title}</span>
-                  {n.body && <span className="text-xs text-muted-foreground">{n.body}</span>}
-                </DropdownMenuItem>
-              ))
+              <div className="max-h-96 overflow-y-auto">
+                {notificationList.slice(0, 10).map(n => (
+                  <DropdownMenuItem key={n.id} className={`flex items-start gap-2.5 p-3 ${!n.isRead ? 'bg-primary/5' : ''}`}
+                    onClick={() => {
+                      api(`/notifications/${n.id}/read`, { method: 'PATCH' }).catch(() => {});
+                      setNotificationList(prev => prev.map(x => x.id === n.id ? { ...x, isRead: true } : x));
+                      setUnreadCount(c => Math.max(0, c - (n.isRead ? 0 : 1)));
+                      if (n.entityType === 'ticket' && n.entityId) onNavigate(`/tickets/${n.entityId}`);
+                    }}>
+                    <div className="mt-0.5 shrink-0"><NotificationIcon entityType={n.entityType} /></div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        {!n.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
+                        <span className={`text-sm truncate ${!n.isRead ? 'font-semibold' : 'font-medium'}`}>{n.title}</span>
+                      </div>
+                      {n.body && <span className="mt-0.5 block text-xs text-muted-foreground line-clamp-2">{n.body}</span>}
+                      <span className="mt-0.5 block text-[11px] text-muted-foreground" title={formatDateTime(n.createdAt)}>{relativeTime(n.createdAt)}</span>
+                    </div>
+                  </DropdownMenuItem>
+                ))}
+              </div>
             )}
+            <DropdownMenuSeparator />
+            <button
+              className="w-full py-2 text-center text-xs font-medium text-primary hover:underline"
+              onClick={() => onNavigate('/notifications')}
+            >
+              View all notifications
+            </button>
           </DropdownMenuContent>
         </DropdownMenu>
 

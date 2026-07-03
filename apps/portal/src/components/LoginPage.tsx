@@ -3,8 +3,10 @@ import type { FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Ticket, FileText, CreditCard, Shield, Phone, Mail, Fingerprint } from 'lucide-react';
+import { Ticket, FileText, Receipt, Shield, Phone, Mail, Fingerprint } from 'lucide-react';
 import { setTokens } from '@/lib/api';
+import { BrandLockup } from '@/components/ui/brand-lockup';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string) => Promise<void>;
@@ -92,7 +94,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           <div className="grid grid-cols-2 gap-4">
             <FeatureCard icon={<Ticket className="h-5 w-5" />} title="Submit Tickets" desc="Report issues and get help fast" />
             <FeatureCard icon={<FileText className="h-5 w-5" />} title="View Quotes" desc="Review and approve quotes online" />
-            <FeatureCard icon={<CreditCard className="h-5 w-5" />} title="Pay Invoices" desc="Secure online payment options" />
+            <FeatureCard icon={<Receipt className="h-5 w-5" />} title="View Invoices" desc="Track balances and payment status" />
             <FeatureCard icon={<Shield className="h-5 w-5" />} title="Track Assets" desc="See your managed devices" />
           </div>
         </div>
@@ -104,12 +106,14 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       </div>
 
       {/* Right: Login form */}
-      <div className="flex items-center justify-center p-6 lg:p-12 bg-background">
+      <div className="relative flex items-center justify-center p-6 lg:p-12 bg-background">
+        <div className="absolute right-3 top-3">
+          <ThemeToggle />
+        </div>
         <div className="w-full max-w-md">
-          {/* Mobile logo */}
-          <div className="lg:hidden text-center mb-8">
-            <img src="/logo.png" alt="Rivertown Technology" className="h-16 w-auto mx-auto mb-3" />
-            <h1 className="text-2xl font-bold">Customer Portal</h1>
+          {/* Mobile lockup */}
+          <div className="lg:hidden mb-8 flex justify-center">
+            <BrandLockup size="lg" stacked />
           </div>
 
           <div className="hidden lg:block mb-8">

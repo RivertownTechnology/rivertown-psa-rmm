@@ -1,11 +1,20 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
 import { useToast } from '@/lib/toast';
+import { formatDate } from '@/lib/utils';
+import {
+  CUSTOMER_STATUS_COLORS,
+  CUSTOMER_STATUS_LABELS,
+  statusBadgeClass,
+  formatStatus,
+} from '@/lib/badge-colors';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/page-header';
+import { Pagination } from '@/components/ui/pagination';
 import {
   Dialog,
   DialogContent,
@@ -33,18 +42,6 @@ interface PaginatedResponse {
   data: Customer[];
   pagination: { page: number; limit: number; total: number; totalPages: number };
 }
-
-const statusColor: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  active: 'default',
-  inactive: 'secondary',
-  prospect: 'outline',
-};
-
-const statusLabels: Record<string, string> = {
-  active: 'Active',
-  inactive: 'Inactive',
-  prospect: 'Prospect',
-};
 
 const sortOptions = [
   { value: 'name_az', label: 'Name A-Z' },
@@ -178,30 +175,35 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-          <div className="relative w-full sm:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search customers..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <Combobox
-            options={sortOptions}
-            value={sort}
-            onValueChange={setSort}
-            placeholder="Sort by..."
-            className="w-44"
+      <PageHeader
+        title="Customers"
+        description="Manage the companies you provide IT services for."
+        actions={
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Customer
+          </Button>
+        }
+      />
+
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search customers..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
           />
         </div>
-        <Button onClick={() => setShowCreate(true)} className="shrink-0">
-          <Plus className="mr-2 h-4 w-4" />
-          Add Customer
-        </Button>
+        <Combobox
+          options={sortOptions}
+          value={sort}
+          onValueChange={setSort}
+          placeholder="Sort by..."
+          className="w-44"
+        />
       </div>
 
       {/* Customer Cards */}
@@ -245,8 +247,11 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant={statusColor[c.status] ?? 'secondary'}>
-                      {statusLabels[c.status] ?? c.status}
+                    <Badge
+                      variant="secondary"
+                      className={`border ${statusBadgeClass(CUSTOMER_STATUS_COLORS, c.status)}`}
+                    >
+                      {formatStatus(c.status, CUSTOMER_STATUS_LABELS)}
                     </Badge>
                     <div onClick={e => e.stopPropagation()}>
                       <Button
@@ -278,7 +283,7 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
                 {/* Line 3: Health summary placeholder */}
                 <div className="flex items-center gap-2 mt-1.5">
                   <span className="text-xs text-muted-foreground">
-                    Added {new Date(c.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    Added {formatDate(c.createdAt)}
                   </span>
                 </div>
               </CardContent>
@@ -288,19 +293,7 @@ export function CustomersPage({ onSelectCustomer }: { onSelectCustomer?: (id: st
       )}
 
       {/* Pagination */}
-      {total > 25 && (
-        <div className="flex justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-            Previous
-          </Button>
-          <span className="flex items-center text-sm text-muted-foreground px-2">
-            Page {page} of {Math.ceil(total / 25)}
-          </span>
-          <Button variant="outline" size="sm" disabled={page >= Math.ceil(total / 25)} onClick={() => setPage(page + 1)}>
-            Next
-          </Button>
-        </div>
-      )}
+      <Pagination page={page} pageSize={25} total={total} onPageChange={setPage} />
 
       {/* Delete Confirmation */}
       <ConfirmDialog

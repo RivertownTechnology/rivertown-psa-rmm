@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { formatCents } from '@/lib/utils';
+import { formatCents, formatDate } from '@/lib/utils';
+import { INVOICE_STATUS_COLORS, INVOICE_STATUS_LABELS, statusBadgeClass, formatStatus } from '@/lib/badge-colors';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,6 +12,8 @@ import { Combobox } from '@/components/ui/combobox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
+import { PageHeader } from '@/components/ui/page-header';
+import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/lib/toast';
 import { Trash2, RefreshCw, Search, Receipt } from 'lucide-react';
 
@@ -39,14 +42,6 @@ interface PaginatedResponse {
   pagination: { page: number; limit: number; total: number; totalPages: number };
 }
 
-const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  draft: 'outline',
-  sent: 'default',
-  paid: 'secondary',
-  overdue: 'destructive',
-  void: 'secondary',
-};
-
 export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavigateToCustomer: (id: string) => void; onSelectInvoice?: (id: string) => void }) {
   const toast = useToast();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -59,7 +54,6 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
   const [generating, setGenerating] = useState(false);
-  const [message, setMessage] = useState('');
   const [showGenerate, setShowGenerate] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -119,7 +113,7 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
     });
 
   async function handleCreate(e: React.FormEvent) {
-    e.preventDefault(); setSaving(true); setMessage('');
+    e.preventDefault(); setSaving(true);
     try {
       const today = new Date().toISOString().split('T')[0];
       const inv = await api<{ id: string; invoiceNumber: number }>('/invoices', {
@@ -133,21 +127,20 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
       });
       setShowCreate(false);
       setCreateForm({ customerId: '', dueDate: createForm.dueDate, notes: '' });
-      setMessage(`Invoice #${inv.invoiceNumber} created. Click it to add line items.`);
+      toast.success(`Invoice INV-${inv.invoiceNumber} created`, 'Add line items to finish it up.');
       loadInvoices();
       if (onSelectInvoice) onSelectInvoice(inv.id);
     } catch (e: unknown) {
-      setMessage(`Failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      toast.error('Failed to create invoice', e instanceof Error ? e.message : undefined);
     } finally { setSaving(false); }
   }
 
   async function executeDelete() {
     if (!deleteTarget) return;
     const { id, invoiceNumber } = deleteTarget;
-    setMessage('');
     try {
       await api(`/invoices/${id}`, { method: 'DELETE' });
-      setMessage(`Invoice #${invoiceNumber} deleted.`);
+      toast.success(`Invoice INV-${invoiceNumber} deleted`);
       setDeleteTarget(null);
       loadInvoices();
     } catch (e: unknown) {
@@ -158,18 +151,17 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
 
   async function handleGenerate() {
     setGenerating(true);
-    setMessage('');
     try {
       const today = new Date().toISOString().split('T')[0];
       const result = await api<{ created: number }>('/invoices/generate', {
         method: 'POST',
         body: JSON.stringify({ issueDate: today, dueDate: genDueDate }),
       });
-      setMessage(`Generated ${result.created} invoice(s). Issue date: ${today}, Due: ${genDueDate}`);
+      toast.success(`Generated ${result.created} invoice(s)`, `Issued ${formatDate(today)}, due ${formatDate(genDueDate)}.`);
       setShowGenerate(false);
       loadInvoices();
     } catch (e: unknown) {
-      setMessage(`Failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      toast.error('Failed to generate invoices', e instanceof Error ? e.message : undefined);
     } finally {
       setGenerating(false);
     }
@@ -179,31 +171,11 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-            <div className="relative w-full sm:w-56">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search invoices..."
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                className="pl-9"
-              />
-            </div>
-            <Combobox
-              options={[
-                {value: 'newest', label: 'Invoice # (newest)'},
-                {value: 'due_date', label: 'Due Date'},
-                {value: 'amount', label: 'Amount'},
-                {value: 'status', label: 'Status'},
-              ]}
-              value={sort}
-              onValueChange={(v) => setSort(v)}
-              placeholder="Sort by..."
-            />
-          </div>
-          <div className="flex gap-2 shrink-0">
+      <PageHeader
+        title="Invoices"
+        description="Bill customers and track outstanding balances."
+        actions={
+          <>
             <Button variant="outline" onClick={() => setShowGenerate(true)}>
               <RefreshCw className="mr-2 h-4 w-4" />
               <span className="hidden sm:inline">Generate from Contracts</span>
@@ -212,23 +184,42 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
             <Button onClick={() => setShowCreate(true)}>
               New Invoice
             </Button>
+          </>
+        }
+      />
+
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative w-full sm:w-56">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search invoices..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              className="pl-9"
+            />
           </div>
+          <Combobox
+            options={[
+              {value: 'newest', label: 'Invoice # (newest)'},
+              {value: 'due_date', label: 'Due Date'},
+              {value: 'amount', label: 'Amount'},
+              {value: 'status', label: 'Status'},
+            ]}
+            value={sort}
+            onValueChange={(v) => setSort(v)}
+            placeholder="Sort by..."
+          />
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {statuses.map(s => (
             <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm"
               onClick={() => { setStatusFilter(s); setPage(1); }}>
-              {s || 'All'}
+              {s ? formatStatus(s, INVOICE_STATUS_LABELS) : 'All'}
             </Button>
           ))}
         </div>
       </div>
-
-      {message && (
-        <div className={`text-sm p-3 rounded-md ${message.startsWith('Failed') ? 'bg-destructive/10 text-destructive' : 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800'}`}>
-          {message}
-        </div>
-      )}
 
       <Card>
         <CardHeader className="pb-3"><CardTitle className="text-base">Invoices ({total})</CardTitle></CardHeader>
@@ -275,6 +266,7 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
                 ) : (
                   filteredInvoices.map(inv => {
                     const isOverdue = inv.status === 'sent' && inv.dueDate < today;
+                    const effectiveStatus = isOverdue ? 'overdue' : inv.status;
                     return (
                     <tr key={inv.id} className="border-b hover:bg-muted/30">
                       <td className="p-3 font-medium text-primary">
@@ -290,13 +282,12 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
                         </button>
                       </td>
                       <td className="p-3">
-                        <Badge variant={statusVariant[inv.status] ?? 'secondary'}>{inv.status}</Badge>
-                        {isOverdue && (
-                          <Badge variant="destructive" className="ml-1">Overdue</Badge>
-                        )}
+                        <Badge variant="secondary" className={`border ${statusBadgeClass(INVOICE_STATUS_COLORS, effectiveStatus)}`}>
+                          {formatStatus(effectiveStatus, INVOICE_STATUS_LABELS)}
+                        </Badge>
                       </td>
-                      <td className={`p-3 hidden md:table-cell ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'}`}>{inv.issueDate}</td>
-                      <td className={`p-3 ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'}`}>{inv.dueDate}</td>
+                      <td className={`p-3 hidden md:table-cell ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'}`}>{formatDate(inv.issueDate)}</td>
+                      <td className={`p-3 ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'}`}>{formatDate(inv.dueDate)}</td>
                       <td className="p-3 text-right font-medium">{formatCents(inv.totalCents)}</td>
                       <td className="p-3 text-right text-muted-foreground hidden md:table-cell">{formatCents(inv.amountPaidCents)}</td>
                       <td className="p-3 text-right font-medium">
@@ -319,13 +310,7 @@ export function InvoicesPage({ onNavigateToCustomer, onSelectInvoice }: { onNavi
         </CardContent>
       </Card>
 
-      {total > 25 && (
-        <div className="flex justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button>
-          <span className="flex items-center text-sm text-muted-foreground px-2">Page {page} of {Math.ceil(total / 25)}</span>
-          <Button variant="outline" size="sm" disabled={page >= Math.ceil(total / 25)} onClick={() => setPage(page + 1)}>Next</Button>
-        </div>
-      )}
+      <Pagination page={page} pageSize={25} total={total} onPageChange={setPage} />
       {/* Generate Dialog */}
       <Dialog open={showGenerate} onOpenChange={setShowGenerate}>
         <DialogContent>

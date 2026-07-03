@@ -52,6 +52,7 @@ export const complianceControls = pgTable('compliance_controls', {
   title: text('title').notNull(),
   description: text('description'),
   guidance: text('guidance'),
+  example: text('example'), // concrete example evidence / model assessment note
   nistMapping: text('nist_mapping'), // NIST 800-53 control ID
   severity: text('severity').default('medium'), // critical, high, medium, low
   controlType: text('control_type').default('technical'), // technical, administrative, physical

@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { BrandLockup } from '@/components/ui/brand-lockup';
 import { MessageSquare, ArrowLeft } from 'lucide-react';
 
 const RESEND_COOLDOWN = 30; // seconds
@@ -53,8 +54,11 @@ export function MfaChallenge({
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
+        <div className="mb-8 flex justify-center">
+          <BrandLockup size="md" />
+        </div>
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-14 w-14 rounded-full bg-blue-100 text-blue-700 mb-4">
+          <div className="inline-flex items-center justify-center h-14 w-14 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 mb-4">
             <MessageSquare className="h-7 w-7" />
           </div>
           <h1 className="text-2xl font-bold">Verify it's you</h1>

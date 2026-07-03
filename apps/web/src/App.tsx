@@ -177,19 +177,19 @@ function AppRouter() {
     title = 'Knowledge Base';
     content = <KnowledgeBasePage onNavigate={navigate} />;
   } else if (contractMatch) {
-    title = 'Contract Detail'; currentNav = '/billing/contracts';
+    title = 'Contract'; currentNav = '/billing/contracts';
     content = <ContractDetailPage contractId={contractMatch[1]} onBack={() => navigate('/billing/contracts')} onNavigateToCustomer={navigateToCustomer} />;
   } else if (pathname === '/billing/contracts') {
     title = 'Contracts';
     content = <ContractsPage onNavigateToCustomer={navigateToCustomer} onSelectContract={navigateToContract} />;
   } else if (invoiceMatch) {
-    title = 'Invoice Detail'; currentNav = '/billing/invoices';
+    title = 'Invoice'; currentNav = '/billing/invoices';
     content = <InvoiceDetailPage invoiceId={invoiceMatch[1]} onBack={() => navigate('/billing/invoices')} onNavigateToCustomer={navigateToCustomer} />;
   } else if (pathname === '/billing/invoices') {
     title = 'Invoices';
     content = <InvoicesPage onNavigateToCustomer={navigateToCustomer} onSelectInvoice={(id: string) => pushPath(`/billing/invoices/${id}`)} />;
   } else if (quoteMatch) {
-    title = 'Quote Detail'; currentNav = '/billing/quotes';
+    title = 'Quote'; currentNav = '/billing/quotes';
     content = <QuoteDetailPage quoteId={quoteMatch[1]} onBack={() => navigate('/billing/quotes')} onNavigateToCustomer={navigateToCustomer} onNavigateToContract={navigateToContract} />;
   } else if (pathname === '/billing/quotes') {
     title = 'Quotes';

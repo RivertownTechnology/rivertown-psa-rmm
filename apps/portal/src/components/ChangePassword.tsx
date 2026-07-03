@@ -4,7 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Headset, LogOut, ShieldCheck } from 'lucide-react';
+import { BrandLockup } from '@/components/ui/brand-lockup';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { LogOut, ShieldCheck } from 'lucide-react';
 
 interface ChangePasswordProps {
   currentPassword: string;
@@ -39,15 +41,13 @@ export function ChangePassword({ currentPassword, onChanged, onLogout }: ChangeP
     <div className="min-h-screen bg-muted/40 flex flex-col">
       <header className="border-b bg-background">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
+          <BrandLockup size="md" />
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Headset className="h-4 w-4" />
-            </div>
-            <span className="text-lg font-semibold">Support Portal</span>
+            <ThemeToggle />
+            <Button variant="ghost" size="sm" onClick={onLogout}>
+              <LogOut className="h-4 w-4 mr-1" />Sign Out
+            </Button>
           </div>
-          <Button variant="ghost" size="sm" onClick={onLogout}>
-            <LogOut className="h-4 w-4 mr-1" />Sign Out
-          </Button>
         </div>
       </header>
 

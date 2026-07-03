@@ -130,8 +130,29 @@ export const CHART_SERIES = [
 
 export const CHART_SLA = [CHART_COLORS.success, CHART_COLORS.danger];
 
+// ── Status label maps ──────────────────────────────────────────────
+
+export const INVOICE_STATUS_LABELS: Record<string, string> = {
+  draft: 'Draft', sent: 'Sent', partial: 'Partial', paid: 'Paid', overdue: 'Overdue', void: 'Void',
+};
+
+export const CONTRACT_STATUS_LABELS: Record<string, string> = {
+  draft: 'Draft', active: 'Active', expired: 'Expired', cancelled: 'Cancelled', renewal: 'Renewal',
+};
+
+export const CUSTOMER_STATUS_LABELS: Record<string, string> = {
+  active: 'Active', inactive: 'Inactive', prospect: 'Prospect',
+};
+
 // ── Helper: Get badge class with fallback ──────────────────────────
 
 export function statusBadgeClass(map: Record<string, string>, status: string, fallback = 'bg-gray-500/10 text-gray-500 border-gray-500/20'): string {
   return map[status] || fallback;
+}
+
+// Human-readable status label. Uses the provided label map, else title-cases the raw value.
+export function formatStatus(status: string | null | undefined, labels?: Record<string, string>): string {
+  if (!status) return '-';
+  if (labels && labels[status]) return labels[status];
+  return status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }

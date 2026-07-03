@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
-import { formatCents } from '@/lib/utils';
+import { formatCents, formatDate } from '@/lib/utils';
+import { CONTRACT_STATUS_COLORS, CONTRACT_STATUS_LABELS, statusBadgeClass, formatStatus } from '@/lib/badge-colors';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +13,8 @@ import { PopoverFilter } from '@/components/ui/popover-filter';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PageHeader } from '@/components/ui/page-header';
+import { Pagination } from '@/components/ui/pagination';
 import { Plus, Search, Trash2, FileText } from 'lucide-react';
 
 interface ContractLineItem {
@@ -34,10 +37,6 @@ interface Contract {
 
 interface Customer { id: string; name: string; }
 interface PaginatedResponse { data: Contract[]; pagination: { total: number; page: number; totalPages: number }; }
-
-const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  active: 'default', draft: 'outline', expired: 'secondary', cancelled: 'destructive',
-};
 
 const typeLabels: Record<string, string> = {
   managed_services: 'Managed Services', break_fix: 'Break/Fix',
@@ -193,44 +192,47 @@ export function ContractsPage({ onNavigateToCustomer, onSelectContract }: { onNa
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="relative w-56">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search contracts..."
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                className="pl-9"
-              />
-            </div>
-            <Combobox
-              options={[
-                { value: 'newest', label: 'Created (newest)' },
-                { value: 'name_az', label: 'Name A-Z' },
-                { value: 'status', label: 'Status' },
-              ]}
-              value={sort}
-              onValueChange={setSort}
-              placeholder="Sort by..."
-              className="w-44"
-            />
-            <PopoverFilter
-              label="Status"
-              options={statusFilterOptions}
-              selected={statusFilter}
-              onSelectionChange={(selected) => { setStatusFilter(selected); setPage(1); }}
-            />
-            {mrr > 0 && (
-              <div className="flex items-center gap-1.5 text-sm font-semibold text-green-600 bg-green-50 dark:bg-green-950/30 px-3 py-1.5 rounded-md">
-                MRR: {formatCents(mrr)}
-              </div>
-            )}
-          </div>
+      <PageHeader
+        title="Contracts"
+        description="Manage recurring agreements and track monthly recurring revenue."
+        actions={
           <Button onClick={() => setShowCreate(true)}><Plus className="mr-2 h-4 w-4" />New Contract</Button>
+        }
+      />
+
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative w-56">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search contracts..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            className="pl-9"
+          />
         </div>
+        <Combobox
+          options={[
+            { value: 'newest', label: 'Created (newest)' },
+            { value: 'name_az', label: 'Name A-Z' },
+            { value: 'status', label: 'Status' },
+          ]}
+          value={sort}
+          onValueChange={setSort}
+          placeholder="Sort by..."
+          className="w-44"
+        />
+        <PopoverFilter
+          label="Status"
+          options={statusFilterOptions}
+          selected={statusFilter}
+          onSelectionChange={(selected) => { setStatusFilter(selected); setPage(1); }}
+        />
+        {mrr > 0 && (
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-green-600 bg-green-50 dark:bg-green-950/30 px-3 py-1.5 rounded-md">
+            MRR: {formatCents(mrr)}
+          </div>
+        )}
       </div>
 
       {/* Contract Cards */}
@@ -274,7 +276,9 @@ export function ContractsPage({ onNavigateToCustomer, onSelectContract }: { onNa
                   {/* Line 1: Name + Status */}
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-foreground">{c.name}</span>
-                    <Badge variant={statusVariant[c.status] ?? 'secondary'}>{c.status}</Badge>
+                    <Badge variant="secondary" className={`border ${statusBadgeClass(CONTRACT_STATUS_COLORS, c.status)}`}>
+                      {formatStatus(c.status, CONTRACT_STATUS_LABELS)}
+                    </Badge>
                   </div>
 
                   {/* Line 2: Customer + Type + Billing */}
@@ -288,7 +292,7 @@ export function ContractsPage({ onNavigateToCustomer, onSelectContract }: { onNa
                     <Badge variant="outline" className="text-xs">{typeLabels[c.contractType] ?? c.contractType}</Badge>
                     <span className="text-xs text-muted-foreground capitalize">{c.billingCycle}</span>
                     <span className="text-xs text-muted-foreground">
-                      {c.startDate} — {c.endDate ?? 'Ongoing'}
+                      {formatDate(c.startDate)} — {c.endDate ? formatDate(c.endDate) : 'Ongoing'}
                     </span>
                   </div>
 
@@ -336,19 +340,7 @@ export function ContractsPage({ onNavigateToCustomer, onSelectContract }: { onNa
       )}
 
       {/* Pagination */}
-      {total > 25 && (
-        <div className="flex justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-            Previous
-          </Button>
-          <span className="flex items-center text-sm text-muted-foreground px-2">
-            Page {page} of {Math.ceil(total / 25)}
-          </span>
-          <Button variant="outline" size="sm" disabled={page >= Math.ceil(total / 25)} onClick={() => setPage(page + 1)}>
-            Next
-          </Button>
-        </div>
-      )}
+      <Pagination page={page} pageSize={25} total={total} onPageChange={setPage} />
 
       {/* Delete Confirmation */}
       <ConfirmDialog

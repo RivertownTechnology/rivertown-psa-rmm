@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { formatCents } from '@/lib/utils';
+import { formatCents, formatDate } from '@/lib/utils';
+import { statusBadgeClass, formatStatus } from '@/lib/badge-colors';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +13,8 @@ import { Combobox } from '@/components/ui/combobox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
+import { PageHeader } from '@/components/ui/page-header';
+import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/lib/toast';
 
 interface Quote {
@@ -37,12 +40,13 @@ interface PaginatedResponse {
   pagination: { page: number; limit: number; total: number; totalPages: number };
 }
 
-const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  draft: 'outline',
-  sent: 'default',
-  approved: 'secondary',
-  rejected: 'destructive',
-  converted: 'secondary',
+// Quote status colors (no shared map exists for quotes yet — kept local, same visual language).
+const QUOTE_STATUS_COLORS: Record<string, string> = {
+  draft: 'bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/20',
+  sent: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
+  approved: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+  rejected: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
+  converted: 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20',
 };
 
 export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigateToCustomer: (id: string) => void; onSelectQuote?: (id: string) => void }) {
@@ -148,39 +152,44 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="relative w-56">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search quotes..."
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                className="pl-9"
-              />
-            </div>
-            <Combobox
-              options={[
-                {value: 'newest_number', label: 'Quote # (newest)'},
-                {value: 'newest_date', label: 'Created (newest)'},
-                {value: 'total', label: 'Total'},
-              ]}
-              value={sort}
-              onValueChange={(v) => setSort(v)}
-              placeholder="Sort by..."
-              className="w-44"
-            />
-          </div>
+      <PageHeader
+        title="Quotes"
+        description="Draft proposals and convert approved quotes into work."
+        actions={
           <Button onClick={() => setShowCreate(true)}>
             <Plus className="mr-2 h-4 w-4" />New Quote
           </Button>
+        }
+      />
+
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative w-56">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search quotes..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              className="pl-9"
+            />
+          </div>
+          <Combobox
+            options={[
+              {value: 'newest_number', label: 'Quote # (newest)'},
+              {value: 'newest_date', label: 'Created (newest)'},
+              {value: 'total', label: 'Total'},
+            ]}
+            value={sort}
+            onValueChange={(v) => setSort(v)}
+            placeholder="Sort by..."
+            className="w-44"
+          />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {statuses.map(s => (
             <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm"
               onClick={() => { setStatusFilter(s); setPage(1); }}>
-              {s || 'All'}
+              {s ? formatStatus(s) : 'All'}
             </Button>
           ))}
         </div>
@@ -237,11 +246,13 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
                         </button>
                       </td>
                       <td className="p-3">
-                        <Badge variant={statusVariant[q.status] ?? 'secondary'}>{q.status}</Badge>
+                        <Badge variant="secondary" className={`border ${statusBadgeClass(QUOTE_STATUS_COLORS, q.status)}`}>
+                          {formatStatus(q.status)}
+                        </Badge>
                       </td>
                       <td className="p-3 text-right font-medium">{formatCents(q.totalCents)}</td>
-                      <td className="p-3 text-muted-foreground">{q.validUntil ?? '-'}</td>
-                      <td className="p-3 text-muted-foreground">{new Date(q.createdAt).toLocaleDateString()}</td>
+                      <td className="p-3 text-muted-foreground">{formatDate(q.validUntil)}</td>
+                      <td className="p-3 text-muted-foreground">{formatDate(q.createdAt)}</td>
                       <td className="p-3">
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
                           aria-label={`Delete quote Q-${q.quoteNumber}`}
@@ -258,13 +269,7 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
         </CardContent>
       </Card>
 
-      {total > 25 && (
-        <div className="flex justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button>
-          <span className="flex items-center text-sm text-muted-foreground px-2">Page {page} of {Math.ceil(total / 25)}</span>
-          <Button variant="outline" size="sm" disabled={page >= Math.ceil(total / 25)} onClick={() => setPage(page + 1)}>Next</Button>
-        </div>
-      )}
+      <Pagination page={page} pageSize={25} total={total} onPageChange={setPage} />
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent>

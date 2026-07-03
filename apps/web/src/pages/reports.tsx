@@ -16,6 +16,23 @@ import {
 import { CHART_SERIES as COLORS } from '@/lib/badge-colors';
 
 // ---------------------------------------------------------------------------
+// Recharts theming — match the dashboard (muted ticks, no axis lines,
+// themed tooltip that reads correctly in dark mode)
+// ---------------------------------------------------------------------------
+
+const AXIS_TICK = { fontSize: 12, fill: 'hsl(var(--muted-foreground))' };
+const GRID_STROKE = 'hsl(var(--border))';
+const TOOLTIP_STYLE = {
+  backgroundColor: 'hsl(var(--card))',
+  border: '1px solid hsl(var(--border))',
+  borderRadius: 8,
+  fontSize: 12,
+  color: 'hsl(var(--foreground))',
+} as const;
+const TOOLTIP_LABEL_STYLE = { color: 'hsl(var(--foreground))' } as const;
+const TOOLTIP_ITEM_STYLE = { color: 'hsl(var(--muted-foreground))' } as const;
+
+// ---------------------------------------------------------------------------
 // Date helpers
 // ---------------------------------------------------------------------------
 
@@ -84,6 +101,7 @@ export function ReportsPage() {
   const [activeTab, setActiveTab] = useState('tickets');
   const [dateFrom, setDateFrom] = useState(startOfMonth());
   const [dateTo, setDateTo] = useState(todayStr());
+  const [activePreset, setActivePreset] = useState<string | null>('month');
 
   // Ticket report
   const [ticketData, setTicketData] = useState<TicketsByDay[]>([]);
@@ -231,6 +249,7 @@ export function ReportsPage() {
   // ---------------------------------------------------------------------------
 
   function setPreset(preset: string) {
+    setActivePreset(preset);
     switch (preset) {
       case 'week':
         setDateFrom(startOfWeek());
@@ -278,22 +297,22 @@ export function ReportsPage() {
         <CardContent className="p-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-muted-foreground mr-2">Date Range:</span>
-            <Button variant="outline" size="sm" onClick={() => setPreset('week')}>This Week</Button>
-            <Button variant="outline" size="sm" onClick={() => setPreset('month')}>This Month</Button>
-            <Button variant="outline" size="sm" onClick={() => setPreset('last_month')}>Last Month</Button>
-            <Button variant="outline" size="sm" onClick={() => setPreset('quarter')}>This Quarter</Button>
+            <Button variant={activePreset === 'week' ? 'default' : 'outline'} size="sm" onClick={() => setPreset('week')}>This Week</Button>
+            <Button variant={activePreset === 'month' ? 'default' : 'outline'} size="sm" onClick={() => setPreset('month')}>This Month</Button>
+            <Button variant={activePreset === 'last_month' ? 'default' : 'outline'} size="sm" onClick={() => setPreset('last_month')}>Last Month</Button>
+            <Button variant={activePreset === 'quarter' ? 'default' : 'outline'} size="sm" onClick={() => setPreset('quarter')}>This Quarter</Button>
             <div className="flex items-center gap-1.5 ml-2 rounded-lg border border-input bg-background px-2 py-1">
               <input
                 type="date"
                 value={dateFrom}
-                onChange={e => setDateFrom(e.target.value)}
+                onChange={e => { setDateFrom(e.target.value); setActivePreset(null); }}
                 className="bg-transparent text-sm outline-none border-none"
               />
               <span className="text-muted-foreground text-xs">→</span>
               <input
                 type="date"
                 value={dateTo}
-                onChange={e => setDateTo(e.target.value)}
+                onChange={e => { setDateTo(e.target.value); setActivePreset(null); }}
                 className="bg-transparent text-sm outline-none border-none"
               />
             </div>
@@ -345,10 +364,10 @@ export function ReportsPage() {
               ) : (
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={ticketData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                    <YAxis allowDecimals={false} />
-                    <Tooltip />
+                    <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
+                    <XAxis dataKey="date" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE} cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} />
                     <Bar dataKey="count" fill={COLORS[0]} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -394,7 +413,7 @@ export function ReportsPage() {
                       <Cell fill={COLORS[1]} />
                       <Cell fill={COLORS[3]} />
                     </Pie>
-                    <Tooltip />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE} />
                   </PieChart>
                 </ResponsiveContainer>
               )}
@@ -431,10 +450,10 @@ export function ReportsPage() {
               ) : (
                 <ResponsiveContainer width="100%" height={Math.max(200, utilizationData.length * 40)}>
                   <BarChart data={utilizationData} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" />
-                    <YAxis type="category" dataKey="techName" width={120} tick={{ fontSize: 12 }} />
-                    <Tooltip />
+                    <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
+                    <XAxis type="number" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="techName" width={120} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE} cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} />
                     <Bar dataKey="hours" fill={COLORS[4]} radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -468,10 +487,10 @@ export function ReportsPage() {
               ) : (
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={revenueData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="customerName" tick={{ fontSize: 11 }} angle={-20} textAnchor="end" height={60} />
-                    <YAxis tickFormatter={(v) => `$${(v / 100).toLocaleString()}`} />
-                    <Tooltip formatter={(v: any) => `$${(Number(v) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
+                    <XAxis dataKey="customerName" tick={{ ...AXIS_TICK, fontSize: 11 }} axisLine={false} tickLine={false} angle={-20} textAnchor="end" height={60} />
+                    <YAxis tickFormatter={(v) => `$${(v / 100).toLocaleString()}`} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE} cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} formatter={(v: any) => `$${(Number(v) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`} />
                     <Bar dataKey="mrr" fill={COLORS[1]} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -552,10 +571,10 @@ export function ReportsPage() {
               ) : (
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={agingData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="bucket" />
-                    <YAxis tickFormatter={(v) => `$${(v / 100).toLocaleString()}`} />
-                    <Tooltip formatter={(v: any) => `$${(Number(v) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
+                    <XAxis dataKey="bucket" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={(v) => `$${(v / 100).toLocaleString()}`} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE} cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} formatter={(v: any) => `$${(Number(v) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`} />
                     <Bar dataKey="amount" fill={COLORS[2]} radius={[4, 4, 0, 0]}>
                       {agingData.map((_, i) => (
                         <Cell key={i} fill={COLORS[i % COLORS.length]} />

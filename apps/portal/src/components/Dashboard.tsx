@@ -1,17 +1,31 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { formatCents } from '@/lib/utils';
+import { formatCents, cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton, SkeletonList, SkeletonTable } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { BrandLockup } from '@/components/ui/brand-lockup';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import {
+  TICKET_STATUS_COLORS, TICKET_STATUS_LABELS,
+  INVOICE_STATUS_COLORS, INVOICE_STATUS_LABELS,
+  QUOTE_STATUS_COLORS, QUOTE_STATUS_LABELS,
+  ASSET_STATUS_COLORS, statusBadgeClass, formatStatus,
+} from '@/lib/badge-colors';
 import {
   LogOut, Ticket, FileText, Receipt, Monitor, Plus, User,
   MessageSquare, ChevronLeft, Send, Users, Shield, ShieldCheck, Check, X,
   Settings as SettingsIcon, KeyRound, Fingerprint, Trash2, CreditCard, AlertCircle,
+  Inbox, Wallet,
 } from 'lucide-react';
 
 // ===== Types =====
@@ -20,7 +34,7 @@ interface TicketData {
   id: string; ticketNumber: number; subject: string; description: string | null;
   status: string; priority: string; createdAt: string; updatedAt: string;
 }
-interface Comment { id: string; authorType: string; body: string; createdAt: string; }
+interface Comment { id: string; authorType: string; authorName?: string | null; body: string; createdAt: string; }
 interface InvoiceData {
   id: string; invoiceNumber: number; status: string; issueDate: string; dueDate: string;
   subtotalCents: number; taxCents: number; totalCents: number; amountPaidCents: number;
@@ -40,25 +54,44 @@ type TabId = 'tickets' | 'invoices' | 'quotes' | 'assets' | 'admin' | 'settings'
 
 // ===== Helpers =====
 
-const statusStyle: Record<string, string> = {
-  new: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
-  open: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
-  pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300',
-  waiting_on_customer: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
-  scheduled: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300',
-  resolved: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
-  closed: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
-  draft: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
-  sent: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
-  paid: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
-  overdue: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
-  cancelled: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
-  approved: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
-  rejected: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
-};
+// Status badges use the shared admin color/label tokens (badge-colors.ts) so the
+// portal and the admin app render every status identically.
+function TicketStatusBadge({ status }: { status: string }) {
+  return <Badge variant="status" className={cn('text-xs', statusBadgeClass(TICKET_STATUS_COLORS, status))}>{formatStatus(status, TICKET_STATUS_LABELS)}</Badge>;
+}
+function InvoiceStatusBadge({ status }: { status: string }) {
+  return <Badge variant="status" className={cn('text-xs', statusBadgeClass(INVOICE_STATUS_COLORS, status))}>{formatStatus(status, INVOICE_STATUS_LABELS)}</Badge>;
+}
+function QuoteStatusBadge({ status }: { status: string }) {
+  return <Badge variant="status" className={cn('text-xs', statusBadgeClass(QUOTE_STATUS_COLORS, status))}>{formatStatus(status, QUOTE_STATUS_LABELS)}</Badge>;
+}
+function AssetStatusBadge({ status }: { status: string }) {
+  return <Badge variant="status" className={cn('text-xs capitalize', statusBadgeClass(ASSET_STATUS_COLORS, status))}>{formatStatus(status)}</Badge>;
+}
 
 function fmtDate(d: string) { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
 function fmtTime(d: string) { return new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function CommentAvatar({ name, isYou }: { name: string; isYou: boolean }) {
+  return (
+    <div
+      className={cn(
+        'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+        isYou ? 'bg-primary text-primary-foreground' : 'bg-muted-foreground/15 text-foreground',
+      )}
+      aria-hidden
+    >
+      {initials(name)}
+    </div>
+  );
+}
 
 // ===== Main Component =====
 
@@ -69,6 +102,7 @@ interface DashboardProps {
 export function Dashboard({ userName, portalRole, portalPermissions, onLogout }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<TabId>('tickets');
   const [stats, setStats] = useState<Stats | null>(null);
+  const [composeTicket, setComposeTicket] = useState(false);
   const isAdmin = portalRole === 'admin';
   const hasTickets = isAdmin || portalPermissions.includes('tickets');
   const hasBilling = isAdmin || portalPermissions.includes('billing');
@@ -92,11 +126,8 @@ export function Dashboard({ userName, portalRole, portalPermissions, onLogout }:
     <div className="min-h-screen bg-muted/40">
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="Rivertown Technology" className="h-8 w-auto" />
-            <span className="text-lg font-semibold">Customer Portal</span>
-          </div>
-          <div className="flex items-center gap-3">
+          <BrandLockup size="md" />
+          <div className="flex items-center gap-2 sm:gap-3">
             {userName && (
               <span className="hidden items-center gap-1.5 text-sm text-muted-foreground sm:flex">
                 <User className="h-3.5 w-3.5" />
@@ -104,6 +135,7 @@ export function Dashboard({ userName, portalRole, portalPermissions, onLogout }:
                 {isAdmin && <Badge variant="outline" className="text-xs ml-1">Admin</Badge>}
               </span>
             )}
+            <ThemeToggle />
             <Button variant="ghost" size="sm" onClick={onLogout}>
               <LogOut className="h-4 w-4" />
               <span className="hidden sm:inline ml-1">Sign Out</span>
@@ -112,24 +144,34 @@ export function Dashboard({ userName, portalRole, portalPermissions, onLogout }:
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-6">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight">
-            {userName ? `Welcome, ${userName.split(' ')[0]}` : 'Welcome'}
-          </h1>
-          <p className="text-muted-foreground">Manage your support requests, invoices, and account.</p>
+      <main className="mx-auto max-w-5xl px-4 py-6 pb-24 sm:pb-6">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              {userName ? `Welcome, ${userName.split(' ')[0]}` : 'Welcome'}
+            </h1>
+            <p className="text-muted-foreground">Manage your support requests, invoices, and account.</p>
+          </div>
+          {hasTickets && (
+            <Button
+              onClick={() => { setActiveTab('tickets'); setComposeTicket(true); }}
+              className="shadow-sm"
+            >
+              <Plus className="h-4 w-4 mr-1.5" />New Ticket
+            </Button>
+          )}
         </div>
 
         {/* Quick stats */}
         <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          {hasTickets && <QuickStat label="Open Tickets" value={String(stats?.tickets.open ?? '--')} />}
-          {hasTickets && <QuickStat label="Total Tickets" value={String(stats?.tickets.total ?? '--')} />}
-          {hasBilling && <QuickStat label="Unpaid Invoices" value={String(stats?.invoices.outstanding ?? '--')} />}
-          {hasBilling && <QuickStat label="Outstanding" value={stats ? formatCents(stats.invoices.outstandingCents) : '--'} />}
+          {hasTickets && <QuickStat label="Open Tickets" icon={Ticket} loading={!stats} value={String(stats?.tickets.open ?? 0)} onClick={() => setActiveTab('tickets')} />}
+          {hasTickets && <QuickStat label="Total Tickets" icon={Inbox} loading={!stats} value={String(stats?.tickets.total ?? 0)} onClick={() => setActiveTab('tickets')} />}
+          {hasBilling && <QuickStat label="Unpaid Invoices" icon={Receipt} loading={!stats} value={String(stats?.invoices.outstanding ?? 0)} onClick={() => setActiveTab('invoices')} />}
+          {hasBilling && <QuickStat label="Outstanding" icon={Wallet} loading={!stats} value={stats ? formatCents(stats.invoices.outstandingCents) : ''} tone={stats && stats.invoices.outstandingCents > 0 ? 'warning' : 'default'} onClick={() => setActiveTab('invoices')} />}
         </div>
 
-        {/* Tabs */}
-        <div className="mb-4 flex gap-1 overflow-x-auto rounded-lg bg-secondary p-1">
+        {/* Tabs — icon+label pill row on desktop */}
+        <div className="mb-4 hidden gap-1 overflow-x-auto rounded-lg bg-secondary p-1 sm:flex">
           {visibleTabs.map(tab => {
             const Icon = tab.icon;
             return (
@@ -138,35 +180,80 @@ export function Dashboard({ userName, portalRole, portalPermissions, onLogout }:
                   activeTab === tab.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                 }`}>
                 <Icon className="h-4 w-4" />
-                <span className="hidden sm:inline">{tab.label}</span>
+                <span>{tab.label}</span>
               </button>
             );
           })}
         </div>
 
-        {activeTab === 'tickets' && hasTickets && <TicketsTab />}
+        {activeTab === 'tickets' && hasTickets && <TicketsTab compose={composeTicket} onComposeConsumed={() => setComposeTicket(false)} />}
         {activeTab === 'invoices' && hasBilling && <InvoicesTab />}
         {activeTab === 'quotes' && hasBilling && <QuotesTab />}
         {activeTab === 'assets' && <AssetsTab />}
         {activeTab === 'admin' && isAdmin && <AdminTab />}
         {activeTab === 'settings' && <SettingsTab isAdmin={isAdmin} />}
       </main>
+
+      {/* Mobile bottom tab bar — icon stacked over a small label */}
+      <nav className="fixed inset-x-0 bottom-0 z-50 flex border-t bg-background/95 backdrop-blur sm:hidden">
+        {visibleTabs.map(tab => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.id;
+          return (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 transition-colors ${
+                active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+              }`}>
+              <Icon className="h-5 w-5" />
+              <span className="text-[10px] font-medium leading-none">{tab.label}</span>
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }
 
-function QuickStat({ label, value }: { label: string; value: string }) {
+function QuickStat({
+  label, value, icon: Icon, onClick, loading, tone = 'default',
+}: {
+  label: string;
+  value: string;
+  icon: typeof Ticket;
+  onClick?: () => void;
+  loading?: boolean;
+  tone?: 'default' | 'warning';
+}) {
   return (
-    <Card><CardContent className="p-4">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="text-2xl font-bold">{value}</p>
-    </CardContent></Card>
+    <Card
+      onClick={onClick}
+      className={cn(
+        onClick && 'cursor-pointer transition-colors hover:bg-muted/50 hover:border-primary/30',
+      )}
+    >
+      <CardContent className="p-4">
+        <div className="mb-1 flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <Icon className="h-4 w-4 text-muted-foreground/70" />
+        </div>
+        {loading ? (
+          <Skeleton className="h-8 w-16" />
+        ) : (
+          <p className={cn(
+            'text-2xl font-bold tabular-nums',
+            tone === 'warning' && 'text-amber-600 dark:text-amber-400',
+          )}>
+            {value}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
 // ===== TICKETS TAB =====
 
-function TicketsTab() {
+function TicketsTab({ compose, onComposeConsumed }: { compose?: boolean; onComposeConsumed?: () => void }) {
   const [tickets, setTickets] = useState<TicketData[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
@@ -177,6 +264,11 @@ function TicketsTab() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Respond to the "New Ticket" button lifted to the page header.
+  useEffect(() => {
+    if (compose) { setSelected(null); setShowNew(true); onComposeConsumed?.(); }
+  }, [compose, onComposeConsumed]);
 
   if (selected) return <TicketDetail ticketId={selected} onBack={() => { setSelected(null); load(); }} />;
   if (showNew) return <NewTicket onBack={() => { setShowNew(false); load(); }} />;
@@ -190,7 +282,12 @@ function TicketsTab() {
       <CardContent>
         {!loaded ? <SkeletonList rows={4} /> :
          tickets.length === 0 ? (
-          <EmptyState icon={Ticket} title="No tickets yet" description="Submit a support request and it will appear here." />
+          <EmptyState
+            icon={Ticket}
+            title="No tickets yet"
+            description="Submit a support request and it will appear here."
+            action={{ label: 'New Ticket', onClick: () => setShowNew(true) }}
+          />
         ) : (
           <div className="space-y-2">
             {tickets.map(t => (
@@ -200,7 +297,7 @@ function TicketsTab() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs text-muted-foreground">#{t.ticketNumber}</span>
-                      <Badge variant="status" className={`text-xs ${statusStyle[t.status] ?? ''}`}>{t.status.replace(/_/g, ' ')}</Badge>
+                      <TicketStatusBadge status={t.status} />
                       <Badge variant="outline" className="text-xs capitalize">{t.priority}</Badge>
                     </div>
                     <div className="font-medium truncate">{t.subject}</div>
@@ -293,7 +390,7 @@ function TicketDetail({ ticketId, onBack }: { ticketId: string; onBack: () => vo
         <CardHeader>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-sm text-muted-foreground">#{ticket.ticketNumber}</span>
-            <Badge variant="status" className={`text-xs ${statusStyle[ticket.status] ?? ''}`}>{ticket.status.replace(/_/g, ' ')}</Badge>
+            <TicketStatusBadge status={ticket.status} />
             <Badge variant="outline" className="text-xs capitalize">{ticket.priority}</Badge>
           </div>
           <CardTitle>{ticket.subject}</CardTitle>
@@ -310,22 +407,32 @@ function TicketDetail({ ticketId, onBack }: { ticketId: string; onBack: () => vo
         <CardHeader><CardTitle className="text-base flex items-center gap-2"><MessageSquare className="h-4 w-4" />Comments</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {comments.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No comments yet</p>}
-          {comments.map(c => (
-            <div key={c.id} className={`p-3 rounded-lg text-sm ${c.authorType === 'contact' ? 'bg-primary/10 ml-8' : 'bg-muted mr-8'}`}>
-              <div className="flex items-center gap-2 mb-1">
-                <Badge variant="outline" className="text-xs">{c.authorType === 'contact' ? 'You' : 'Support'}</Badge>
-                <span className="text-xs text-muted-foreground">{fmtTime(c.createdAt)}</span>
+          {comments.map(c => {
+            const isYou = c.authorType === 'contact';
+            const name = isYou ? 'You' : (c.authorName?.trim() || 'Support');
+            return (
+              <div key={c.id} className={`flex gap-2 ${isYou ? 'flex-row-reverse ml-6' : 'mr-6'}`}>
+                <CommentAvatar name={name} isYou={isYou} />
+                <div className={`min-w-0 flex-1 rounded-lg p-3 text-sm ${isYou ? 'bg-primary/10' : 'bg-muted'}`}>
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="text-xs font-medium">{name}</span>
+                    <span className="text-xs text-muted-foreground">{fmtTime(c.createdAt)}</span>
+                  </div>
+                  <p className="whitespace-pre-wrap">{c.body}</p>
+                </div>
               </div>
-              <p className="whitespace-pre-wrap">{c.body}</p>
+            );
+          })}
+          <div className="border-t pt-3">
+            <div className="flex gap-2">
+              <Textarea value={body} onChange={e => setBody(e.target.value)} placeholder="Add a comment..."
+                className="flex-1 resize-none"
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment(); } }} />
+              <Button size="sm" onClick={sendComment} disabled={sending || !body.trim()} className="self-end" aria-label="Send comment">
+                <Send className="h-4 w-4" />
+              </Button>
             </div>
-          ))}
-          <div className="flex gap-2 pt-2 border-t">
-            <textarea value={body} onChange={e => setBody(e.target.value)} placeholder="Add a comment..."
-              className="flex-1 min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment(); } }} />
-            <Button size="sm" onClick={sendComment} disabled={sending || !body.trim()} className="self-end" aria-label="Send comment">
-              <Send className="h-4 w-4" />
-            </Button>
+            <p className="mt-1.5 text-xs text-muted-foreground">Press Enter to send · Shift+Enter for a new line</p>
           </div>
         </CardContent>
       </Card>
@@ -376,25 +483,29 @@ function NewTicket({ onBack }: { onBack: () => void }) {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="ticket-category">Category</Label>
-                <select id="ticket-category" value={categoryId} onChange={e => { setCategoryId(e.target.value); setSubcategoryId(''); }}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                  <option value="">Select category</option>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <Select value={categoryId} onValueChange={v => { setCategoryId(v); setSubcategoryId(''); }}>
+                  <SelectTrigger id="ticket-category"><SelectValue placeholder="Select category" /></SelectTrigger>
+                  <SelectContent>
+                    {categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ticket-subcategory">Subcategory</Label>
-                <select id="ticket-subcategory" value={subcategoryId} onChange={e => setSubcategoryId(e.target.value)} disabled={!categoryId}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                  <option value="">{categoryId ? 'Select subcategory' : 'Select category first'}</option>
-                  {selectedCat?.subcategories.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                <Select value={subcategoryId} onValueChange={setSubcategoryId} disabled={!categoryId}>
+                  <SelectTrigger id="ticket-subcategory">
+                    <SelectValue placeholder={categoryId ? 'Select subcategory' : 'Select category first'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {selectedCat?.subcategories.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="ticket-description">Description</Label>
-              <textarea id="ticket-description" value={description} onChange={e => setDescription(e.target.value)}
-                className="w-full min-h-[120px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
+              <Textarea id="ticket-description" value={description} onChange={e => setDescription(e.target.value)}
+                className="min-h-[120px] resize-none"
                 placeholder="Describe the issue in detail..." />
             </div>
             <div className="flex justify-end gap-2">
@@ -413,15 +524,18 @@ function NewTicket({ onBack }: { onBack: () => void }) {
 function InvoicesTab() {
   const [invoices, setInvoices] = useState<InvoiceData[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
     api<InvoiceData[]>('/portal/invoices').then(d => { setInvoices(d); setLoaded(true); }).catch(() => setLoaded(true));
   }, []);
 
+  if (selected) return <InvoiceDetail invoiceId={selected} onBack={() => setSelected(null)} />;
+
   if (!loaded) return (
     <Card>
       <CardHeader><CardTitle>Invoices</CardTitle></CardHeader>
-      <CardContent><SkeletonTable rows={5} columns={7} /></CardContent>
+      <CardContent><SkeletonTable rows={5} columns={5} /></CardContent>
     </Card>
   );
 
@@ -432,38 +546,156 @@ function InvoicesTab() {
         {invoices.length === 0 ? (
           <EmptyState icon={Receipt} title="No invoices" description="Your invoices will appear here." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="border-b bg-muted/50">
-                <th className="text-left p-3 font-medium">#</th>
-                <th className="text-left p-3 font-medium">Status</th>
-                <th className="text-left p-3 font-medium">Issued</th>
-                <th className="text-left p-3 font-medium">Due</th>
-                <th className="text-right p-3 font-medium">Total</th>
-                <th className="text-right p-3 font-medium">Paid</th>
-                <th className="text-right p-3 font-medium">Balance</th>
-              </tr></thead>
-              <tbody>
-                {invoices.map(inv => {
-                  const balance = inv.totalCents - inv.amountPaidCents;
-                  return (
-                    <tr key={inv.id} className="border-b hover:bg-muted/30">
-                      <td className="p-3 font-medium">INV-{inv.invoiceNumber}</td>
-                      <td className="p-3"><Badge variant="status" className={`text-xs ${statusStyle[inv.status] ?? ''}`}>{inv.status}</Badge></td>
-                      <td className="p-3">{fmtDate(inv.issueDate)}</td>
-                      <td className="p-3">{fmtDate(inv.dueDate)}</td>
-                      <td className="p-3 text-right font-mono">{formatCents(inv.totalCents)}</td>
-                      <td className="p-3 text-right font-mono">{formatCents(inv.amountPaidCents)}</td>
-                      <td className="p-3 text-right font-mono font-medium">{balance > 0 ? formatCents(balance) : <span className="text-green-600">Paid</span>}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            {/* Mobile: stacked cards */}
+            <div className="space-y-2 sm:hidden">
+              {invoices.map(inv => {
+                const balance = inv.totalCents - inv.amountPaidCents;
+                const overdue = inv.status === 'overdue';
+                return (
+                  <button key={inv.id} onClick={() => setSelected(inv.id)}
+                    className={cn('w-full rounded-lg border p-3 text-left transition-colors hover:bg-muted/50', overdue && 'bg-red-500/5 border-red-500/30')}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">INV-{inv.invoiceNumber}</span>
+                      <InvoiceStatusBadge status={inv.status} />
+                    </div>
+                    <div className="mt-2 flex items-end justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">Due {fmtDate(inv.dueDate)}</span>
+                      <span className="text-lg font-semibold tabular-nums">
+                        {balance > 0 ? formatCents(balance) : <span className="text-emerald-600 dark:text-emerald-400 text-base">Paid</span>}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b bg-muted/50">
+                  <th className="p-3 text-left font-medium">#</th>
+                  <th className="p-3 text-left font-medium">Status</th>
+                  <th className="hidden p-3 text-left font-medium lg:table-cell">Issued</th>
+                  <th className="p-3 text-left font-medium">Due</th>
+                  <th className="p-3 text-right font-medium">Total</th>
+                  <th className="hidden p-3 text-right font-medium lg:table-cell">Paid</th>
+                  <th className="p-3 text-right font-medium">Balance</th>
+                </tr></thead>
+                <tbody>
+                  {invoices.map(inv => {
+                    const balance = inv.totalCents - inv.amountPaidCents;
+                    const overdue = inv.status === 'overdue';
+                    return (
+                      <tr key={inv.id} onClick={() => setSelected(inv.id)}
+                        className={cn('cursor-pointer border-b hover:bg-muted/40', overdue && 'bg-red-500/5')}>
+                        <td className="p-3 font-medium">INV-{inv.invoiceNumber}</td>
+                        <td className="p-3"><InvoiceStatusBadge status={inv.status} /></td>
+                        <td className="hidden p-3 lg:table-cell">{fmtDate(inv.issueDate)}</td>
+                        <td className="p-3">{fmtDate(inv.dueDate)}</td>
+                        <td className="p-3 text-right tabular-nums">{formatCents(inv.totalCents)}</td>
+                        <td className="hidden p-3 text-right tabular-nums lg:table-cell">{formatCents(inv.amountPaidCents)}</td>
+                        <td className="p-3 text-right font-semibold tabular-nums">
+                          {balance > 0 ? formatCents(balance) : <span className="text-emerald-600 dark:text-emerald-400">Paid</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function InvoiceDetail({ invoiceId, onBack }: { invoiceId: string; onBack: () => void }) {
+  const [invoice, setInvoice] = useState<InvoiceData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true); setError(false);
+    api<InvoiceData>(`/portal/invoices/${invoiceId}`)
+      .then(setInvoice)
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, [invoiceId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const backBtn = (
+    <Button variant="ghost" size="sm" onClick={onBack}><ChevronLeft className="h-4 w-4 mr-1" />Back to Invoices</Button>
+  );
+
+  if (error) {
+    return (
+      <div className="space-y-4">
+        {backBtn}
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+              <AlertCircle className="h-6 w-6 text-destructive" />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium">Couldn't load this invoice</h3>
+              <p className="text-sm text-muted-foreground">Something went wrong. Please try again.</p>
+            </div>
+            <Button size="sm" variant="outline" onClick={load}>Retry</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (loading || !invoice) {
+    return (
+      <div className="space-y-4">
+        {backBtn}
+        <Card><CardContent className="space-y-3 pt-6"><SkeletonList rows={3} /></CardContent></Card>
+      </div>
+    );
+  }
+
+  const balance = invoice.totalCents - invoice.amountPaidCents;
+
+  return (
+    <div className="space-y-4">
+      {backBtn}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle>INV-{invoice.invoiceNumber}</CardTitle>
+            <InvoiceStatusBadge status={invoice.status} />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Issued {fmtDate(invoice.issueDate)} · Due {fmtDate(invoice.dueDate)}
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Balance due — the loudest element */}
+          <div className={cn('rounded-lg border p-4', balance > 0 ? 'bg-red-500/5 border-red-500/20' : 'bg-emerald-500/5 border-emerald-500/20')}>
+            <p className="text-sm text-muted-foreground">Balance Due</p>
+            <p className={cn('text-3xl font-bold tabular-nums', balance > 0 ? 'text-foreground' : 'text-emerald-600 dark:text-emerald-400')}>
+              {balance > 0 ? formatCents(balance) : 'Paid in full'}
+            </p>
+          </div>
+
+          <dl className="divide-y text-sm">
+            <div className="flex justify-between py-2"><dt className="text-muted-foreground">Subtotal</dt><dd className="tabular-nums">{formatCents(invoice.subtotalCents)}</dd></div>
+            <div className="flex justify-between py-2"><dt className="text-muted-foreground">Tax</dt><dd className="tabular-nums">{formatCents(invoice.taxCents)}</dd></div>
+            <div className="flex justify-between py-2"><dt className="font-medium">Total</dt><dd className="font-medium tabular-nums">{formatCents(invoice.totalCents)}</dd></div>
+            <div className="flex justify-between py-2"><dt className="text-muted-foreground">Amount Paid</dt><dd className="tabular-nums">{formatCents(invoice.amountPaidCents)}</dd></div>
+          </dl>
+
+          <p className="text-xs text-muted-foreground">
+            To pay this invoice or ask a billing question, reply to your invoice email or contact your account manager.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -514,22 +746,25 @@ function QuotesTab() {
           <div className="space-y-2">
             {quotes.map(q => (
               <div key={q.id} className="p-3 rounded-lg border">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs text-muted-foreground">Q-{q.quoteNumber}</span>
-                      <Badge variant="status" className={`text-xs ${statusStyle[q.status] ?? ''}`}>{q.status}</Badge>
+                      <QuoteStatusBadge status={q.status} />
                     </div>
                     <div className="font-medium">{q.title}</div>
-                    <div className="text-sm text-muted-foreground">{formatCents(q.totalCents)} - {fmtDate(q.createdAt)}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{fmtDate(q.createdAt)}</div>
                   </div>
-                  {q.status === 'sent' && (
-                    <div className="flex gap-2 shrink-0">
-                      <Button size="sm" variant="outline" onClick={() => { setError(''); setPending({ quote: q, action: 'reject' }); }}><X className="h-4 w-4 mr-1" />Decline</Button>
-                      <Button size="sm" onClick={() => { setError(''); setPending({ quote: q, action: 'approve' }); }}><Check className="h-4 w-4 mr-1" />Approve</Button>
-                    </div>
-                  )}
+                  <div className="shrink-0 text-right text-lg font-semibold tabular-nums">
+                    {formatCents(q.totalCents)}
+                  </div>
                 </div>
+                {q.status === 'sent' && (
+                  <div className="mt-3 flex justify-end gap-2">
+                    <Button size="sm" variant="outline" onClick={() => { setError(''); setPending({ quote: q, action: 'reject' }); }}><X className="h-4 w-4 mr-1" />Decline</Button>
+                    <Button size="sm" onClick={() => { setError(''); setPending({ quote: q, action: 'approve' }); }}><Check className="h-4 w-4 mr-1" />Approve</Button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -581,26 +816,45 @@ function AssetsTab() {
         {assets.length === 0 ? (
           <EmptyState icon={Monitor} title="No assets" description="Managed devices and hardware will appear here." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="border-b bg-muted/50">
-                <th className="text-left p-3 font-medium">Name</th>
-                <th className="text-left p-3 font-medium">Type</th>
-                <th className="text-left p-3 font-medium">Serial</th>
-                <th className="text-left p-3 font-medium">Status</th>
-              </tr></thead>
-              <tbody>
-                {assets.map(a => (
-                  <tr key={a.id} className="border-b hover:bg-muted/30">
-                    <td className="p-3 font-medium">{a.name}</td>
-                    <td className="p-3 capitalize">{a.type}</td>
-                    <td className="p-3 font-mono text-xs">{a.serialNumber ?? '-'}</td>
-                    <td className="p-3"><Badge variant="outline" className="text-xs capitalize">{a.status}</Badge></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            {/* Mobile: stacked cards */}
+            <div className="space-y-2 sm:hidden">
+              {assets.map(a => (
+                <div key={a.id} className="rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{a.name}</div>
+                      <div className="text-xs capitalize text-muted-foreground">{a.type}</div>
+                    </div>
+                    <AssetStatusBadge status={a.status} />
+                  </div>
+                  {a.serialNumber && <div className="mt-2 font-mono text-xs text-muted-foreground">SN: {a.serialNumber}</div>}
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b bg-muted/50">
+                  <th className="p-3 text-left font-medium">Name</th>
+                  <th className="p-3 text-left font-medium">Type</th>
+                  <th className="hidden p-3 text-left font-medium md:table-cell">Serial</th>
+                  <th className="p-3 text-left font-medium">Status</th>
+                </tr></thead>
+                <tbody>
+                  {assets.map(a => (
+                    <tr key={a.id} className="border-b hover:bg-muted/30">
+                      <td className="p-3 font-medium">{a.name}</td>
+                      <td className="p-3 capitalize">{a.type}</td>
+                      <td className="hidden p-3 font-mono text-xs md:table-cell">{a.serialNumber ?? '-'}</td>
+                      <td className="p-3"><AssetStatusBadge status={a.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
@@ -694,19 +948,21 @@ function AdminTab() {
                       <div className="font-medium">{u.firstName} {u.lastName}</div>
                       <div className="text-xs text-muted-foreground">{u.email}</div>
                       <div className="flex gap-1 mt-1">
-                        {u.portalRole === 'admin' && <Badge variant="status" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">Admin</Badge>}
+                        {u.portalRole === 'admin' && <Badge variant="status" className="text-xs bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20">Admin</Badge>}
                         {perms.includes('tickets') && <Badge variant="outline" className="text-xs">Tickets</Badge>}
                         {perms.includes('billing') && <Badge variant="outline" className="text-xs">Billing</Badge>}
                       </div>
                     </div>
                     {u.portalRole !== 'admin' && (
                       <div className="flex gap-2 shrink-0">
-                        <select value={perms.join(',')} onChange={e => updatePerms(u.id, e.target.value.split(','))}
-                          className="h-8 rounded-md border border-input bg-background px-2 text-xs">
-                          <option value="tickets">Tickets only</option>
-                          <option value="billing">Billing only</option>
-                          <option value="tickets,billing">Tickets + Billing</option>
-                        </select>
+                        <Select value={perms.join(',')} onValueChange={v => updatePerms(u.id, v.split(','))}>
+                          <SelectTrigger className="h-8 w-auto text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="tickets">Tickets only</SelectItem>
+                            <SelectItem value="billing">Billing only</SelectItem>
+                            <SelectItem value="tickets,billing">Tickets + Billing</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setRevokeTarget(u)}>Revoke</Button>
                       </div>
                     )}
@@ -758,15 +1014,15 @@ function AdminTab() {
             </div>
             <div className="space-y-2">
               <Label>Permissions</Label>
-              <div className="flex gap-3">
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={invitePerms.includes('tickets')}
-                    onChange={e => setInvitePerms(p => e.target.checked ? [...p, 'tickets'] : p.filter(x => x !== 'tickets'))} />
+              <div className="flex gap-4">
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Checkbox checked={invitePerms.includes('tickets')}
+                    onCheckedChange={c => setInvitePerms(p => c === true ? [...new Set([...p, 'tickets'])] : p.filter(x => x !== 'tickets'))} />
                   Tickets
                 </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={invitePerms.includes('billing')}
-                    onChange={e => setInvitePerms(p => e.target.checked ? [...p, 'billing'] : p.filter(x => x !== 'billing'))} />
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Checkbox checked={invitePerms.includes('billing')}
+                    onCheckedChange={c => setInvitePerms(p => c === true ? [...new Set([...p, 'billing'])] : p.filter(x => x !== 'billing'))} />
                   Billing
                 </label>
               </div>
@@ -797,7 +1053,12 @@ function AdminTab() {
 
 // ===== Shared =====
 
-function EmptyState({ icon: Icon, title, description }: { icon: typeof Ticket; title: string; description: string }) {
+function EmptyState({ icon: Icon, title, description, action }: {
+  icon: typeof Ticket;
+  title: string;
+  description: string;
+  action?: { label: string; onClick: () => void };
+}) {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
       <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
@@ -805,6 +1066,11 @@ function EmptyState({ icon: Icon, title, description }: { icon: typeof Ticket; t
       </div>
       <h3 className="mb-1 text-sm font-medium">{title}</h3>
       <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
+      {action && (
+        <Button size="sm" className="mt-6" onClick={action.onClick}>
+          <Plus className="h-4 w-4 mr-1" />{action.label}
+        </Button>
+      )}
     </div>
   );
 }
@@ -1053,8 +1319,8 @@ function SettingsTab({ isAdmin }: { isAdmin: boolean }) {
                 <div className="space-y-1"><Label htmlFor="billing-zip">ZIP</Label><Input id="billing-zip" value={billingForm.zip} onChange={e => setBillingForm(f => ({ ...f, zip: e.target.value }))} /></div>
               </div>
               {billing && billing.creditBalanceCents > 0 && (
-                <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm">
-                  <span className="font-medium text-green-800">Account Credit:</span> <span className="text-green-800">{formatCents(billing.creditBalanceCents)}</span>
+                <div className="rounded-md border border-green-200 bg-green-50 p-3 text-sm dark:border-green-900 dark:bg-green-900/30">
+                  <span className="font-medium text-green-800 dark:text-green-300">Account Credit:</span> <span className="text-green-800 dark:text-green-300">{formatCents(billing.creditBalanceCents)}</span>
                 </div>
               )}
               <Button type="submit" disabled={savingBilling}>{savingBilling ? 'Saving...' : 'Save Billing Info'}</Button>

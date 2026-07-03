@@ -67,6 +67,10 @@ export function DispatchPage() {
   const [showSchedule, setShowSchedule] = useState(false);
   const [schedForm, setSchedForm] = useState({ ticketId: '', userId: '', date: '', startTime: '09:00', endTime: '10:00' });
   const [saving, setSaving] = useState(false);
+  // Ticket priority per scheduled event (calendar events don't carry priority)
+  const [ticketPriorities, setTicketPriorities] = useState<Map<string, string>>(new Map());
+  // Current time — ticks each minute to position the "now" indicator
+  const [now, setNow] = useState(new Date());
 
   // Interaction state
   const [interaction, setInteraction] = useState<{
@@ -91,6 +95,32 @@ export function DispatchPage() {
   }, [weekOffset]);
 
   useEffect(() => { loadData(); const i = setInterval(loadData, 5000); return () => clearInterval(i); }, [loadData]);
+
+  // Tick the "now" indicator every minute
+  useEffect(() => { const i = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(i); }, []);
+
+  // Lazily resolve each scheduled event's ticket priority (fetched once per ticket)
+  useEffect(() => {
+    const missing = [...new Set(events.map(e => e.ticketId).filter((id): id is string => !!id))]
+      .filter(id => !ticketPriorities.has(id));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    Promise.all(missing.map(id =>
+      api<{ priority: string }>(`/tickets/${id}`).then(t => [id, t.priority] as const).catch(() => [id, 'medium'] as const),
+    )).then(pairs => {
+      if (cancelled) return;
+      setTicketPriorities(prev => { const next = new Map(prev); pairs.forEach(([id, p]) => next.set(id, p)); return next; });
+    });
+    return () => { cancelled = true; };
+  }, [events, ticketPriorities]);
+
+  // Priority for an event's ticket (falls back to medium until resolved)
+  function eventPriority(evt: CalendarEvent): string {
+    return (evt.ticketId ? ticketPriorities.get(evt.ticketId) : null) ?? 'medium';
+  }
+
+  const nowHour = now.getHours() + now.getMinutes() / 60;
+  const isTodaySelected = fmtDate(selectedDay) === todayStr;
 
   function eventsForTechDay(techId: string, day: Date) {
     const ds = fmtDate(day);
@@ -302,7 +332,7 @@ export function DispatchPage() {
 
                               return (
                                 <div key={evt.id + (isGhost ? '-ghost' : '')}
-                                  className={`absolute left-1 right-1 rounded border-l-[3px] overflow-hidden text-xs select-none ${priorityColors['medium']} ${isInteracting ? 'opacity-70 z-20 shadow-lg ring-2 ring-primary/50' : 'z-10'} ${isGhost ? 'opacity-60 border-dashed' : ''}`}
+                                  className={`absolute left-1 right-1 rounded border-l-[3px] overflow-hidden text-xs select-none ${priorityColors[eventPriority(evt)] ?? priorityColors['medium']} ${isInteracting ? 'opacity-70 z-20 shadow-lg ring-2 ring-primary/50' : 'z-10'} ${isGhost ? 'opacity-60 border-dashed' : ''}`}
                                   style={{ top: displayTop, height: Math.max(20, displayHeight) }}
                                 >
                                   <div className="absolute top-0 left-0 right-0 h-3 cursor-n-resize hover:bg-black/10 z-10"
@@ -327,6 +357,14 @@ export function DispatchPage() {
                               );
                             });
                           })()}
+                          {/* Current-time indicator (today only) */}
+                          {isTodaySelected && nowHour >= 6 && nowHour <= 20 && (
+                            <div className="absolute left-0 right-0 z-30 pointer-events-none" style={{ top: (nowHour - 6) * PX_PER_HOUR }}>
+                              <div className="relative h-0.5 bg-red-500">
+                                <div className="absolute -left-0.5 -top-[3px] h-2 w-2 rounded-full bg-red-500" />
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -363,7 +401,7 @@ export function DispatchPage() {
                               {dayEvents.map(evt => {
                                 const cust = getCustomerFromDesc(evt.description);
                                 return (
-                                  <div key={evt.id} className={`p-1 rounded text-xs border-l-2 group ${priorityColors['medium']}`}>
+                                  <div key={evt.id} className={`p-1 rounded text-xs border-l-2 group ${priorityColors[eventPriority(evt)] ?? priorityColors['medium']}`}>
                                     <div className="font-medium truncate">{evt.title}</div>
                                     {cust && <div className="text-muted-foreground truncate">{cust}</div>}
                                     <div className="text-muted-foreground">{fmtTimeShort(evt.startAt)} - {fmtTimeShort(evt.endAt)}</div>

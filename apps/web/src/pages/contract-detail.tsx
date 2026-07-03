@@ -17,6 +17,8 @@ import {
   ShieldCheck, Cpu, Shield, HardDrive, Package, Headphones, Wrench, MoreHorizontal,
 } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { statusBadgeClass, formatStatus, CONTRACT_STATUS_COLORS, CONTRACT_STATUS_LABELS } from '@/lib/badge-colors';
 
 interface LineItem {
   id: string; description: string; itemType: string; category: string | null;
@@ -236,22 +238,43 @@ export function ContractDetailPage({ contractId, onBack, onNavigateToCustomer }:
   return (
     <div className="space-y-4">
       <Breadcrumbs items={[{ label: 'Contracts', href: '/billing/contracts' }, { label: contract.name }]} />
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
-          <h2 className="text-xl font-semibold">{contract.name}</h2>
-          <Badge variant={statusVariant[contract.status] ?? 'secondary'}>{contract.status}</Badge>
-          <Badge variant="outline">{typeLabels[contract.contractType] ?? contract.contractType}</Badge>
-          <span className="text-sm text-muted-foreground">|</span>
-          <button className="text-sm text-primary hover:underline" onClick={() => onNavigateToCustomer(contract.customerId)}>
-            {customerName}
-          </button>
-          <span className="text-sm text-muted-foreground capitalize">| {contract.billingCycle} | {contract.startDate}{contract.endDate ? ` to ${contract.endDate}` : ' (ongoing)'}</span>
+      {/* Two-tier header: identity + status/chips on the left, controls on the right */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="h-11 w-11 rounded-lg bg-primary/10 text-primary flex items-center justify-center text-sm font-semibold shrink-0">
+            {contract.name.split(' ').map(w => w[0]).filter(Boolean).join('').toUpperCase().slice(0, 2) || '?'}
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground truncate">{contract.name}</h1>
+              <Badge className={statusBadgeClass(CONTRACT_STATUS_COLORS, contract.status)}>{formatStatus(contract.status, CONTRACT_STATUS_LABELS)}</Badge>
+              <Badge variant="outline">{typeLabels[contract.contractType] ?? contract.contractType}</Badge>
+            </div>
+            <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-1 text-xs text-muted-foreground">
+              <button className="text-primary hover:underline" onClick={() => onNavigateToCustomer(contract.customerId)}>
+                {customerName}
+              </button>
+              <span className="opacity-40">·</span>
+              <span className="text-green-600 font-medium">{formatCentsShort(s.totalMonthlyRevenueCents)} MRR</span>
+              <span className="opacity-40">·</span>
+              <span className={s.trueMarginPercent >= 30 ? 'text-purple-600' : s.trueMarginPercent >= 0 ? 'text-yellow-600' : 'text-red-600'}>{s.trueMarginPercent}% margin</span>
+              <span className="opacity-40">·</span>
+              <span className="capitalize">{contract.billingCycle} · {contract.startDate}{contract.endDate ? ` to ${contract.endDate}` : ' (ongoing)'}</span>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Button variant="outline" size="sm" onClick={openEditContract}><Pencil className="h-3 w-3 mr-1" />Edit</Button>
-          <Button variant="ghost" size="sm" className="text-destructive" onClick={deleteContract}><Trash2 className="h-3 w-3 mr-1" />Delete</Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="h-9 w-9" aria-label="More actions"><MoreHorizontal className="h-4 w-4" /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={deleteContract}>
+                <Trash2 className="h-4 w-4 mr-2" />Delete contract
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 

@@ -4,6 +4,7 @@ import { formatCentsShort } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PageHeader } from '@/components/ui/page-header';
 import {
   Ticket, Building2, Clock, AlertTriangle, DollarSign, TrendingUp,
   PieChart as PieChartIcon, Receipt, ShieldAlert, Eye, EyeOff, Settings2,
@@ -227,17 +228,65 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Dashboard"
+        description="Your MSP at a glance."
+        actions={
+          <Button
+            variant={showConfig ? 'default' : 'outline'}
+            size="icon"
+            className="h-9 w-9"
+            aria-label={showConfig ? 'Done configuring widgets' : 'Configure widgets'}
+            title={showConfig ? 'Done' : 'Configure widgets'}
+            onClick={() => setShowConfig(!showConfig)}
+          >
+            <Settings2 className="h-4 w-4" />
+          </Button>
+        }
+      />
+
       {/* Onboarding */}
       {stats && <OnboardingBanner stats={stats} />}
 
-      {/* Header with config toggle */}
-      <div className="flex items-center justify-between">
-        <div />
-        <Button variant="outline" size="sm" onClick={() => setShowConfig(!showConfig)}>
-          <Settings2 className="h-4 w-4 mr-1" />
-          {showConfig ? 'Done' : 'Configure Widgets'}
-        </Button>
-      </div>
+      {/* Needs attention — only when something is actually wrong */}
+      {stats && (() => {
+        const attention = [
+          stats.tickets.slaBreached > 0 && { id: 'sla', label: 'SLA Breached', value: stats.tickets.slaBreached, icon: ShieldAlert, tone: 'red' as const, link: '/tickets' },
+          stats.tickets.critical > 0 && { id: 'critical', label: 'Critical Tickets', value: stats.tickets.critical, icon: AlertTriangle, tone: 'red' as const, link: '/tickets' },
+          stats.invoices.overdue > 0 && { id: 'overdue', label: 'Overdue Invoices', value: stats.invoices.overdue, icon: Receipt, tone: 'amber' as const, link: '/billing/invoices' },
+        ].filter(Boolean) as Array<{ id: string; label: string; value: number; icon: typeof Building2; tone: 'red' | 'amber'; link: string }>;
+
+        if (attention.length === 0) return null;
+
+        return (
+          <div>
+            <h2 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              Needs attention
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {attention.map(a => {
+                const Icon = a.icon;
+                const cardTone = a.tone === 'red' ? 'border-red-500/30 bg-red-500/5' : 'border-amber-500/30 bg-amber-500/5';
+                const accent = a.tone === 'red' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400';
+                return (
+                  <Card key={a.id} className={`cursor-pointer transition-all hover:shadow-md ${cardTone}`} onClick={() => pushPath(a.link)}>
+                    <CardContent className="p-4 flex items-center gap-4">
+                      <div className={`h-10 w-10 rounded-lg flex items-center justify-center bg-background/60 ${accent}`}>
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <div className={`text-2xl font-bold ${accent}`}>{a.value}</div>
+                        <div className="text-sm text-muted-foreground">{a.label}</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Widget configuration panel */}
       {showConfig && (
@@ -272,59 +321,62 @@ export function DashboardPage() {
         </Card>
       )}
 
-      {/* Widgets grid */}
-      {stats ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {activeWidgets.map(widget => {
-            const Icon = widget.icon;
-            const value = widget.getValue(stats);
-            let colorClass = widget.color;
-            if (widget.id === 'true_profit') {
-              colorClass = stats.contracts.trueProfitCents >= 0 ? 'text-green-600' : 'text-red-600';
-            }
-            if (widget.id === 'true_margin') {
-              colorClass = stats.contracts.trueMarginPercent >= 30 ? 'text-purple-600' : stats.contracts.trueMarginPercent >= 0 ? 'text-yellow-600' : 'text-red-600';
-            }
-            return (
-              <Card
-                key={widget.id}
-                className={widget.link ? 'cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5' : ''}
-                onClick={() => widget.link && pushPath(widget.link)}
-              >
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    {widget.title}
-                  </CardTitle>
-                  <Icon className={`h-4 w-4 ${colorClass}`} />
+      {/* Widgets grid — secondary overview KPIs */}
+      <div>
+        <h2 className="text-sm font-semibold text-muted-foreground mb-2">Overview</h2>
+        {stats ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {activeWidgets.map(widget => {
+              const Icon = widget.icon;
+              const value = widget.getValue(stats);
+              let colorClass = widget.color;
+              if (widget.id === 'true_profit') {
+                colorClass = stats.contracts.trueProfitCents >= 0 ? 'text-green-600' : 'text-red-600';
+              }
+              if (widget.id === 'true_margin') {
+                colorClass = stats.contracts.trueMarginPercent >= 30 ? 'text-purple-600' : stats.contracts.trueMarginPercent >= 0 ? 'text-yellow-600' : 'text-red-600';
+              }
+              return (
+                <Card
+                  key={widget.id}
+                  className={widget.link ? 'cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5' : ''}
+                  onClick={() => widget.link && pushPath(widget.link)}
+                >
+                  <CardHeader className="flex flex-row items-center justify-between pb-1 pt-3 px-4">
+                    <CardTitle className="text-xs font-medium text-muted-foreground">
+                      {widget.title}
+                    </CardTitle>
+                    <Icon className={`h-3.5 w-3.5 ${colorClass}`} />
+                  </CardHeader>
+                  <CardContent className="px-4 pb-3">
+                    <div className={`text-2xl font-bold ${
+                      widget.id === 'critical_tickets' && (stats.tickets.critical > 0) ? 'text-red-600' :
+                      widget.id === 'overdue_invoices' && (stats.invoices.overdue > 0) ? 'text-red-600' :
+                      widget.id === 'sla_breached' && (stats.tickets.slaBreached > 0) ? 'text-red-600' :
+                      widget.id === 'true_profit' ? colorClass : ''
+                    }`}>
+                      {value}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {[...Array(8)].map((_, i) => (
+              <Card key={i}>
+                <CardHeader className="pb-1 pt-3 px-4">
+                  <Skeleton className="h-3.5 w-20" />
                 </CardHeader>
-                <CardContent>
-                  <div className={`text-3xl font-bold ${
-                    widget.id === 'critical_tickets' && (stats.tickets.critical > 0) ? 'text-red-600' :
-                    widget.id === 'overdue_invoices' && (stats.invoices.overdue > 0) ? 'text-red-600' :
-                    widget.id === 'sla_breached' && (stats.tickets.slaBreached > 0) ? 'text-red-600' :
-                    widget.id === 'true_profit' ? colorClass : ''
-                  }`}>
-                    {value}
-                  </div>
+                <CardContent className="px-4 pb-3">
+                  <Skeleton className="h-7 w-16" />
                 </CardContent>
               </Card>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(8)].map((_, i) => (
-            <Card key={i}>
-              <CardHeader className="pb-2">
-                <Skeleton className="h-4 w-24" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-9 w-20" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Mini Charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

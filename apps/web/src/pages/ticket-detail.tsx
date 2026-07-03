@@ -820,9 +820,6 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
       <Breadcrumbs items={[{ label: 'Tickets', href: '/tickets' }, { label: `Ticket #${ticket.ticketNumber}` }]} />
       {/* Header row */}
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={onBack}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> Back
-        </Button>
         <span className="text-muted-foreground text-sm font-mono">#{ticket.ticketNumber}</span>
         <Badge className={statusBadgeClass(PRIORITY_COLORS, ticket.priority)}>{ticket.priority}</Badge>
         <Badge className={statusBadgeClass(TICKET_STATUS_COLORS, ticket.status)}>{ticket.status.replace(/_/g, ' ')}</Badge>

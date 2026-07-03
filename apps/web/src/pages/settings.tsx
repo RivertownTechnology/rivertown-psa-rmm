@@ -765,20 +765,45 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
   );
 
   return (
-    <div className="max-w-4xl">
-      <Tabs value={tab} onValueChange={changeTab}>
+    <div className="max-w-6xl">
+      <Tabs value={tab} onValueChange={changeTab} className="flex flex-col md:flex-row gap-4 md:gap-6 items-start">
         {!hideTabsList && (
-          <TabsList>
-            <TabsTrigger value="company">Company</TabsTrigger>
-            <TabsTrigger value="users">Users</TabsTrigger>
-            <TabsTrigger value="api-keys">API Keys</TabsTrigger>
-            <TabsTrigger value="operations">Operations</TabsTrigger>
-            <TabsTrigger value="tickets">Tickets</TabsTrigger>
-            <TabsTrigger value="catalog">Product Catalog</TabsTrigger>
-            <TabsTrigger value="integrations">Integrations</TabsTrigger>
-            <TabsTrigger value="audit">Audit Log</TabsTrigger>
+          <TabsList className="flex md:flex-col h-auto w-full md:w-52 shrink-0 items-stretch justify-start gap-0.5 rounded-lg border bg-card p-2 md:sticky md:top-16 overflow-x-auto md:overflow-visible">
+            {[
+              { label: 'Workspace', items: [
+                { value: 'company', label: 'Company' },
+                { value: 'users', label: 'Users' },
+                { value: 'api-keys', label: 'API Keys' },
+                { value: 'audit', label: 'Audit Log' },
+              ] },
+              { label: 'Ticketing', items: [
+                { value: 'tickets', label: 'Tickets' },
+                { value: 'operations', label: 'Operations' },
+              ] },
+              { label: 'Billing', items: [
+                { value: 'catalog', label: 'Product Catalog' },
+              ] },
+              { label: 'Integrations', items: [
+                { value: 'integrations', label: 'Integrations & RMM' },
+              ] },
+            ].map((group) => (
+              <div key={group.label} className="contents md:block">
+                <div className="hidden md:block px-2 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{group.label}</div>
+                {group.items.map((item) => (
+                  <TabsTrigger
+                    key={item.value}
+                    value={item.value}
+                    className="w-full justify-start whitespace-nowrap rounded-md px-3 py-1.5 text-sm text-muted-foreground data-[state=active]:bg-muted data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                  >
+                    {item.label}
+                  </TabsTrigger>
+                ))}
+              </div>
+            ))}
           </TabsList>
         )}
+
+        <div className="flex-1 min-w-0 w-full">
 
         {/* MY ACCOUNT TAB */}
         <TabsContent value="account">
@@ -1755,6 +1780,8 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
             <AuditLogTab />
           </div>
         </TabsContent>
+
+        </div>
       </Tabs>
     </div>
   );

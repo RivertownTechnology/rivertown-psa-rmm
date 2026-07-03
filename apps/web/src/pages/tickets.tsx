@@ -9,6 +9,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Combobox } from '@/components/ui/combobox';
 import { PopoverFilter } from '@/components/ui/popover-filter';
 import { EmptyState } from '@/components/ui/empty-state';
+import { PageHeader } from '@/components/ui/page-header';
+import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/lib/toast';
 import {
   Dialog,
@@ -101,6 +103,23 @@ function formatStatus(s: string) {
 
 function formatPriority(p: string) {
   return p.charAt(0).toUpperCase() + p.slice(1);
+}
+
+// Solid left-accent color per priority for row scannability.
+const PRIORITY_ACCENT: Record<string, string> = {
+  low: 'border-l-gray-300 dark:border-l-gray-600',
+  medium: 'border-l-blue-500',
+  high: 'border-l-amber-500',
+  critical: 'border-l-red-500',
+};
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join('');
 }
 
 // ---------------------------------------------------------------------------
@@ -477,10 +496,30 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
   // Render
   // ---------------------------------------------------------------------------
 
-  const totalPages = Math.ceil(total / 25);
-
   return (
     <div className="space-y-4">
+      <PageHeader
+        title="Tickets"
+        description="Track, triage, and resolve customer service requests."
+        actions={
+          <>
+            {/* View toggle */}
+            <div className="flex items-center border rounded-md">
+              <Button variant="ghost" size="sm" className="h-8 rounded-r-none bg-accent">
+                <LayoutList className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="sm" className="h-8 rounded-l-none" onClick={() => onNavigate?.('/tickets/board')}>
+                <Kanban className="h-4 w-4" />
+              </Button>
+            </div>
+            <Button onClick={() => setShowCreate(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Ticket
+            </Button>
+          </>
+        }
+      />
+
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
@@ -546,22 +585,6 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
             />
           )}
         </div>
-
-        <div className="flex items-center gap-2">
-          {/* View toggle */}
-          <div className="flex items-center border rounded-md">
-            <Button variant="ghost" size="sm" className="h-8 rounded-r-none bg-accent">
-              <LayoutList className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" className="h-8 rounded-l-none" onClick={() => onNavigate?.('/tickets/board')}>
-              <Kanban className="h-4 w-4" />
-            </Button>
-          </div>
-          <Button onClick={() => setShowCreate(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Ticket
-          </Button>
-        </div>
       </div>
 
       {/* Ticket count */}
@@ -615,7 +638,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
                 role="button"
                 tabIndex={0}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectTicket?.(t.id); } }}
-                className="rounded-lg border bg-card px-4 py-3.5 cursor-pointer transition-all hover:bg-muted/50 hover:border-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 flex items-start gap-3"
+                className={`rounded-lg border border-l-4 bg-card px-4 py-3.5 cursor-pointer transition-all hover:bg-muted/50 hover:border-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 flex items-start gap-3 ${PRIORITY_ACCENT[t.priority] ?? 'border-l-transparent'}`}
               >
                 {/* Selection indicator */}
                 <button
@@ -657,13 +680,23 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
                   <span className="text-xs text-muted-foreground">
                     {customerMap.get(t.customerId) ?? 'Unknown'}
                   </span>
-                  {t.assignedTo && (
-                    <>
-                      <span className="text-xs text-muted-foreground/50">·</span>
-                      <span className="text-xs text-muted-foreground">
-                        {techMap.get(t.assignedTo) ?? 'Unassigned'}
+                  <span className="text-xs text-muted-foreground/50">·</span>
+                  {t.assignedTo ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-4 w-4 rounded-full bg-primary/10 text-primary text-[9px] font-semibold flex items-center justify-center shrink-0">
+                        {initials(techMap.get(t.assignedTo) ?? '?')}
                       </span>
-                    </>
+                      <span className="text-xs text-muted-foreground">
+                        {techMap.get(t.assignedTo) ?? 'Unknown'}
+                      </span>
+                    </span>
+                  ) : (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] px-1.5 py-0 leading-4 border-0 bg-muted text-muted-foreground"
+                    >
+                      Unassigned
+                    </Badge>
                   )}
                   <span className="text-xs text-muted-foreground/50">·</span>
                   <Badge
@@ -700,29 +733,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
       )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex justify-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page <= 1}
-            onClick={() => setPage(page - 1)}
-          >
-            Previous
-          </Button>
-          <span className="flex items-center text-sm text-muted-foreground px-2">
-            Page {page} of {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page >= totalPages}
-            onClick={() => setPage(page + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      )}
+      <Pagination page={page} pageSize={25} total={total} onPageChange={setPage} />
 
       {/* Floating bulk action bar */}
       {selectedIds.size > 0 && (

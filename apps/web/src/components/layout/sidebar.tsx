@@ -187,7 +187,6 @@ export function Sidebar({
           {!collapsed && (
             <div className="min-w-0">
               <h1 className="text-[13px] font-semibold text-white leading-tight">Rivertown PSA</h1>
-              <p className="text-[10px] text-sidebar-muted leading-tight">v{__APP_VERSION__}</p>
             </div>
           )}
         </div>
@@ -221,37 +220,56 @@ export function Sidebar({
               {!collapsed && <div className="mx-2 mb-2 border-t border-sidebar-border/50" />}
               {collapsed && <div className="mx-1 mb-2 border-t border-sidebar-border/50" />}
 
-              {/* Group header */}
+              {/* Group header — label navigates (or toggles), chevron toggles (separate gestures) */}
               {!collapsed ? (
-                <button
-                  onClick={() => {
-                    if (group.defaultHref && !isExpanded) {
-                      onNavigate(group.defaultHref);
-                    }
-                    toggleGroup(group.label);
-                  }}
+                <div
                   className={cn(
-                    'w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-[11px] font-semibold uppercase tracking-wider transition-colors',
-                    hasActive ? 'text-primary' : 'text-sidebar-muted hover:text-sidebar-foreground',
+                    'w-full flex items-center gap-1 pr-2 rounded-md text-[11px] font-semibold uppercase tracking-wider',
+                    hasActive ? 'text-primary' : 'text-sidebar-muted',
                   )}
                 >
-                  {GroupIcon && <GroupIcon className="h-3.5 w-3.5 shrink-0" />}
-                  <span className="flex-1 text-left">{group.label}</span>
-                  <ChevronDown className={cn('h-3 w-3 transition-transform duration-200', !isExpanded && '-rotate-90')} />
-                </button>
+                  <button
+                    onClick={() => {
+                      if (group.defaultHref) {
+                        onNavigate(group.defaultHref);
+                        if (!isExpanded) toggleGroup(group.label);
+                      } else {
+                        toggleGroup(group.label);
+                      }
+                    }}
+                    className="flex-1 flex items-center gap-2 px-3 py-1.5 min-w-0 text-left hover:text-sidebar-foreground transition-colors"
+                  >
+                    {GroupIcon && <GroupIcon className="h-3.5 w-3.5 shrink-0" />}
+                    <span className="flex-1 truncate">{group.label}</span>
+                  </button>
+                  <button
+                    onClick={() => toggleGroup(group.label)}
+                    aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${group.label}`}
+                    className="p-1 rounded hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors shrink-0"
+                  >
+                    <ChevronDown className={cn('h-3 w-3 transition-transform duration-200', !isExpanded && '-rotate-90')} />
+                  </button>
+                </div>
               ) : (
-                // Collapsed: show group icon as button
-                group.defaultHref && (
+                // Collapsed: show the group's icon so sections stay differentiated
+                group.defaultHref ? (
                   <button
                     onClick={() => onNavigate(group.defaultHref!)}
                     title={group.label}
                     className={cn(
-                      'w-full flex justify-center py-2 rounded-md transition-colors',
+                      'w-full flex justify-center py-1.5 rounded-md transition-colors',
                       hasActive ? 'text-primary bg-primary/10' : 'text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent/50',
                     )}
                   >
                     {GroupIcon && <GroupIcon className="h-4 w-4" />}
                   </button>
+                ) : (
+                  <div
+                    title={group.label}
+                    className={cn('w-full flex justify-center py-1', hasActive ? 'text-primary' : 'text-sidebar-muted/50')}
+                  >
+                    {GroupIcon && <GroupIcon className="h-4 w-4" />}
+                  </div>
                 )
               )}
 
@@ -329,6 +347,9 @@ export function Sidebar({
             </button>
           );
         })}
+        {!collapsed && (
+          <div className="px-3 pt-1.5 text-[10px] text-sidebar-muted/60">v{__APP_VERSION__}</div>
+        )}
       </div>
     </aside>
   );
