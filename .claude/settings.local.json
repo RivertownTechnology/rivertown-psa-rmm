@@ -128,7 +128,12 @@
       "PowerShell(pnpm *)",
       "PowerShell(Test-NetConnection *)",
       "Bash(python -c \"import yaml,sys; [yaml.safe_load\\(open\\(f\\)\\) and print\\('parsed OK:',f\\) for f in ['infrastructure/docker/stack.yml','.github/workflows/deploy.yml']]\")",
-      "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/deploy.yml'\\)\\); print\\('deploy.yml parses OK'\\)\")"
+      "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/deploy.yml'\\)\\); print\\('deploy.yml parses OK'\\)\")",
+      "Bash(python -c \"import yaml; d=yaml.safe_load\\(open\\('infrastructure/docker/stack.rivertown_psa.yml'\\)\\); print\\('OK — services:', ', '.join\\(d['services'].keys\\(\\)\\)\\)\")",
+      "Bash(python -c \"import yaml; d=yaml.safe_load\\(open\\('infrastructure/docker/stack.rivertown_psa.yml'\\)\\); print\\('OK — services:', ', '.join\\(d['services'].keys\\(\\)\\)\\); print\\('networks:', ', '.join\\(d['networks'].keys\\(\\)\\)\\)\")",
+      "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('infrastructure/docker/traefik-stack.yml'\\)\\); print\\('traefik-stack.yml OK'\\)\")",
+      "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('infrastructure/docker/stack.rivertown_psa.yml'\\)\\); print\\('stack.rivertown_psa.yml OK'\\)\")",
+      "Bash(python -c \"import yaml; d=yaml.safe_load\\(open\\('infrastructure/docker/stack.rivertown_psa.yml'\\)\\); print\\('OK — api env keys:', ', '.join\\(k for k in d['services']['api']['environment'] if 'GOOGLE' in k or k=='PORTAL_URL'\\)\\)\")"
     ]
   }
 }

@@ -331,8 +331,9 @@ export function stripQuotedReply(text: string): string {
   // Find the earliest match among ALL separator patterns and cut there
   const patterns: RegExp[] = [
     /---\s*Please reply above this line\s*---/i,
-    /\nOn .+wrote:?\s*\n/,                        // Gmail: "On Mon, Mar 28 Blake wrote:" (on its own line)
-    /On .+wrote:?\s*$/m,                           // Gmail: at start of line
+    // Gmail attribution: "On <date> <name> <email> wrote:" — wraps across lines
+    // when longer than ~76 chars, so allow newlines between "On" and "wrote:".
+    /(?:^|\n)[ \t>]*On\s[\s\S]{5,400}?\bwrote:/,
     /From:\s*[^\n]*<[^>]+>/,                       // Outlook inline: "From: Name <email>"
     /From:\s*\S+@\S+/,                             // Outlook: "From: email@domain"
     /\n-{2,}\s*Original Message\s*-{2,}/,          // "-- Original Message --"

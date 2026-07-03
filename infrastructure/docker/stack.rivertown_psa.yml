@@ -1,0 +1,184 @@
+# Rivertown PSA/RMM — Swarm stack (paste into Portainer web editor).
+# Stack name MUST be: rivertown_psa
+# Real domains: psa.rivertowntechnology.com (admin) / portal.rivertowntechnology.com
+# HTTPS via the existing Traefik's Let's Encrypt resolver "le".
+#
+# BEFORE DEPLOYING: fill in GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET below with the
+# values from your Railway service's Variables tab.
+#
+# Still pinned to hive-1 (manager) until the cross-node overlay is fixed.
+version: "3.9"
+
+x-restart: &restart
+  restart_policy:
+    condition: any
+    delay: 5s
+
+networks:
+  internal:
+    driver: overlay
+    attachable: true
+  traefik-public:
+    external: true
+
+volumes:
+  redis_data:
+  mosquitto_data:
+  mosquitto_log:
+
+secrets:
+  jwt_secret:
+    external: true
+  encryption_key:
+    external: true
+  postgres_password:
+    external: true
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: rivertown
+      POSTGRES_DB: rivertown
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - type: bind
+        source: /mnt/ssd/pgdata
+        target: /var/lib/postgresql
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rivertown"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.labels.ssd == true]
+      <<: *restart
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.labels.ssd == true]
+      <<: *restart
+
+  mosquitto:
+    image: ghcr.io/rivertowntechnology/rivertown-mqtt:latest
+    volumes:
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - internal
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      <<: *restart
+
+  api:
+    image: ghcr.io/rivertowntechnology/rivertown-api:latest
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOST: 0.0.0.0
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: rivertown
+      POSTGRES_DB: rivertown
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+      REDIS_URL: redis://redis:6379
+      MQTT_URL: mqtt://mosquitto:1883
+      CORS_ORIGINS: https://psa.rivertowntechnology.com,https://portal.rivertowntechnology.com
+      API_BASE_URL: https://psa.rivertowntechnology.com
+      FRONTEND_URL: https://psa.rivertowntechnology.com
+      PASSKEY_RP_ID: portal.rivertowntechnology.com
+      PASSKEY_ORIGIN: https://portal.rivertowntechnology.com
+      GOOGLE_CLIENT_ID: 859928716416-1kdbjk9i17dlj4tvb25i6n3mhijn60tt.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: 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
+      GOOGLE_REDIRECT_URI: https://psa.rivertowntechnology.com/api/v1/auth/google/callback
+      GOOGLE_EMAIL_REDIRECT_URI: https://psa.rivertowntechnology.com/settings/email/callback
+      GOOGLE_CALENDAR_REDIRECT_URI: https://psa.rivertowntechnology.com/settings/calendar/callback
+      PORTAL_URL: https://portal.rivertowntechnology.com
+    secrets:
+      - postgres_password
+      - jwt_secret
+      - encryption_key
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      resources:
+        limits:
+          memory: 768M
+      <<: *restart
+
+  web:
+    image: ghcr.io/rivertowntechnology/rivertown-web:latest
+    networks:
+      - traefik-public
+      - internal
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      labels:
+        - traefik.enable=true
+        - traefik.swarm.network=traefik-public
+        # HTTP → HTTPS redirect (scoped to this host only)
+        - traefik.http.middlewares.rtweb-tohttps.redirectscheme.scheme=https
+        - traefik.http.routers.rtweb-http.rule=Host(`psa.rivertowntechnology.com`)
+        - traefik.http.routers.rtweb-http.entrypoints=web
+        - traefik.http.routers.rtweb-http.middlewares=rtweb-tohttps
+        # HTTPS router (Let's Encrypt)
+        - traefik.http.routers.rtweb.rule=Host(`psa.rivertowntechnology.com`)
+        - traefik.http.routers.rtweb.entrypoints=websecure
+        - traefik.http.routers.rtweb.tls.certresolver=le
+        - traefik.http.services.rtweb.loadbalancer.server.port=80
+      <<: *restart
+
+  portal:
+    image: ghcr.io/rivertowntechnology/rivertown-portal:latest
+    networks:
+      - traefik-public
+      - internal
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      labels:
+        - traefik.enable=true
+        - traefik.swarm.network=traefik-public
+        - traefik.http.middlewares.rtportal-tohttps.redirectscheme.scheme=https
+        - traefik.http.routers.rtportal-http.rule=Host(`portal.rivertowntechnology.com`)
+        - traefik.http.routers.rtportal-http.entrypoints=web
+        - traefik.http.routers.rtportal-http.middlewares=rtportal-tohttps
+        - traefik.http.routers.rtportal.rule=Host(`portal.rivertowntechnology.com`)
+        - traefik.http.routers.rtportal.entrypoints=websecure
+        - traefik.http.routers.rtportal.tls.certresolver=le
+        - traefik.http.services.rtportal.loadbalancer.server.port=80
+      <<: *restart

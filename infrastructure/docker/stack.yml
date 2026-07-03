@@ -45,7 +45,7 @@ services:
     command:
       - --providers.swarm=true
       - --providers.swarm.exposedByDefault=false
-      - --providers.swarm.network=rivertown_edge
+      - --providers.swarm.network=rivertown_psa_edge
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
