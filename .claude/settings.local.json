@@ -126,7 +126,9 @@
       "Bash(npx vitest *)",
       "PowerShell($j = Get-Content packages\\\\db\\\\src\\\\migrations\\\\meta\\\\_journal.json -Raw | ConvertFrom-Json; $j.entries | Select-Object -Last 3)",
       "PowerShell(pnpm *)",
-      "PowerShell(Test-NetConnection *)"
+      "PowerShell(Test-NetConnection *)",
+      "Bash(python -c \"import yaml,sys; [yaml.safe_load\\(open\\(f\\)\\) and print\\('parsed OK:',f\\) for f in ['infrastructure/docker/stack.yml','.github/workflows/deploy.yml']]\")",
+      "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/deploy.yml'\\)\\); print\\('deploy.yml parses OK'\\)\")"
     ]
   }
 }

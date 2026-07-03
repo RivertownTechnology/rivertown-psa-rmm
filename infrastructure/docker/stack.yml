@@ -1,0 +1,208 @@
+# Rivertown PSA/RMM — Docker Swarm production stack
+#
+# Deploy:  docker stack deploy --with-registry-auth -c stack.yml rivertown
+#
+# Requires these shell env vars at deploy time (the CI job / operator exports them):
+#   REGISTRY    e.g. ghcr.io/your-github-user
+#   TAG         image tag to run (e.g. a git SHA, or "latest")
+#   DOMAIN      your apex domain, e.g. example.com  (app.$DOMAIN / portal.$DOMAIN)
+#   ACME_EMAIL  email for Let's Encrypt registration
+#
+# Requires these Swarm secrets (see DEPLOY.md):  jwt_secret, encryption_key, postgres_password
+# Requires a node labelled `ssd=true` with the USB SSD mounted at /mnt/ssd.
+version: "3.9"
+
+x-restart: &restart
+  restart_policy:
+    condition: any
+    delay: 5s
+
+networks:
+  edge:
+    driver: overlay
+  internal:
+    driver: overlay
+    attachable: true   # lets the one-off migrate container join
+
+volumes:
+  redis_data:
+  traefik_certs:
+  mosquitto_data:
+  mosquitto_log:
+
+secrets:
+  jwt_secret:
+    external: true
+  encryption_key:
+    external: true
+  postgres_password:
+    external: true
+
+services:
+  # ── Ingress: TLS termination + Let's Encrypt ────────────────────────────
+  traefik:
+    image: traefik:v3.1
+    command:
+      - --providers.swarm=true
+      - --providers.swarm.exposedByDefault=false
+      - --providers.swarm.network=rivertown_edge
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/certs/acme.json
+      - --certificatesresolvers.le.acme.tlschallenge=true
+    ports:
+      - target: 80
+        published: 80
+        mode: host
+      - target: 443
+        published: 443
+        mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_certs:/certs
+    networks:
+      - edge
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      <<: *restart
+
+  # ── Database (pinned to the node with the USB SSD) ──────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rivertown
+      POSTGRES_DB: rivertown
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - type: bind
+        source: /mnt/ssd/pgdata
+        target: /var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rivertown"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.labels.ssd == true]
+      <<: *restart
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.labels.ssd == true]   # named volume is node-local
+      <<: *restart
+
+  # MQTT broker for the RMM agent. Kept internal for now — when the agent ships,
+  # add a TLS listener (8883) and expose it via Traefik TCP or a published port.
+  mosquitto:
+    image: ${REGISTRY}/rivertown-mqtt:${TAG}
+    volumes:
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - internal
+    deploy:
+      replicas: 1
+      <<: *restart
+
+  # ── API (Fastify) ───────────────────────────────────────────────────────
+  api:
+    image: ${REGISTRY}/rivertown-api:${TAG}
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOST: 0.0.0.0
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: rivertown
+      POSTGRES_DB: rivertown
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: https://app.${DOMAIN},https://portal.${DOMAIN}
+      API_BASE_URL: https://app.${DOMAIN}
+      PASSKEY_RP_ID: portal.${DOMAIN}
+      PASSKEY_ORIGIN: https://portal.${DOMAIN}
+    secrets:
+      - postgres_password
+      - jwt_secret
+      - encryption_key
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    deploy:
+      replicas: 2
+      update_config:
+        order: start-first
+        parallelism: 1
+        delay: 10s
+      resources:
+        limits:
+          memory: 768M
+      <<: *restart
+
+  # ── Admin dashboard (static SPA + nginx, proxies /api → api) ─────────────
+  web:
+    image: ${REGISTRY}/rivertown-web:${TAG}
+    networks:
+      - edge
+      - internal
+    deploy:
+      replicas: 2
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.web.rule=Host(`app.${DOMAIN}`)
+        - traefik.http.routers.web.entrypoints=websecure
+        - traefik.http.routers.web.tls.certresolver=le
+        - traefik.http.services.web.loadbalancer.server.port=80
+      update_config:
+        order: start-first
+        parallelism: 1
+      <<: *restart
+
+  # ── Customer portal (static SPA + nginx, proxies /api → api) ────────────
+  portal:
+    image: ${REGISTRY}/rivertown-portal:${TAG}
+    networks:
+      - edge
+      - internal
+    deploy:
+      replicas: 2
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.portal.rule=Host(`portal.${DOMAIN}`)
+        - traefik.http.routers.portal.entrypoints=websecure
+        - traefik.http.routers.portal.tls.certresolver=le
+        - traefik.http.services.portal.loadbalancer.server.port=80
+      update_config:
+        order: start-first
+        parallelism: 1
+      <<: *restart

@@ -1,0 +1,69 @@
+name: Build & Deploy to Swarm
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ── Build multi-arch (arm64) images and push to GHCR ────────────────────
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - name: api
+            dockerfile: apps/api/Dockerfile
+            context: .
+          - name: web
+            dockerfile: apps/web/Dockerfile
+            context: .
+          - name: portal
+            dockerfile: apps/portal/Dockerfile
+            context: .
+          - name: mqtt
+            dockerfile: infrastructure/docker/mosquitto/Dockerfile
+            context: infrastructure/docker/mosquitto
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR requires a lowercase owner; the org is "RivertownTechnology".
+      - id: vars
+        run: echo "registry=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3      # emulation for arm64 on x86 runner
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.registry }}/rivertown-${{ matrix.name }}:${{ github.sha }}
+            ${{ steps.vars.outputs.registry }}/rivertown-${{ matrix.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  # ── Trigger Portainer to re-pull images and redeploy the stack ──────────
+  # Portainer owns the stack (deployed from this repo's stack.yml). Its webhook
+  # re-pulls the :latest images and rolls the services. DB migrations are run
+  # separately (see DEPLOY.md → "Run migrations") when a release adds any.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Portainer stack redeploy
+        run: curl -fsSL -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}"

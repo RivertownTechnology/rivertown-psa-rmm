@@ -79,13 +79,16 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     }
   });
 
-  // CORS
-  const allowedOrigins = [
+  // CORS — override via the CORS_ORIGINS env var (comma-separated), else defaults
+  const defaultOrigins = [
     'https://psa.rivertowntechnology.com',
     'https://rivertown-psa-rmm-production.up.railway.app',
     'http://localhost:5173',
     'http://localhost:5174',
   ];
+  const allowedOrigins = config.CORS_ORIGINS
+    ? config.CORS_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
+    : defaultOrigins;
   await fastify.register(cors, {
     origin: config.NODE_ENV === 'development' ? true : allowedOrigins,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],

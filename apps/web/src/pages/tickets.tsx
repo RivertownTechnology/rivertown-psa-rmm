@@ -110,6 +110,7 @@ const STATUS_OPTIONS = [
   { value: 'new', label: 'New' },
   { value: 'open', label: 'Open' },
   { value: 'pending', label: 'Pending' },
+  { value: 'scheduled', label: 'Scheduled' },
   { value: 'waiting_on_customer', label: 'Waiting on Customer' },
   { value: 'resolved', label: 'Resolved' },
   { value: 'closed', label: 'Closed' },
@@ -130,6 +131,10 @@ const SORT_OPTIONS = [
 ];
 
 const PRIORITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+
+// Default view hides closed tickets — they only appear when explicitly selected
+// in the status filter.
+const DEFAULT_STATUSES = STATUS_OPTIONS.filter(s => s.value !== 'closed').map(s => s.value);
 
 // ---------------------------------------------------------------------------
 // Component
@@ -222,7 +227,8 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: '25' });
-      if (statusFilter.length > 0) params.set('status', statusFilter.join(','));
+      // No explicit status selection → show everything except closed
+      params.set('status', (statusFilter.length > 0 ? statusFilter : DEFAULT_STATUSES).join(','));
       if (priorityFilter.length === 1) params.set('priority', priorityFilter[0]);
       if (debouncedSearch) params.set('search', debouncedSearch);
       if (myTicketsOnly && user?.id) params.set('assignedTo', user.id);

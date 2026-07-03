@@ -12,6 +12,10 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
+  // Comma-separated list of allowed CORS origins (production). If unset, a built-in
+  // default list is used. e.g. "https://app.example.com,https://portal.example.com"
+  CORS_ORIGINS: z.string().optional(),
+
   // Public-facing API URL (used in invoice view links sent via email)
   API_BASE_URL: z.string().default('https://rivertownapi-production.up.railway.app'),
 

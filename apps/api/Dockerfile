@@ -20,5 +20,10 @@ ENV NODE_ENV=production
 # Fix pnpm symlinks created from Windows lockfile
 RUN find /app -type l ! -exec test -e {} \; -delete && pnpm install --frozen-lockfile
 
+# Load Swarm secrets into env before starting
+COPY apps/api/docker-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 WORKDIR /app/apps/api
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["npx", "tsx", "src/app.ts"]
