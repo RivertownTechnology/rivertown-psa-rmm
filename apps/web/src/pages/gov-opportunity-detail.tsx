@@ -32,7 +32,7 @@ interface Opportunity {
   agency: string;
   agencyType: string;
   status: string;
-  estimatedValue: number;
+  estimatedValue: number | null;
   submissionDeadline: string | null;
   questionDeadline: string | null;
   winProbability: number | null;
@@ -40,7 +40,7 @@ interface Opportunity {
   assignedTo: string | null;
   source: string | null;
   samNumber: string | null;
-  naicsCodes: string | null;
+  naicsCodes: string[] | string | null;
   contractType: string | null;
   contactName: string | null;
   contactEmail: string | null;
@@ -94,15 +94,16 @@ interface ComplianceItem {
 
 interface Submission {
   id: string;
-  method: string;
-  submittedAt: string;
+  submissionMethod: string | null;
+  submissionDate: string | null;
+  createdAt: string;
   confirmationNumber: string | null;
   notes: string | null;
 }
 
 interface ActivityItem {
   id: string;
-  type: string;
+  activityType: string;
   description: string;
   createdAt: string;
   userId: string | null;
@@ -166,11 +167,22 @@ const CATEGORY_COLORS: Record<string, string> = {
   content: 'bg-indigo-100 text-indigo-700',
 };
 
-function formatDollars(cents: number): string {
-  const dollars = cents / 100;
+function formatDollars(cents: number | null): string {
+  const dollars = (cents ?? 0) / 100;
   if (dollars >= 1_000_000) return `$${(dollars / 1_000_000).toFixed(1)}M`;
   if (dollars >= 1_000) return `$${(dollars / 1_000).toFixed(0)}K`;
   return `$${dollars.toFixed(0)}`;
+}
+
+function annualizeAmount(unitAmount: number, quantity: number, frequency: string | null): number {
+  const lineAmount = unitAmount * quantity;
+  if (frequency === 'monthly') return Math.round(lineAmount * 12);
+  return Math.round(lineAmount);
+}
+
+function formatNaicsCodes(codes: string[] | string | null): string {
+  if (Array.isArray(codes)) return codes.join(', ');
+  return codes || '-';
 }
 
 function deadlineCountdown(dateStr: string | null): { days: number; hours: number } | null {
@@ -306,15 +318,13 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
 
   const fetchDocuments = useCallback(async () => {
     try {
-      const res = await api<any>(`/gov/opportunities/${opportunityId}/documents`);
-      setDocuments(Array.isArray(res) ? res : (res.data ?? []));
+      setDocuments(await api<GovDocument[]>(`/gov/opportunities/${opportunityId}/documents`));
     } catch { setDocuments([]); }
   }, [opportunityId]);
 
   const fetchProposals = useCallback(async () => {
     try {
-      const res = await api<any>(`/gov/opportunities/${opportunityId}/proposals`);
-      const list = Array.isArray(res) ? res : (res.data ?? []);
+      const list = await api<Proposal[]>(`/gov/opportunities/${opportunityId}/proposals`);
       setProposals(list);
       if (list.length && !selectedProposalVersion) {
         setSelectedProposalVersion(list[0].version);
@@ -324,22 +334,19 @@ export function GovOpportunityDetailPage({ opportunityId, onBack }: GovOpportuni
 
   const fetchCompliance = useCallback(async () => {
     try {
-      const res = await api<any>(`/gov/opportunities/${opportunityId}/compliance`);
-      setCompliance(Array.isArray(res) ? res : (res.data ?? []));
+      setCompliance(await api<ComplianceItem[]>(`/gov/opportunities/${opportunityId}/compliance`));
     } catch { setCompliance([]); }
   }, [opportunityId]);
 
   const fetchSubmissions = useCallback(async () => {
     try {
-      const res = await api<any>(`/gov/opportunities/${opportunityId}/submissions`);
-      setSubmissions(Array.isArray(res) ? res : (res.data ?? []));
+      setSubmissions(await api<Submission[]>(`/gov/opportunities/${opportunityId}/submissions`));
     } catch { setSubmissions([]); }
   }, [opportunityId]);
 
   const fetchActivities = useCallback(async () => {
     try {
-      const res = await api<any>(`/gov/opportunities/${opportunityId}/activities`);
-      setActivities(Array.isArray(res) ? res : (res.data ?? []));
+      setActivities(await api<ActivityItem[]>(`/gov/opportunities/${opportunityId}/activities`));
     } catch { setActivities([]); }
   }, [opportunityId]);
 
@@ -735,15 +742,23 @@ ${sectionsHtml}
   async function handleSubmission() {
     if (!submissionForm.method) return;
     try {
-      await api(`/gov/opportunities/${opportunityId}/submissions`, {
+      await api(`/gov/opportunities/${opportunityId}/submit`, {
         method: 'POST',
-        body: JSON.stringify(submissionForm),
+        body: JSON.stringify({
+          method: submissionForm.method,
+          date: submissionForm.submittedAt || undefined,
+          confirmationNumber: submissionForm.confirmationNumber || undefined,
+          notes: submissionForm.notes || undefined,
+        }),
       });
       setShowSubmissionForm(false);
       setSubmissionForm({ method: '', submittedAt: '', confirmationNumber: '', notes: '' });
       fetchSubmissions();
       fetchActivities();
-    } catch { /* ignore */ }
+      fetchOpp();
+    } catch (err: any) {
+      toast.error('Submission failed', err.message || 'Could not record the submission.');
+    }
   }
 
   async function handleAddNote() {
@@ -878,24 +893,18 @@ ${sectionsHtml}
 
   // Pricing calculations
   const pricingTotals = (() => {
-    let totalMonthlyCents = 0;
-    let totalMonthlyCostCents = 0;
-    for (const item of pricingItems) {
+    let annualRevenue = 0;
+    let annualCost = 0;
+    for (const item of pricingItems.filter(item => !item.linkedToId)) {
       const qty = parseFloat(item.quantity ?? '1');
       const price = item.unitPriceCents ?? 0;
       const cost = item.unitCostCents ?? 0;
-      if (item.frequency === 'annually') {
-        totalMonthlyCents += Math.round((price * qty) / 12);
-        totalMonthlyCostCents += Math.round((cost * qty) / 12);
-      } else {
-        totalMonthlyCents += Math.round(price * qty);
-        totalMonthlyCostCents += Math.round(cost * qty);
-      }
+      annualRevenue += annualizeAmount(price, qty, item.frequency);
+      annualCost += annualizeAmount(cost, qty, item.frequency);
     }
-    const annualRevenue = totalMonthlyCents * 12;
-    const annualCost = totalMonthlyCostCents * 12;
+    const totalMonthlyCents = Math.round(annualRevenue / 12);
     const margin = annualRevenue > 0 ? Math.round(((annualRevenue - annualCost) / annualRevenue) * 100) : 0;
-    return { totalMonthlyCents, totalMonthlyCostCents, annualRevenue, annualCost, margin };
+    return { totalMonthlyCents, annualRevenue, annualCost, margin };
   })();
 
   // ---------------------------------------------------------------------------
@@ -1099,7 +1108,7 @@ ${sectionsHtml}
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div><span className="text-muted-foreground">Agency Type:</span> <span className="font-medium capitalize">{opp.agencyType}</span></div>
                     <div><span className="text-muted-foreground">Source:</span> <span className="font-medium">{opp.source ?? '-'}</span></div>
-                    <div><span className="text-muted-foreground">NAICS:</span> <span className="font-medium">{opp.naicsCodes ?? '-'}</span></div>
+                    <div><span className="text-muted-foreground">NAICS:</span> <span className="font-medium">{formatNaicsCodes(opp.naicsCodes)}</span></div>
                     <div><span className="text-muted-foreground">Set-Aside:</span> <span className="font-medium">{opp.setAsideType ?? 'None'}</span></div>
                     <div><span className="text-muted-foreground">Contract Type:</span> <span className="font-medium capitalize">{opp.contractType?.replace(/_/g, ' ') ?? '-'}</span></div>
                     <div>
@@ -1336,17 +1345,16 @@ ${sectionsHtml}
               return scenarios.map(scenario => {
                 const items = pricingItems.filter(i => (i.scenario || 'base') === scenario);
                 const topLevelItems = items.filter(i => !i.linkedToId);
-                const scenarioRevenue = topLevelItems.reduce((s, i) => {
+                const scenarioAnnualRevenue = topLevelItems.reduce((s, i) => {
                   const qty = parseFloat(i.quantity ?? '1');
-                  const price = (i.unitPriceCents ?? 0) * qty;
-                  return s + (i.frequency === 'annually' ? Math.round(price / 12) : price);
+                  return s + annualizeAmount(i.unitPriceCents ?? 0, qty, i.frequency);
                 }, 0);
-                const scenarioCost = topLevelItems.reduce((s, i) => {
+                const scenarioAnnualCost = topLevelItems.reduce((s, i) => {
                   const qty = parseFloat(i.quantity ?? '1');
-                  const cost = (i.unitCostCents ?? 0) * qty;
-                  return s + (i.frequency === 'annually' ? Math.round(cost / 12) : cost);
+                  return s + annualizeAmount(i.unitCostCents ?? 0, qty, i.frequency);
                 }, 0);
-                const scenarioMargin = scenarioRevenue > 0 ? Math.round(((scenarioRevenue - scenarioCost) / scenarioRevenue) * 100) : 0;
+                const scenarioRevenue = Math.round(scenarioAnnualRevenue / 12);
+                const scenarioMargin = scenarioAnnualRevenue > 0 ? Math.round(((scenarioAnnualRevenue - scenarioAnnualCost) / scenarioAnnualRevenue) * 100) : 0;
                 return (
               <Card key={scenario}>
                 <CardHeader className="pb-2 pt-3 px-4">
@@ -1495,24 +1503,23 @@ ${sectionsHtml}
                         <tbody>
                           {scenarios.map(s => {
                             const sItems = pricingItems.filter(i => (i.scenario || 'base') === s && !i.linkedToId);
-                            const sMonthly = sItems.reduce((sum, i) => {
+                            const sAnnual = sItems.reduce((sum, i) => {
                               const qty = parseFloat(i.quantity ?? '1');
-                              const price = (i.unitPriceCents ?? 0) * qty;
-                              return sum + (i.frequency === 'annually' ? Math.round(price / 12) : price);
+                              return sum + annualizeAmount(i.unitPriceCents ?? 0, qty, i.frequency);
                             }, 0);
-                            const sCost = sItems.reduce((sum, i) => {
+                            const sAnnualCost = sItems.reduce((sum, i) => {
                               const qty = parseFloat(i.quantity ?? '1');
-                              const cost = (i.unitCostCents ?? 0) * qty;
-                              return sum + (i.frequency === 'annually' ? Math.round(cost / 12) : cost);
+                              return sum + annualizeAmount(i.unitCostCents ?? 0, qty, i.frequency);
                             }, 0);
-                            const sMargin = sMonthly > 0 ? Math.round(((sMonthly - sCost) / sMonthly) * 100) : 0;
+                            const sMonthly = Math.round(sAnnual / 12);
+                            const sMargin = sAnnual > 0 ? Math.round(((sAnnual - sAnnualCost) / sAnnual) * 100) : 0;
                             return (
                               <tr key={s} className="border-b hover:bg-muted/30">
                                 <td className="px-4 py-2 font-medium">{SCENARIO_LABELS[s] || s}</td>
                                 <td className="px-4 py-2 text-right">{sItems.length}</td>
                                 <td className="px-4 py-2 text-right">{formatDollars(sMonthly)}</td>
-                                <td className="px-4 py-2 text-right">{formatDollars(sMonthly * 12)}</td>
-                                <td className="px-4 py-2 text-right text-red-600">{formatDollars(sCost * 12)}</td>
+                                <td className="px-4 py-2 text-right">{formatDollars(sAnnual)}</td>
+                                <td className="px-4 py-2 text-right text-red-600">{formatDollars(sAnnualCost)}</td>
                                 <td className="px-4 py-2 text-right">
                                   <span className={`font-medium ${sMargin >= 30 ? 'text-green-600' : sMargin >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>{sMargin}%</span>
                                 </td>
@@ -2194,7 +2201,7 @@ ${sectionsHtml}
                 <div className="flex items-center gap-2 text-sm">
                   <CheckCircle2 className="h-4 w-4 text-green-600" />
                   <span>{submissions.length} submission{submissions.length !== 1 ? 's' : ''} recorded</span>
-                  <span className="text-muted-foreground">— Latest: {new Date(submissions[0]?.submittedAt).toLocaleDateString()}</span>
+                  <span className="text-muted-foreground">— Latest: {new Date(submissions[0].submissionDate || submissions[0].createdAt).toLocaleDateString()}</span>
                 </div>
               )}
               <Button size="sm" onClick={() => setShowSubmissionForm(true)} className={submissions.length === 0 ? 'ml-auto' : ''}>
@@ -2218,10 +2225,10 @@ ${sectionsHtml}
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
-                              <Badge variant={idx === 0 ? 'default' : 'secondary'}>{sub.method}</Badge>
+                              <Badge variant={idx === 0 ? 'default' : 'secondary'}>{sub.submissionMethod || 'Unknown'}</Badge>
                               {idx === 0 && <Badge className="bg-green-100 text-green-700 text-[10px]">Latest</Badge>}
                             </div>
-                            <span className="text-sm text-muted-foreground">{new Date(sub.submittedAt).toLocaleString()}</span>
+                            <span className="text-sm text-muted-foreground">{new Date(sub.submissionDate || sub.createdAt).toLocaleString()}</span>
                           </div>
                           {sub.confirmationNumber && (
                             <div className="text-sm flex items-center gap-1">
@@ -2325,25 +2332,24 @@ ${sectionsHtml}
                 <div className="absolute left-[9px] top-0 bottom-0 w-px bg-border" />
                 <div className="space-y-4">
                   {activities.map(a => {
+                    const activityType = a.activityType || 'activity';
                     const ACTIVITY_COLORS: Record<string, string> = {
                       note: 'bg-blue-100 text-blue-700',
                       status_change: 'bg-purple-100 text-purple-700',
-                      document: 'bg-orange-100 text-orange-700',
-                      proposal: 'bg-green-100 text-green-700',
-                      submission: 'bg-indigo-100 text-indigo-700',
-                      compliance: 'bg-yellow-100 text-yellow-700',
-                      pricing: 'bg-teal-100 text-teal-700',
+                      document_upload: 'bg-orange-100 text-orange-700',
+                      ai_analysis: 'bg-green-100 text-green-700',
+                      compliance_update: 'bg-yellow-100 text-yellow-700',
                     };
                     return (
                       <div key={a.id} className="flex items-start gap-3 relative">
-                        <div className={`mt-0.5 h-[18px] w-[18px] rounded-full flex items-center justify-center z-10 ${ACTIVITY_COLORS[a.type] ?? 'bg-muted text-muted-foreground'}`}>
+                        <div className={`mt-0.5 h-[18px] w-[18px] rounded-full flex items-center justify-center z-10 ${ACTIVITY_COLORS[activityType] ?? 'bg-muted text-muted-foreground'}`}>
                           <div className="h-1.5 w-1.5 rounded-full bg-current" />
                         </div>
                         <div className="flex-1 min-w-0 pb-1">
                           <div className="text-sm">{a.description}</div>
                           <div className="flex items-center gap-2 mt-0.5">
                             {a.userName && <span className="text-xs text-muted-foreground">{a.userName}</span>}
-                            <Badge variant="secondary" className="text-[10px]">{a.type.replace(/_/g, ' ')}</Badge>
+                            <Badge variant="secondary" className="text-[10px]">{activityType.replace(/_/g, ' ')}</Badge>
                             <span className="text-xs text-muted-foreground">{timeAgo(a.createdAt)}</span>
                           </div>
                         </div>

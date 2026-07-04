@@ -18,12 +18,11 @@ import {
 // ---------------------------------------------------------------------------
 
 interface AnalyticsData {
-  winLoss?: { awarded: number; lost: number };
-  revenueByMonth?: Array<{ month: string; revenueCents: number }>;
-  monthlyRevenue?: Array<{ month: string; revenueCents: number }>;
+  winLoss: { awarded: number; lost: number };
+  monthlyRevenue: Array<{ month: string; revenueCents: number }>;
   avgBidValueCents: number;
-  byAgencyType?: Array<{ agencyType: string; count: number; awardedCount: number; totalValueCents: number }>;
-  bySetAside?: Array<{ setAsideType: string; count: number; awardedCount: number; winRate: number }>;
+  byAgencyType: Array<{ agencyType: string; count: number; awardedCount: number; totalValueCents: number }>;
+  bySetAside: Array<{ setAsideType: string; count: number; awardedCount: number; winRate: number }>;
   totalPipelineValueCents: number;
   totalAwardedValueCents: number;
 }
@@ -195,8 +194,8 @@ export function GovAnalyticsPage() {
 
   // ── Derived data ────────────────────────────────────────────────────
 
-  const awarded = data.winLoss?.awarded ?? 0;
-  const lost = data.winLoss?.lost ?? 0;
+  const awarded = data.winLoss.awarded;
+  const lost = data.winLoss.lost;
   const totalOpportunities = awarded + lost;
   const winRate = totalOpportunities > 0 ? Math.round((awarded / totalOpportunities) * 100) : 0;
   const hasPieData = totalOpportunities > 0;
@@ -206,19 +205,19 @@ export function GovAnalyticsPage() {
     { name: 'Lost', value: lost },
   ];
 
-  const revenueChartData = (data.monthlyRevenue ?? data.revenueByMonth ?? []).map(r => ({
+  const revenueChartData = data.monthlyRevenue.map(r => ({
     month: r.month,
     revenue: r.revenueCents / 100,
   }));
 
-  const agencyChartData = (data.byAgencyType ?? []).map(a => ({
+  const agencyChartData = data.byAgencyType.map(a => ({
     name: a.agencyType.charAt(0).toUpperCase() + a.agencyType.slice(1),
     total: a.count,
     awarded: a.awardedCount,
     valueDollars: a.totalValueCents / 100,
   }));
 
-  const setAsideChartData = (data.bySetAside ?? []).map(s => ({
+  const setAsideChartData = data.bySetAside.map(s => ({
     name: s.setAsideType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
     count: s.count,
     awardedCount: s.awardedCount,
@@ -497,7 +496,7 @@ export function GovAnalyticsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(data.bySetAside ?? []).map(row => (
+                    {data.bySetAside.map(row => (
                       <tr key={row.setAsideType} className="border-b last:border-b-0">
                         <td className="px-4 py-3 capitalize">{row.setAsideType.replace(/_/g, ' ')}</td>
                         <td className="px-4 py-3 text-right tabular-nums">{row.count}</td>

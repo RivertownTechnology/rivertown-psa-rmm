@@ -101,6 +101,34 @@ export async function api<T = unknown>(
   return res.json();
 }
 
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export async function apiAllPages<T>(path: string): Promise<T[]> {
+  const items: T[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const separator = path.includes('?') ? '&' : '?';
+    const response = await api<PaginatedResponse<T>>(
+      `${path}${separator}page=${page}&limit=100`,
+    );
+    items.push(...(response.data ?? []));
+    totalPages = Math.max(1, response.pagination?.totalPages ?? 1);
+    page += 1;
+  } while (page <= totalPages);
+
+  return items;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,

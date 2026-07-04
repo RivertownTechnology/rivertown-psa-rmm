@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { api } from '@/lib/api';
+import { api, apiAllPages } from '@/lib/api';
 import { useToast } from '@/lib/toast';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -150,8 +150,7 @@ export function GovLibraryPage() {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api<{ data: LibraryItem[] }>('/gov/library?limit=500');
-      setItems(res.data ?? []);
+      setItems(await apiAllPages<LibraryItem>('/gov/library'));
     } catch {
       setItems([]);
     } finally {

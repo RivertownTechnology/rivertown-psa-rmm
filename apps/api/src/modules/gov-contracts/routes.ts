@@ -54,29 +54,22 @@ async function updateOpportunityValue(db: any, tenantId: string, opportunityId: 
   const items = await db.select().from(govPricingItems)
     .where(and(eq(govPricingItems.opportunityId, opportunityId), eq(govPricingItems.tenantId, tenantId)));
 
-  // Calculate total monthly value (exclude linked items — they're covered by their parent)
-  let totalMonthlyCents = 0;
+  // Calculate annual contract value (exclude linked items — they're covered by their parent)
+  let annualCents = 0;
   for (const item of items) {
     if (item.linkedToId) continue; // Skip items linked to a parent (included in parent price)
     const qty = parseFloat(item.quantity ?? '1');
     const price = item.unitPriceCents ?? 0;
-    if (item.frequency === 'annually') {
-      totalMonthlyCents += Math.round((price * qty) / 12);
-    } else if (item.frequency === 'one_time') {
-      // Include one-time costs as-is for total estimate
-      totalMonthlyCents += Math.round(price * qty);
-    } else {
-      totalMonthlyCents += Math.round(price * qty);
-    }
+    const lineTotal = price * qty;
+    annualCents += item.frequency === 'monthly'
+      ? Math.round(lineTotal * 12)
+      : Math.round(lineTotal);
   }
-
-  // Annualize for estimated contract value
-  const annualCents = totalMonthlyCents * 12;
 
   await db.update(govOpportunities).set({
     estimatedValue: annualCents,
     updatedAt: new Date(),
-  }).where(eq(govOpportunities.id, opportunityId));
+  }).where(and(eq(govOpportunities.id, opportunityId), eq(govOpportunities.tenantId, tenantId)));
 }
 
 // ── Helper: parse pagination from query ─────────────────────────────
@@ -212,7 +205,7 @@ export async function govContractRoutes(fastify: FastifyInstance) {
       contactPhone: extracted.contactPhone,
       requiredCertifications: extracted.requiredCertifications?.length ? extracted.requiredCertifications : null,
       status: 'discovered',
-      notes: text.substring(0, 50000), // Save the full RFP text for future analysis
+      notes: text.substring(0, 100000), // Preserve the source RFP text for future analysis
     }).returning();
 
     // Step 3: Analyze the RFP for detailed breakdown
@@ -221,7 +214,6 @@ export async function govContractRoutes(fastify: FastifyInstance) {
     // Step 4: Store analysis on opportunity
     await fastify.db.update(govOpportunities).set({
       aiAnalysis: analysis as any,
-      notes: analysis.summary,
       updatedAt: new Date(),
     }).where(eq(govOpportunities.id, opp.id));
 
@@ -1400,6 +1392,7 @@ ${section.title.toLowerCase().includes('sla') ? '\nIMPORTANT: Present the SLA da
       unitPriceCents,
       unitCostCents,
       frequency: body.frequency || 'monthly',
+      linkedToId: body.linkedToId || null,
       scenario: body.scenario || 'base',
       notes: body.notes || null,
       sortOrder: body.sortOrder ?? 0,
@@ -1711,7 +1704,7 @@ ${section.title.toLowerCase().includes('sla') ? '\nIMPORTANT: Present the SLA da
     const tenantCondition = eq(govOpportunities.tenantId, request.tenantId);
 
     // Win/loss by agency type
-    const byAgencyType = await fastify.db
+    const agencyRows = await fastify.db
       .select({
         agencyType: govOpportunities.agencyType,
         status: govOpportunities.status,
@@ -1723,7 +1716,7 @@ ${section.title.toLowerCase().includes('sla') ? '\nIMPORTANT: Present the SLA da
       .groupBy(govOpportunities.agencyType, govOpportunities.status);
 
     // Win/loss by set-aside type
-    const bySetAside = await fastify.db
+    const setAsideRows = await fastify.db
       .select({
         setAsideType: govOpportunities.setAsideType,
         status: govOpportunities.status,
@@ -1734,6 +1727,51 @@ ${section.title.toLowerCase().includes('sla') ? '\nIMPORTANT: Present the SLA da
       .where(and(tenantCondition, sql`${govOpportunities.status} IN ('awarded', 'lost')`))
       .groupBy(govOpportunities.setAsideType, govOpportunities.status);
 
+    const aggregatePerformance = (
+      rows: Array<{ key: string; status: string; count: number; totalValue: number }>,
+    ) => {
+      const grouped = new Map<string, { count: number; awardedCount: number; totalValueCents: number }>();
+      for (const row of rows) {
+        const current = grouped.get(row.key) ?? { count: 0, awardedCount: 0, totalValueCents: 0 };
+        current.count += row.count;
+        current.totalValueCents += row.totalValue;
+        if (row.status === 'awarded') current.awardedCount += row.count;
+        grouped.set(row.key, current);
+      }
+      return grouped;
+    };
+
+    const agencyPerformance = aggregatePerformance(agencyRows.map(row => ({
+      key: row.agencyType,
+      status: row.status,
+      count: row.count,
+      totalValue: row.totalValue,
+    })));
+    const byAgencyType = [...agencyPerformance.entries()].map(([agencyType, values]) => ({
+      agencyType,
+      ...values,
+    }));
+
+    const setAsidePerformance = aggregatePerformance(setAsideRows.map(row => ({
+      key: row.setAsideType || 'none',
+      status: row.status,
+      count: row.count,
+      totalValue: row.totalValue,
+    })));
+    const bySetAside = [...setAsidePerformance.entries()].map(([setAsideType, values]) => ({
+      setAsideType,
+      count: values.count,
+      awardedCount: values.awardedCount,
+      winRate: values.count > 0 ? Math.round((values.awardedCount / values.count) * 100) : 0,
+    }));
+
+    const awardedCount = agencyRows
+      .filter(row => row.status === 'awarded')
+      .reduce((sum, row) => sum + row.count, 0);
+    const lostCount = agencyRows
+      .filter(row => row.status === 'lost')
+      .reduce((sum, row) => sum + row.count, 0);
+
     // Average bid value
     const [avgBid] = await fastify.db
       .select({ avg: sql<number>`coalesce(avg(${govOpportunities.estimatedValue}), 0)::int` })
@@ -1742,31 +1780,38 @@ ${section.title.toLowerCase().includes('sla') ? '\nIMPORTANT: Present the SLA da
 
     // Total awarded value
     const [totalAwarded] = await fastify.db
-      .select({ total: sql<number>`coalesce(sum(${govOpportunities.awardedValue}), 0)::int` })
+      .select({ total: sql<number>`coalesce(sum(coalesce(${govOpportunities.awardedValue}, ${govOpportunities.estimatedValue}, 0)), 0)::int` })
       .from(govOpportunities)
       .where(and(tenantCondition, eq(govOpportunities.status, 'awarded')));
 
-    // Monthly trends (last 12 months)
-    const trends = await fastify.db
+    const [totalPipeline] = await fastify.db
+      .select({ total: sql<number>`coalesce(sum(${govOpportunities.estimatedValue}), 0)::int` })
+      .from(govOpportunities)
+      .where(and(tenantCondition, sql`${govOpportunities.status} NOT IN ('awarded', 'lost', 'no_bid')`));
+
+    const awardedMonth = sql<string>`to_char(coalesce(${govOpportunities.awardedDate}::timestamp, ${govOpportunities.updatedAt}), 'YYYY-MM')`;
+    const monthlyRevenue = await fastify.db
       .select({
-        month: sql<string>`to_char(${govOpportunities.createdAt}, 'YYYY-MM')`,
-        count: count(),
-        totalValue: sql<number>`coalesce(sum(${govOpportunities.estimatedValue}), 0)::int`,
+        month: awardedMonth,
+        revenueCents: sql<number>`coalesce(sum(coalesce(${govOpportunities.awardedValue}, ${govOpportunities.estimatedValue}, 0)), 0)::int`,
       })
       .from(govOpportunities)
       .where(and(
         tenantCondition,
-        gte(govOpportunities.createdAt, sql`now() - interval '12 months'`),
+        eq(govOpportunities.status, 'awarded'),
+        sql`coalesce(${govOpportunities.awardedDate}::timestamp, ${govOpportunities.updatedAt}) >= now() - interval '12 months'`,
       ))
-      .groupBy(sql`to_char(${govOpportunities.createdAt}, 'YYYY-MM')`)
-      .orderBy(sql`to_char(${govOpportunities.createdAt}, 'YYYY-MM')`);
+      .groupBy(awardedMonth)
+      .orderBy(awardedMonth);
 
     return {
+      winLoss: { awarded: awardedCount, lost: lostCount },
       byAgencyType,
       bySetAside,
-      avgBidValue: avgBid?.avg || 0,
-      totalAwardedValue: totalAwarded?.total || 0,
-      trends,
+      avgBidValueCents: avgBid?.avg || 0,
+      totalPipelineValueCents: totalPipeline?.total || 0,
+      totalAwardedValueCents: totalAwarded?.total || 0,
+      monthlyRevenue,
     };
   });
 

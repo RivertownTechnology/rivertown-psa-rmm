@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { api } from '@/lib/api';
+import { api, apiAllPages } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,13 +28,13 @@ interface Opportunity {
   agency: string;
   agencyType: string;
   status: string;
-  estimatedValue: number;
+  estimatedValue: number | null;
   submissionDeadline: string | null;
   winProbability: number | null;
   setAsideType: string | null;
   assignedTo: string | null;
   source: string | null;
-  naicsCodes: string | null;
+  naicsCodes: string[] | null;
   contractType: string | null;
   questionDeadline: string | null;
   contactName: string | null;
@@ -112,8 +112,8 @@ const AGENCY_TYPE_COLORS: Record<string, string> = {
   city: 'bg-orange-100 text-orange-700',
 };
 
-function formatDollars(cents: number): string {
-  const dollars = cents / 100;
+function formatDollars(cents: number | null): string {
+  const dollars = (cents ?? 0) / 100;
   if (dollars >= 1_000_000) return `$${(dollars / 1_000_000).toFixed(1)}M`;
   if (dollars >= 1_000) return `$${(dollars / 1_000).toFixed(0)}K`;
   return `$${dollars.toFixed(0)}`;
@@ -181,8 +181,7 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
   const fetchOpportunities = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api<{ data: Opportunity[] }>('/gov/opportunities?limit=500');
-      setOpportunities(res.data ?? []);
+      setOpportunities(await apiAllPages<Opportunity>('/gov/opportunities'));
     } catch {
       setOpportunities([]);
     } finally {
@@ -194,6 +193,15 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
     fetchOpportunities();
     api<Tech[]>('/dispatch/techs').then(setTechs).catch(() => {});
   }, [fetchOpportunities]);
+
+  useEffect(() => {
+    const action = new URLSearchParams(window.location.search).get('action');
+    if (action === 'new') setCreateOpen(true);
+    if (action === 'import') setPasteOpen(true);
+    if (action === 'new' || action === 'import') {
+      window.history.replaceState(null, '', '/gov/opportunities');
+    }
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Filter
@@ -250,7 +258,9 @@ export function GovOpportunitiesPage({ onNavigate }: GovOpportunitiesPageProps) 
           agency: form.agency,
           agencyType: form.agencyType,
           source: form.source || undefined,
-          naicsCodes: form.naicsCodes || undefined,
+          naicsCodes: form.naicsCodes
+            ? form.naicsCodes.split(',').map(code => code.trim()).filter(Boolean)
+            : undefined,
           setAsideType: form.setAsideType || undefined,
           estimatedValue: form.estimatedValueCents,
           contractType: form.contractType || undefined,

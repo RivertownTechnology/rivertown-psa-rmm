@@ -54,20 +54,18 @@ const STAGE_COLORS: Record<string, string> = {
 
 const ACTIVITY_DOT_COLORS: Record<string, string> = {
   status_change: 'bg-blue-500',
-  note_added: 'bg-amber-500',
-  document_uploaded: 'bg-violet-500',
-  bid_submitted: 'bg-emerald-500',
-  deadline_approaching: 'bg-red-500',
-  created: 'bg-cyan-500',
+  note: 'bg-amber-500',
+  document_upload: 'bg-violet-500',
+  ai_analysis: 'bg-emerald-500',
+  compliance_update: 'bg-cyan-500',
 };
 
 const ACTIVITY_BADGE_VARIANTS: Record<string, string> = {
   status_change: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  note_added: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  document_uploaded: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
-  bid_submitted: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  deadline_approaching: 'bg-red-500/10 text-red-600 dark:text-red-400',
-  created: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
+  note: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  document_upload: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
+  ai_analysis: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  compliance_update: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
 };
 
 function formatCompactDollars(cents: number): string {
@@ -433,7 +431,7 @@ export function GovDashboardPage() {
               <Button
                 variant="outline"
                 className="w-full justify-start h-12 text-sm"
-                onClick={() => pushPath('/gov/opportunities/new')}
+                onClick={() => pushPath('/gov/opportunities?action=new')}
               >
                 <Plus className="h-4 w-4 mr-3 text-blue-500" />
                 Start New Opportunity
@@ -443,7 +441,7 @@ export function GovDashboardPage() {
               <Button
                 variant="outline"
                 className="w-full justify-start h-12 text-sm"
-                onClick={() => pushPath('/gov/opportunities/import')}
+                onClick={() => pushPath('/gov/opportunities?action=import')}
               >
                 <Upload className="h-4 w-4 mr-3 text-violet-500" />
                 Import RFP
