@@ -1,7 +1,7 @@
 import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, sql, desc, count, inArray } from 'drizzle-orm';
-import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues, ticketQueues, ticketTags, ticketTagAssignments, ticketCategories, ticketSubcategories, recurringTicketRules, workflowRules, workflowExecutionLog, businessDocuments, apiKeys } from '@rivertown/db';
+import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, slaPolicies, customers, contracts, contractLineItems, invoices, tickets, ticketTimeEntries, taxRates, auditLog, customFieldDefinitions, customFieldValues, ticketQueues, ticketTags, ticketTagAssignments, ticketCategories, ticketSubcategories, recurringTicketRules, workflowRules, workflowExecutionLog, businessDocuments, apiKeys, deviceTokens, notifications } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
 import { readCredentials } from '../../common/credentials.js';
@@ -979,6 +979,135 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       }
 
       return { success: true };
+    },
+  );
+
+  // Who currently has a registered device — populates the "send test to"
+  // picker, and doubles as a quick way to see whether anyone's actually
+  // signed into the iOS app at all.
+  fastify.get(
+    '/api/v1/settings/apple-push/devices',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const rows = await fastify.db
+        .select({
+          userId: deviceTokens.userId,
+          displayName: users.displayName,
+          environment: deviceTokens.environment,
+        })
+        .from(deviceTokens)
+        .innerJoin(users, eq(deviceTokens.userId, users.id))
+        .where(eq(deviceTokens.tenantId, request.tenantId));
+
+      const byUser = new Map<string, { userId: string; displayName: string; deviceCount: number; environments: Set<string> }>();
+      for (const r of rows) {
+        const entry = byUser.get(r.userId) ?? { userId: r.userId, displayName: r.displayName, deviceCount: 0, environments: new Set<string>() };
+        entry.deviceCount += 1;
+        entry.environments.add(r.environment);
+        byUser.set(r.userId, entry);
+      }
+
+      return {
+        totalDevices: rows.length,
+        users: Array.from(byUser.values())
+          .map(u => ({ ...u, environments: Array.from(u.environments) }))
+          .sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      };
+    },
+  );
+
+  // Sends a real APNs push right now and reports per-device success/failure
+  // synchronously — unlike the production path (which queues via BullMQ and
+  // never reports back), this is specifically for verifying credentials and
+  // seeing exactly what Apple said if something's wrong. Never touches the
+  // notifications table — a test send shouldn't clutter anyone's inbox.
+  fastify.post(
+    '/api/v1/settings/apple-push/test',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const body = request.body as { target?: string; type?: 'ticket_created' | 'ticket_assigned' };
+      const type = body.type === 'ticket_assigned' ? 'ticket_assigned' : 'ticket_created';
+      const target = body.target || 'self';
+
+      const { getApplePushConfig, sendApnsPush, ApnsError } = await import('../../services/apns.js');
+      const config = await getApplePushConfig(fastify.db, request.tenantId);
+      if (!config) throw new ValidationError('Apple Push is not configured — save your credentials first.');
+
+      let targetUserIds: string[];
+      if (target === 'self') {
+        targetUserIds = [request.user.sub];
+      } else if (target === 'all') {
+        const rows = await fastify.db.selectDistinct({ userId: deviceTokens.userId }).from(deviceTokens)
+          .where(eq(deviceTokens.tenantId, request.tenantId));
+        targetUserIds = rows.map(r => r.userId);
+      } else {
+        const [u] = await fastify.db.select({ id: users.id }).from(users)
+          .where(and(eq(users.id, target), eq(users.tenantId, request.tenantId))).limit(1);
+        if (!u) throw new ValidationError('User not found');
+        targetUserIds = [u.id];
+      }
+
+      if (targetUserIds.length === 0) {
+        return { success: false, message: 'No matching users with a registered device', results: [] };
+      }
+
+      // Use a real, recent ticket so the payload's entityId is actually
+      // deep-linkable in the app, not a fake id that 404s on tap.
+      const [recentTicket] = await fastify.db
+        .select({ id: tickets.id, ticketNumber: tickets.ticketNumber, subject: tickets.subject })
+        .from(tickets).where(eq(tickets.tenantId, request.tenantId))
+        .orderBy(desc(tickets.createdAt)).limit(1);
+
+      const alertTitle = type === 'ticket_assigned'
+        ? (recentTicket ? `Ticket #${recentTicket.ticketNumber} assigned to you` : 'Ticket assigned to you')
+        : (recentTicket ? `New ticket #${recentTicket.ticketNumber}` : 'New ticket');
+      const alertBody = recentTicket ? recentTicket.subject : 'This is a test push notification.';
+      const pushTitle = recentTicket ? recentTicket.subject : 'Test notification';
+      const entityId = recentTicket?.id ?? '00000000-0000-0000-0000-000000000000';
+
+      const results: Array<{ userId: string; displayName: string; deviceCount: number; sent: number; errors: Array<{ token: string; reason: string }> }> = [];
+
+      for (const userId of targetUserIds) {
+        const [user] = await fastify.db.select({ displayName: users.displayName }).from(users).where(eq(users.id, userId)).limit(1);
+        const tokens = await fastify.db.select().from(deviceTokens)
+          .where(and(eq(deviceTokens.userId, userId), eq(deviceTokens.tenantId, request.tenantId)));
+
+        const [unread] = await fastify.db.select({ count: count() }).from(notifications)
+          .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+
+        let sent = 0;
+        const errors: Array<{ token: string; reason: string }> = [];
+
+        for (const dt of tokens) {
+          try {
+            await sendApnsPush({
+              config,
+              deviceToken: dt.token,
+              environment: dt.environment as 'sandbox' | 'production',
+              payload: {
+                aps: { alert: { title: alertTitle, body: alertBody }, sound: 'default', badge: unread?.count ?? 0 },
+                entityType: 'ticket',
+                entityId,
+                title: pushTitle,
+              },
+            });
+            sent += 1;
+          } catch (err) {
+            if (err instanceof ApnsError) {
+              errors.push({ token: dt.token.slice(0, 8) + '…', reason: `${err.status} ${err.reason}` });
+              if (err.shouldRemoveToken) {
+                await fastify.db.delete(deviceTokens).where(eq(deviceTokens.id, dt.id));
+              }
+            } else {
+              errors.push({ token: dt.token.slice(0, 8) + '…', reason: err instanceof Error ? err.message : 'Unknown error' });
+            }
+          }
+        }
+
+        results.push({ userId, displayName: user?.displayName ?? 'Unknown', deviceCount: tokens.length, sent, errors });
+      }
+
+      return { success: true, results };
     },
   );
 

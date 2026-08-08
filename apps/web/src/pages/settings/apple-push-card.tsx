@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Bell } from 'lucide-react';
+import { Bell, Send } from 'lucide-react';
 
 interface ApplePushConfig {
   isEnabled: boolean;
@@ -12,6 +12,21 @@ interface ApplePushConfig {
   keyId: string;
   teamId: string;
   bundleId: string;
+}
+
+interface DeviceUser {
+  userId: string;
+  displayName: string;
+  deviceCount: number;
+  environments: string[];
+}
+
+interface TestPushResult {
+  userId: string;
+  displayName: string;
+  deviceCount: number;
+  sent: number;
+  errors: Array<{ token: string; reason: string }>;
 }
 
 export function ApplePushCard() {
@@ -23,6 +38,20 @@ export function ApplePushCard() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
+  const [deviceUsers, setDeviceUsers] = useState<DeviceUser[]>([]);
+  const [totalDevices, setTotalDevices] = useState(0);
+  const [testTarget, setTestTarget] = useState('self');
+  const [testType, setTestType] = useState<'ticket_created' | 'ticket_assigned'>('ticket_created');
+  const [testing, setTesting] = useState(false);
+  const [testResults, setTestResults] = useState<TestPushResult[] | null>(null);
+  const [testError, setTestError] = useState('');
+
+  function loadDevices() {
+    api<{ totalDevices: number; users: DeviceUser[] }>('/settings/apple-push/devices')
+      .then(res => { setDeviceUsers(res.users); setTotalDevices(res.totalDevices); })
+      .catch(() => {});
+  }
+
   useEffect(() => {
     api<ApplePushConfig>('/settings/apple-push').then(cfg => {
       setConfig(cfg);
@@ -31,7 +60,27 @@ export function ApplePushCard() {
       setTeamIdInput(cfg.teamId);
       setBundleIdInput(cfg.bundleId);
     }).catch(() => {});
+    loadDevices();
   }, []);
+
+  async function handleSendTest() {
+    setTesting(true); setTestError(''); setTestResults(null);
+    try {
+      const res = await api<{ success: boolean; message?: string; results: TestPushResult[] }>('/settings/apple-push/test', {
+        method: 'POST',
+        body: JSON.stringify({ target: testTarget, type: testType }),
+      });
+      if (!res.success) setTestError(res.message || 'No devices to send to');
+      setTestResults(res.results);
+      // A stale/rejected token gets pruned server-side on a bad response —
+      // refresh so the device count here reflects that.
+      loadDevices();
+    } catch (err: unknown) {
+      setTestError(err instanceof Error ? err.message : 'Test send failed');
+    } finally {
+      setTesting(false);
+    }
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setMessage('');
@@ -128,6 +177,80 @@ export function ApplePushCard() {
 
           <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save Apple Push Settings'}</Button>
         </form>
+
+        <div className="mt-8 pt-6 border-t">
+          <h4 className="text-sm font-semibold mb-1">Send Test Push</h4>
+          <p className="text-xs text-muted-foreground mb-4">
+            Sends a real push right now using your saved credentials (save any changes above first) and shows Apple's response per device immediately, instead of waiting on a real ticket event.
+          </p>
+
+          {totalDevices === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No devices registered yet — install the iOS app and sign in on at least one device before testing.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <Label>Send to</Label>
+                  <select
+                    value={testTarget}
+                    onChange={e => setTestTarget(e.target.value)}
+                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="self">Just me</option>
+                    <option value="all">Everyone with a device ({totalDevices} device{totalDevices === 1 ? '' : 's'} / {deviceUsers.length} user{deviceUsers.length === 1 ? '' : 's'})</option>
+                    {deviceUsers.map(u => (
+                      <option key={u.userId} value={u.userId}>{u.displayName} ({u.deviceCount} device{u.deviceCount === 1 ? '' : 's'})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <Label>Notification type</Label>
+                  <select
+                    value={testType}
+                    onChange={e => setTestType(e.target.value as 'ticket_created' | 'ticket_assigned')}
+                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="ticket_created">New ticket</option>
+                    <option value="ticket_assigned">Ticket assigned</option>
+                  </select>
+                </div>
+
+                <Button type="button" variant="outline" onClick={handleSendTest} disabled={testing}>
+                  <Send className="h-4 w-4 mr-1" />{testing ? 'Sending...' : 'Send Test'}
+                </Button>
+              </div>
+
+              {testError && (
+                <div className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 p-2 rounded">{testError}</div>
+              )}
+
+              {testResults && testResults.length > 0 && (
+                <div className="space-y-2">
+                  {testResults.map(r => (
+                    <div key={r.userId} className="text-sm border rounded-md p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{r.displayName}</span>
+                        <span className={r.sent === r.deviceCount ? 'text-green-600' : r.sent > 0 ? 'text-amber-600' : 'text-red-600'}>
+                          {r.sent}/{r.deviceCount} delivered
+                        </span>
+                      </div>
+                      {r.errors.length > 0 && (
+                        <ul className="mt-1 text-xs text-red-600 space-y-0.5">
+                          {r.errors.map((e, i) => (
+                            <li key={i}>{e.token}: {e.reason}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
