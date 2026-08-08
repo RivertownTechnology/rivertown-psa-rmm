@@ -145,7 +145,10 @@
       "Bash(DATABASE_URL=\"postgresql://rivertown:rivertown@localhost:5432/rivertown\" pnpm generate --name device_tokens)",
       "Bash(DATABASE_URL=\"postgresql://rivertown:rivertown@localhost:5432/rivertown\" printf '\\\\n\\\\n\\\\n\\\\n\\\\n\\\\n\\\\n\\\\n')",
       "Bash(sort -t_ -k1 -n)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(xargs -I{} sh -c 'echo ==={}===; cat {}')",
+      "Bash(awk \"/fastify\\\\.\\(get|post\\)\\\\\\(/{getline; print NR\\\\\": \\\\\"\\\\$0}\" apps/api/src/auth/google.ts)",
+      "Bash(gh run *)"
     ]
   }
 }

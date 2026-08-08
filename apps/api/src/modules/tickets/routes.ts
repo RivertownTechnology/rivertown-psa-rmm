@@ -33,6 +33,7 @@ import { moduleEvents } from '../registry.js';
 import { determineTimeBillability } from '../contracts/billing-logic.js';
 import { getNextTicketNumber } from '../../common/ticket-number.js';
 import { resolveAuthorNames } from '../../common/author-names.js';
+import { broadcastToTenant } from '../../ws/broadcast.js';
 
 export async function ticketRoutes(fastify: FastifyInstance) {
   // Verify a ticket belongs to the caller's tenant, or 404. Used by child-record
@@ -174,6 +175,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       });
 
       moduleEvents.emit('ticket.created', ticket);
+      broadcastToTenant(request.tenantId, { type: 'ticket.created', ticketId: ticket.id });
 
       // Evaluate workflow rules for new ticket
       import('../../services/workflow-engine.js').then(({ evaluateWorkflowRules }) => {
@@ -331,6 +333,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       }
 
       moduleEvents.emit('ticket.updated', updated, body);
+      broadcastToTenant(request.tenantId, { type: 'ticket.updated', ticketId: id });
 
       // Evaluate workflow rules for updated ticket
       import('../../services/workflow-engine.js').then(({ evaluateWorkflowRules }) => {
@@ -442,6 +445,8 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         .update(tickets)
         .set({ updatedAt: new Date() })
         .where(eq(tickets.id, id));
+
+      broadcastToTenant(request.tenantId, { type: 'ticket.comment.created', ticketId: id });
 
       // Send reply email to customer (only for non-internal comments from techs)
       if (!body.isInternal) {

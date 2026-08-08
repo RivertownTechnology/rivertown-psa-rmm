@@ -10,6 +10,7 @@ import { tenantContextPlugin } from './common/tenant-context.js';
 import { authRoutes } from './auth/routes.js';
 import { mfaRoutes } from './auth/mfa.js';
 import { googleAuthRoutes } from './auth/google.js';
+import { wsRoutes } from './ws/route.js';
 import { googleEmailRoutes } from './modules/integrations/google-email.js';
 import { googleCalendarRoutes } from './modules/integrations/google-calendar.js';
 import { stripeRoutes } from './modules/integrations/stripe.js';
@@ -67,6 +68,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   // Redis (for token blacklist)
   const { initRedis } = await import('./common/token-blacklist.js');
   initRedis(config.REDIS_URL);
+
+  // Redis pub/sub (fans out WebSocket broadcasts across API instances)
+  const { initWsBroadcast } = await import('./ws/broadcast.js');
+  initWsBroadcast(config.REDIS_URL);
 
   // Raw body for Stripe webhooks
   fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -229,6 +234,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   await fastify.register(pax8Routes);
   await fastify.register(quickbooksRoutes);
   await fastify.register(aiRoutes);
+  await fastify.register(wsRoutes);
 
   // Load feature modules
   await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, portalModule, publicApiModule, reportsModule, attachmentsModule, kbModule, cannedResponsesModule, notificationsModule, govContractsModule, complianceModule]);

@@ -8,6 +8,7 @@ import {
   users,
 } from '@rivertown/db';
 import { createNotification, notifyTenantStaff } from './notifications.js';
+import { broadcastToTenant } from '../ws/broadcast.js';
 
 // ── Type Definitions ─────────────────────────────────────────────────
 
@@ -462,6 +463,7 @@ export async function executeAction(
           entityType: 'ticket',
           entityId: followUpTicket.id,
         }).catch(() => {});
+        broadcastToTenant(tenantId, { type: 'ticket.created', ticketId: followUpTicket.id });
 
         return { type: action.type, success: true };
       }
@@ -660,6 +662,15 @@ export async function evaluateWorkflowRules(
         actionResults.push({ type: action.type, success: false, error: message });
         allSucceeded = false;
       }
+    }
+
+    // A matched rule's actions can touch all sorts of ticket fields (status,
+    // priority, assignment, tags, ...) — rather than instrumenting every
+    // individual action case, broadcast one generic update for the ticket
+    // that was evaluated. Actions that create a *different* ticket (e.g.
+    // create_follow_up_ticket) broadcast their own ticket.created separately.
+    if (actions.length > 0) {
+      broadcastToTenant(tenantId, { type: 'ticket.updated', ticketId: ticket.id as string });
     }
 
     // Log execution if enabled

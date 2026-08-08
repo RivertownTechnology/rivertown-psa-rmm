@@ -6,6 +6,7 @@ import type { Database } from '@rivertown/db';
 import { stripQuotedReply, sendTicketCreatedEmail } from './email-notifications.js';
 import { readCredentials } from '../common/credentials.js';
 import { getNextTicketNumber } from '../common/ticket-number.js';
+import { broadcastToTenant } from '../ws/broadcast.js';
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -483,6 +484,8 @@ async function processEmail(db: Database, tenantId: string, email: {
       ticketId = existingTicket.id;
       isComment = true;
 
+      broadcastToTenant(tenantId, { type: 'ticket.comment.created', ticketId: existingTicket.id });
+
       // Notify the assigned tech about the customer reply
       if (existingTicket.assignedTo) {
         import('./notifications.js').then(({ createNotification }) => {
@@ -516,6 +519,7 @@ async function processEmail(db: Database, tenantId: string, email: {
             closedAt: null,
             updatedAt: new Date(),
           }).where(eq(tickets.id, existingTicket.id));
+          broadcastToTenant(tenantId, { type: 'ticket.updated', ticketId: existingTicket.id });
         }
       } else if (existingTicket.status === 'closed') {
         // Closed tickets: create a NEW ticket instead of reopening
@@ -543,6 +547,7 @@ async function processEmail(db: Database, tenantId: string, email: {
             entityId: followUpTicket.id,
           }).catch(() => {});
         });
+        broadcastToTenant(tenantId, { type: 'ticket.created', ticketId: followUpTicket.id });
       }
     }
   }
@@ -593,6 +598,7 @@ async function processEmail(db: Database, tenantId: string, email: {
         entityId: newTicket.id,
       }).catch(() => {});
     });
+    broadcastToTenant(tenantId, { type: 'ticket.created', ticketId: newTicket.id });
   }
 
   // Store email record
