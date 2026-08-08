@@ -185,20 +185,18 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         sendTicketCreatedEmail(fastify.db, request.tenantId, ticket.id).catch(e => console.error('Ticket created email failed:', e));
       });
 
-      // Notify all techs about new ticket (or just the assigned tech if set)
-      if (ticket.assignedTo) {
-        import('../../services/notifications.js').then(({ createNotification }) => {
-          createNotification(fastify.db, {
-            tenantId: request.tenantId,
-            userId: ticket.assignedTo!,
-            type: 'ticket_created',
-            title: `New ticket #${ticket.ticketNumber}`,
-            body: ticket.subject,
-            entityType: 'ticket',
-            entityId: ticket.id,
-          }).catch(() => {});
-        });
-      }
+      // Notify all techs/admins/owners about the new ticket, excluding whoever created it
+      import('../../services/notifications.js').then(({ notifyTenantStaff }) => {
+        notifyTenantStaff(fastify.db, {
+          tenantId: request.tenantId,
+          type: 'ticket_created',
+          title: `New ticket #${ticket.ticketNumber}`,
+          body: ticket.subject,
+          entityType: 'ticket',
+          entityId: ticket.id,
+          excludeUserId: request.user.sub,
+        }).catch(() => {});
+      });
 
       reply.code(201);
       return ticket;

@@ -269,6 +269,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   const { startInvoiceAutoSendScheduler } = await import('./services/invoice-auto-send.js');
   startInvoiceAutoSendScheduler(db);
 
+  // Start push notification worker (delivers queued APNs jobs to iOS devices)
+  const { startPushWorker } = await import('./workers/push-worker.js');
+  startPushWorker(db, config.REDIS_URL);
+
   // Start email inbox polling (check all tenant inboxes every 30 seconds)
   const { processInboundEmails } = await import('./services/email-to-ticket.js');
   const { tenants } = await import('@rivertown/db');

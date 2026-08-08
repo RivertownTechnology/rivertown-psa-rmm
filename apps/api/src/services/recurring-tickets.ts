@@ -46,7 +46,7 @@ export function startRecurringTicketScheduler(db: any) {
           }).where(eq(recurringTicketRules.id, rule.id));
 
           // Then: create the ticket from the rule template
-          await db.insert(tickets).values({
+          const [newTicket] = await db.insert(tickets).values({
             tenantId: rule.tenantId,
             ticketNumber,
             customerId: rule.customerId,
@@ -57,7 +57,17 @@ export function startRecurringTicketScheduler(db: any) {
             assignedTo: rule.assignedTo,
             queueId: rule.queueId,
             source: 'recurring',
-          });
+          }).returning();
+
+          const { notifyTenantStaff } = await import('./notifications.js');
+          await notifyTenantStaff(db, {
+            tenantId: rule.tenantId,
+            type: 'ticket_created',
+            title: `New ticket #${ticketNumber}`,
+            body: newTicket.subject,
+            entityType: 'ticket',
+            entityId: newTicket.id,
+          }).catch(() => {});
 
           console.log(`[recurring-tickets] Created ticket #${ticketNumber} from rule "${rule.name}" (tenant ${rule.tenantId})`);
         } catch (err) {

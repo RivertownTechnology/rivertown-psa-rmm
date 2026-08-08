@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { eq, and, desc, sql, count } from 'drizzle-orm';
-import { notifications } from '@rivertown/db';
+import { notifications, deviceTokens } from '@rivertown/db';
 
 export async function notificationRoutes(fastify: FastifyInstance) {
   // List notifications for current user
@@ -65,5 +65,64 @@ export async function notificationRoutes(fastify: FastifyInstance) {
         eq(notifications.isRead, false),
       ));
     return { success: true };
+  });
+
+  // Register an iOS device token for push notifications (upsert by token)
+  fastify.post('/api/v1/notifications/devices', {
+    preHandler: [fastify.authenticate]
+  }, async (request, reply) => {
+    const body = request.body as {
+      token?: string; platform?: string; bundleId?: string; environment?: string;
+    };
+
+    if (!body.token || !body.platform || !body.bundleId || !body.environment) {
+      return reply.code(400).send({ error: 'token, platform, bundleId, and environment are required' });
+    }
+    if (body.environment !== 'sandbox' && body.environment !== 'production') {
+      // A typo'd/mis-cased value here would silently route pushes to the wrong
+      // APNs host, get BadDeviceToken back, and cause the worker to delete an
+      // otherwise-valid token — so this is enforced strictly, not just trimmed.
+      return reply.code(400).send({ error: 'environment must be "sandbox" or "production"' });
+    }
+
+    const now = new Date();
+    await fastify.db.insert(deviceTokens)
+      .values({
+        tenantId: request.tenantId,
+        userId: request.user.sub,
+        token: body.token,
+        platform: body.platform,
+        bundleId: body.bundleId,
+        environment: body.environment,
+        lastSeenAt: now,
+      })
+      .onConflictDoUpdate({
+        target: deviceTokens.token,
+        set: {
+          tenantId: request.tenantId,
+          userId: request.user.sub,
+          platform: body.platform,
+          bundleId: body.bundleId,
+          environment: body.environment,
+          updatedAt: now,
+          lastSeenAt: now,
+        },
+      });
+
+    return reply.code(204).send();
+  });
+
+  // Remove a device token (e.g. on sign-out)
+  fastify.delete('/api/v1/notifications/devices/:token', {
+    preHandler: [fastify.authenticate]
+  }, async (request, reply) => {
+    const { token } = request.params as { token: string };
+    await fastify.db.delete(deviceTokens)
+      .where(and(
+        eq(deviceTokens.token, token),
+        eq(deviceTokens.tenantId, request.tenantId),
+        eq(deviceTokens.userId, request.user.sub),
+      ));
+    return reply.code(204).send();
   });
 }

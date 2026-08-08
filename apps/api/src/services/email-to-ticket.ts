@@ -521,7 +521,7 @@ async function processEmail(db: Database, tenantId: string, email: {
         // Closed tickets: create a NEW ticket instead of reopening
         const nextNumber = await getNextTicketNumber(db, tenantId);
 
-        await db.insert(tickets).values({
+        const [followUpTicket] = await db.insert(tickets).values({
           tenantId,
           ticketNumber: nextNumber,
           customerId: existingTicket.customerId,
@@ -531,6 +531,17 @@ async function processEmail(db: Database, tenantId: string, email: {
           status: 'new',
           priority: 'medium',
           source: 'email',
+        }).returning();
+
+        import('./notifications.js').then(({ notifyTenantStaff }) => {
+          notifyTenantStaff(db, {
+            tenantId,
+            type: 'ticket_created',
+            title: `New ticket #${followUpTicket.ticketNumber}`,
+            body: followUpTicket.subject,
+            entityType: 'ticket',
+            entityId: followUpTicket.id,
+          }).catch(() => {});
         });
       }
     }
@@ -571,6 +582,17 @@ async function processEmail(db: Database, tenantId: string, email: {
     isTicket = true;
 
     sendTicketCreatedEmail(db, tenantId, newTicket.id).catch(e => console.error('Ticket created email failed:', e));
+
+    import('./notifications.js').then(({ notifyTenantStaff }) => {
+      notifyTenantStaff(db, {
+        tenantId,
+        type: 'ticket_created',
+        title: `New ticket #${newTicket.ticketNumber}`,
+        body: newTicket.subject,
+        entityType: 'ticket',
+        entityId: newTicket.id,
+      }).catch(() => {});
+    });
   }
 
   // Store email record

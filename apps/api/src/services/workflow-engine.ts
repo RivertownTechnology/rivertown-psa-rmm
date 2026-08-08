@@ -6,8 +6,8 @@ import {
   ticketComments,
   ticketTagAssignments,
   users,
-  notifications,
 } from '@rivertown/db';
+import { createNotification, notifyTenantStaff } from './notifications.js';
 
 // ── Type Definitions ─────────────────────────────────────────────────
 
@@ -383,7 +383,7 @@ export async function executeAction(
           return { type: action.type, success: false, error: 'No target user for notification' };
         }
 
-        await db.insert(notifications).values({
+        await createNotification(db, {
           tenantId,
           userId: targetUserId,
           type: 'workflow',
@@ -422,7 +422,7 @@ export async function executeAction(
           );
 
         for (const manager of managers) {
-          await db.insert(notifications).values({
+          await createNotification(db, {
             tenantId,
             userId: manager.id,
             type: 'workflow',
@@ -443,7 +443,7 @@ export async function executeAction(
           sql`SELECT COALESCE(MAX(ticket_number), 0) + 1 AS "nextNumber" FROM tickets WHERE tenant_id = ${tenantId}`,
         );
 
-        await db.insert(tickets).values({
+        const [followUpTicket] = await db.insert(tickets).values({
           tenantId,
           ticketNumber: nextNumber,
           subject: `Follow-up: ${ticket.subject}`,
@@ -452,7 +452,16 @@ export async function executeAction(
           priority: params.priority || (ticket.priority as string) || 'medium',
           status: 'new',
           source: 'workflow',
-        });
+        }).returning();
+
+        await notifyTenantStaff(db, {
+          tenantId,
+          type: 'ticket_created',
+          title: `New ticket #${nextNumber}`,
+          body: followUpTicket.subject,
+          entityType: 'ticket',
+          entityId: followUpTicket.id,
+        }).catch(() => {});
 
         return { type: action.type, success: true };
       }

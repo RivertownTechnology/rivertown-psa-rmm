@@ -45,6 +45,14 @@ const envSchema = z.object({
   QBO_CLIENT_SECRET: z.string().optional(),
   QBO_REDIRECT_URI: z.string().optional(),
   QBO_SANDBOX: z.coerce.boolean().default(false),
+
+  // Apple Push Notification service (token-based .p8 auth) for the iOS app
+  APNS_KEY_ID: z.string().optional(),
+  APNS_TEAM_ID: z.string().optional(),
+  APNS_BUNDLE_ID: z.string().optional(),
+  // Either the .p8 key contents (PEM, \n-escaped) or a filesystem path to it
+  APNS_P8: z.string().optional(),
+  APNS_DEFAULT_ENVIRONMENT: z.enum(['sandbox', 'production']).default('production'),
 });
 
 export type Config = z.infer<typeof envSchema>;

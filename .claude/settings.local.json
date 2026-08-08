@@ -137,7 +137,15 @@
       "Bash(sort -t: -k2 -rn)",
       "Bash(sed -n '45,70p' apps/web/src/components/layout/header.tsx)",
       "Bash(sed -n '45,70p' apps/web/src/lib/timer.tsx)",
-      "Bash(:)"
+      "Bash(:)",
+      "Bash(corepack --version)",
+      "Bash(npm --version)",
+      "Bash(corepack enable *)",
+      "Bash(corepack prepare *)",
+      "Bash(DATABASE_URL=\"postgresql://rivertown:rivertown@localhost:5432/rivertown\" pnpm generate --name device_tokens)",
+      "Bash(DATABASE_URL=\"postgresql://rivertown:rivertown@localhost:5432/rivertown\" printf '\\\\n\\\\n\\\\n\\\\n\\\\n\\\\n\\\\n\\\\n')",
+      "Bash(sort -t_ -k1 -n)",
+      "Bash(python3 -c ' *)"
     ]
   }
 }

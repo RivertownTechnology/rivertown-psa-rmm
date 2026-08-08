@@ -89,7 +89,9 @@ export async function authRoutes(fastify: FastifyInstance) {
       .limit(1);
 
     if (!user) throw new UnauthorizedError('User not found');
-    return user;
+    // `name` is an alias of `displayName` for clients (e.g. the iOS app) that
+    // expect that exact key — displayName is kept for the existing web app.
+    return { ...user, name: user.displayName };
   });
 
   // Logout — blacklist current access token AND the caller's refresh token

@@ -21,8 +21,19 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v2/userinfo';
 
 // In-memory stores with TTLs
-const oauthStates = new Map<string, { expiresAt: number }>();
+interface OAuthStateEntry {
+  expiresAt: number;
+  // Present when this state originated from the mobile-app flow — tells the
+  // callback where to deliver tokens instead of the web exchange-code flow.
+  mobile?: { redirectUri: string; clientState: string };
+}
+const oauthStates = new Map<string, OAuthStateEntry>();
 const exchangeCodes = new Map<string, { userId: string; tenantId: string; role: string; displayName: string; email: string; mfaEnabled: boolean; expiresAt: number }>();
+
+// Custom-scheme redirect URIs the mobile Google SSO flow is allowed to hand
+// tokens back to. Prevents an attacker from supplying an arbitrary
+// redirect_uri and phishing tokens via open redirect.
+const MOBILE_REDIRECT_ALLOWLIST = ['rivertown://auth-callback'];
 
 function getGoogleConfig() {
   return {
@@ -71,6 +82,54 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // Mobile entry point: iOS app opens this in a browser/ASWebAuthenticationSession.
+  // Same Google consent flow as Step 1, but the callback delivers tokens via a
+  // rivertown:// deep link instead of the web exchange-code flow.
+  fastify.get(
+    '/api/v1/auth/google/mobile/start',
+    { config: { public: true } as any },
+    async (request, reply) => {
+      const google = getGoogleConfig();
+
+      if (!google.clientId || !google.redirectUri) {
+        return reply.code(503).send({ error: 'Google SSO not configured' });
+      }
+
+      const { redirect_uri: redirectUri, state: clientState } = request.query as {
+        redirect_uri?: string;
+        state?: string;
+      };
+
+      if (!redirectUri || !MOBILE_REDIRECT_ALLOWLIST.includes(redirectUri)) {
+        return reply.code(400).send({ error: 'invalid_redirect_uri' });
+      }
+      if (!clientState) {
+        return reply.code(400).send({ error: 'state is required' });
+      }
+
+      // Generate our own CSRF state for the Google round-trip; the caller's
+      // opaque state is stashed alongside it and isn't sent to Google.
+      const state = randomBytes(32).toString('hex');
+      oauthStates.set(state, {
+        expiresAt: Date.now() + 10 * 60 * 1000,
+        mobile: { redirectUri, clientState },
+      });
+      cleanExpired(oauthStates);
+
+      const params = new URLSearchParams({
+        client_id: google.clientId,
+        redirect_uri: google.redirectUri,
+        response_type: 'code',
+        scope: 'openid email profile',
+        access_type: 'offline',
+        prompt: 'select_account',
+        state,
+      });
+
+      return reply.redirect(`${GOOGLE_AUTH_URL}?${params.toString()}`);
+    },
+  );
+
   // Step 2: Handle callback from Google
   fastify.get(
     '/api/v1/auth/google/callback',
@@ -79,18 +138,28 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
       const google = getGoogleConfig();
       const { code, error, state } = request.query as { code?: string; error?: string; state?: string };
 
+      // Resolve the state entry up front (if present) so error redirects can
+      // target the right client — the mobile deep link vs the web frontend.
+      const stateEntry = state ? oauthStates.get(state) : undefined;
+      if (state) oauthStates.delete(state);
+
+      const errorRedirect = (errorCode: string) => {
+        if (stateEntry?.mobile) {
+          return reply.redirect(`${stateEntry.mobile.redirectUri}?error=${errorCode}`);
+        }
+        return reply.redirect(`${google.frontendUrl}/login?error=${errorCode}`);
+      };
+
       if (error || !code) {
-        return reply.redirect(`${google.frontendUrl}/login?error=google_denied`);
+        return errorRedirect('google_denied');
       }
 
       // Validate CSRF state
-      if (!state || !oauthStates.has(state)) {
-        return reply.redirect(`${google.frontendUrl}/login?error=invalid_state`);
+      if (!state || !stateEntry) {
+        return errorRedirect('invalid_state');
       }
-      const stateEntry = oauthStates.get(state)!;
-      oauthStates.delete(state);
       if (stateEntry.expiresAt < Date.now()) {
-        return reply.redirect(`${google.frontendUrl}/login?error=expired_state`);
+        return errorRedirect('expired_state');
       }
 
       try {
@@ -109,7 +178,7 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
 
         if (!tokenResp.ok) {
           fastify.log.error(`Google token exchange failed`);
-          return reply.redirect(`${google.frontendUrl}/login?error=token_failed`);
+          return errorRedirect('token_failed');
         }
 
         const tokens = await tokenResp.json() as { access_token: string };
@@ -120,7 +189,7 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
         });
 
         if (!profileResp.ok) {
-          return reply.redirect(`${google.frontendUrl}/login?error=profile_failed`);
+          return errorRedirect('profile_failed');
         }
 
         const profile = await profileResp.json() as {
@@ -139,7 +208,26 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
 
         if (!user) {
           fastify.log.warn(`Google SSO: no user found for email`);
-          return reply.redirect(`${google.frontendUrl}/login?error=no_account`);
+          return errorRedirect('no_account');
+        }
+
+        await logAudit(fastify.db, {
+          tenantId: user.tenantId, actorType: 'user', actorId: user.id,
+          action: 'auth.login.google', entityType: 'user', entityId: user.id, ipAddress: request.ip,
+        });
+
+        // Mobile flow: mint tokens directly and hand them back via deep link.
+        if (stateEntry.mobile) {
+          const accessToken = fastify.jwt.sign(
+            { jti: randomUUID(), sub: user.id, tid: user.tenantId, role: user.role, type: 'access' as const },
+            { expiresIn: fastify.config.JWT_EXPIRES_IN || '15m' },
+          );
+          const refreshToken = fastify.jwt.sign(
+            { jti: randomUUID(), sub: user.id, tid: user.tenantId, role: user.role, type: 'refresh' as const },
+            { expiresIn: fastify.config.REFRESH_TOKEN_EXPIRES_IN || '7d' },
+          );
+          const params = new URLSearchParams({ accessToken, refreshToken });
+          return reply.redirect(`${stateEntry.mobile.redirectUri}?${params.toString()}`);
         }
 
         // Generate a short-lived exchange code (NOT tokens in URL)
@@ -155,16 +243,11 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
         });
         cleanExpired(exchangeCodes);
 
-        await logAudit(fastify.db, {
-          tenantId: user.tenantId, actorType: 'user', actorId: user.id,
-          action: 'auth.login.google', entityType: 'user', entityId: user.id, ipAddress: request.ip,
-        });
-
         // Redirect with only the exchange code — no tokens in URL
         return reply.redirect(`${google.frontendUrl}/auth/callback?code=${exchangeCode}`);
       } catch (err) {
         fastify.log.error(err, 'Google SSO error');
-        return reply.redirect(`${google.frontendUrl}/login?error=server_error`);
+        return errorRedirect('server_error');
       }
     },
   );
