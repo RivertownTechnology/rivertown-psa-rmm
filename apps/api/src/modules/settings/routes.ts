@@ -5,6 +5,8 @@ import { tenantSequences, integrationConfigs, tenants, users, emailTemplates, sl
 import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
 import { readCredentials } from '../../common/credentials.js';
+import { getTenantTimezone } from '../../common/timezone.js';
+import { calculateNextRecurringRun } from '../../common/recurrence.js';
 
 export async function settingsRoutes(fastify: FastifyInstance) {
   // ===== PROFILE =====
@@ -911,6 +913,72 @@ export async function settingsRoutes(fastify: FastifyInstance) {
 
       if (!result.success) throw new ValidationError(result.error || 'SMS test failed');
       return { success: true, message: `Test SMS sent to ${e164}` };
+    },
+  );
+
+  // ===== APPLE PUSH NOTIFICATIONS (APNs) =====
+
+  fastify.get(
+    '/api/v1/settings/apple-push',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials } = await import('../../common/credentials.js');
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'apple-push')))
+        .limit(1);
+
+      if (!config) {
+        return { isEnabled: false, hasKeyP8: false, keyId: '', teamId: '', bundleId: '' };
+      }
+
+      const creds = readCredentials(config.credentials) as Record<string, string>;
+      return {
+        isEnabled: config.isEnabled,
+        // The .p8 key material is never sent back to the client, even masked —
+        // only whether one has been saved.
+        hasKeyP8: Boolean(creds.keyP8),
+        keyId: creds.keyId ? '••••••' + String(creds.keyId).slice(-4) : '',
+        teamId: creds.teamId || '',
+        bundleId: creds.bundleId || '',
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/apple-push',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
+      const body = request.body as { isEnabled: boolean; keyP8?: string; keyId?: string; teamId?: string; bundleId?: string };
+
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'apple-push')))
+        .limit(1);
+
+      const prevCreds = existing ? (readCredentials(existing.credentials) as Record<string, string>) : {};
+
+      // Blank/masked fields mean "leave as-is" — the client never has the
+      // real .p8 contents or full key ID to send back, so an empty/masked
+      // value here always means "unchanged", never "clear it".
+      const credentials = writeCredentials({
+        keyP8: body.keyP8?.trim() ? body.keyP8.trim() : (prevCreds.keyP8 || ''),
+        keyId: body.keyId?.startsWith('••') || !body.keyId ? (prevCreds.keyId || '') : body.keyId,
+        teamId: body.teamId || prevCreds.teamId || '',
+        bundleId: body.bundleId || prevCreds.bundleId || '',
+      });
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, credentials, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'apple-push',
+          isEnabled: body.isEnabled, credentials,
+        });
+      }
+
+      return { success: true };
     },
   );
 
@@ -1984,7 +2052,8 @@ export async function settingsRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     const { tenantId: _t, id: _i, ...body } = request.body as any;
     // Calculate initial nextRunAt
-    const nextRunAt = calculateNextRun(body.frequency, body.dayOfWeek, body.dayOfMonth);
+    const timeZone = await getTenantTimezone(fastify.db, request.tenantId);
+    const nextRunAt = calculateNextRecurringRun(body.frequency, body.dayOfWeek, body.dayOfMonth, timeZone);
     const [rule] = await fastify.db.insert(recurringTicketRules).values({
       ...body,
       tenantId: request.tenantId,
@@ -2008,7 +2077,8 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         const freq = body.frequency || existing.frequency;
         const dow = body.dayOfWeek ?? existing.dayOfWeek;
         const dom = body.dayOfMonth ?? existing.dayOfMonth;
-        update.nextRunAt = calculateNextRun(freq, dow, dom);
+        const timeZone = await getTenantTimezone(fastify.db, request.tenantId);
+        update.nextRunAt = calculateNextRecurringRun(freq, dow, dom, timeZone);
       }
     }
     const [updated] = await fastify.db.update(recurringTicketRules)
@@ -2472,40 +2542,4 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, request.tenantId)));
     reply.code(204).send();
   });
-}
-
-function calculateNextRun(frequency: string, dayOfWeek?: number, dayOfMonth?: number): Date {
-  const now = new Date();
-  switch (frequency) {
-    case 'daily': {
-      const next = new Date(now);
-      next.setDate(next.getDate() + 1);
-      next.setHours(8, 0, 0, 0);
-      return next;
-    }
-    case 'weekly': {
-      const next = new Date(now);
-      const targetDay = dayOfWeek ?? 1; // Default Monday
-      const currentDay = next.getDay();
-      let daysUntil = targetDay - currentDay;
-      if (daysUntil <= 0) daysUntil += 7;
-      next.setDate(next.getDate() + daysUntil);
-      next.setHours(8, 0, 0, 0);
-      return next;
-    }
-    case 'monthly': {
-      const next = new Date(now);
-      const targetDay = dayOfMonth ?? 1;
-      next.setMonth(next.getMonth() + 1);
-      next.setDate(Math.min(targetDay, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
-      next.setHours(8, 0, 0, 0);
-      return next;
-    }
-    default: {
-      const next = new Date(now);
-      next.setDate(next.getDate() + 1);
-      next.setHours(8, 0, 0, 0);
-      return next;
-    }
-  }
 }

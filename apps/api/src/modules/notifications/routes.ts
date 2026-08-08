@@ -86,7 +86,7 @@ export async function notificationRoutes(fastify: FastifyInstance) {
     }
 
     const now = new Date();
-    await fastify.db.insert(deviceTokens)
+    const [row] = await fastify.db.insert(deviceTokens)
       .values({
         tenantId: request.tenantId,
         userId: request.user.sub,
@@ -107,9 +107,11 @@ export async function notificationRoutes(fastify: FastifyInstance) {
           updatedAt: now,
           lastSeenAt: now,
         },
-      });
+      })
+      .returning();
 
-    return reply.code(204).send();
+    reply.code(200);
+    return { id: row.id, token: row.token };
   });
 
   // Remove a device token (e.g. on sign-out)

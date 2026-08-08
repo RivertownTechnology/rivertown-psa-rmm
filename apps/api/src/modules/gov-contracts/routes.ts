@@ -1,6 +1,7 @@
 import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
 import { eq, and, ilike, sql, count, desc, asc, gte, lte, inArray } from 'drizzle-orm';
+import { getTenantTimezone } from '../../common/timezone.js';
 import {
   govOpportunities,
   govOpportunityActivities,
@@ -555,7 +556,8 @@ export async function govContractRoutes(fastify: FastifyInstance) {
       if (isAddendum) {
         // Append addendum text to existing notes
         const existing = opp.notes || '';
-        const separator = `\n\n--- ADDENDUM: ${doc.fileName} (${new Date().toLocaleDateString()}) ---\n\n`;
+        const timeZone = await getTenantTimezone(fastify.db, request.tenantId);
+        const separator = `\n\n--- ADDENDUM: ${doc.fileName} (${new Date().toLocaleDateString('en-US', { timeZone })}) ---\n\n`;
         updatedNotes = (existing + separator + docText).substring(0, 100000);
       } else {
         // RFP: replace notes with full RFP text

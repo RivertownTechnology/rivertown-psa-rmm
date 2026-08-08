@@ -26,6 +26,7 @@ import { AuditLogTab } from './settings/audit-log-tab';
 import { BillingEmailCard } from './settings/billing-email-card';
 import { QuickBooksCard } from './settings/quickbooks-card';
 import { TwilioCard } from './settings/twilio-card';
+import { ApplePushCard } from './settings/apple-push-card';
 import { ConnectBoosterCard } from './settings/connectbooster-card';
 import { QBOPaymentsCard } from './settings/qbo-payments-card';
 import { CrewHuCard } from './settings/crewhu-card';
@@ -1460,6 +1461,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
             <TabsList className="flex-wrap h-auto">
               <TabsTrigger value="accounting">Accounting</TabsTrigger>
               <TabsTrigger value="ai">AI</TabsTrigger>
+              <TabsTrigger value="apple-push">Apple Push</TabsTrigger>
               <TabsTrigger value="billing-email">Billing Email</TabsTrigger>
               <TabsTrigger value="email">Email & Inbox</TabsTrigger>
               <TabsTrigger value="payments">Payments</TabsTrigger>
@@ -1473,6 +1475,13 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
             {/* EMAIL & INBOX SUB-TAB */}
             <TabsContent value="email">
               {emailIntegrationsJsx}
+            </TabsContent>
+
+            {/* APPLE PUSH SUB-TAB */}
+            <TabsContent value="apple-push">
+              <div className="space-y-6 mt-4 max-w-2xl">
+                <ApplePushCard />
+              </div>
             </TabsContent>
 
             {/* BILLING EMAIL SUB-TAB */}

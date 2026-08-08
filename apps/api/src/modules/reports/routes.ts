@@ -1,8 +1,9 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and, sql, count, gte, lte, desc, inArray } from 'drizzle-orm';
+import { eq, and, sql, count, gte, lt, desc, inArray } from 'drizzle-orm';
 import { tickets, ticketTimeEntries, users, customers, contracts, contractLineItems, invoices, csatRatings, assets, tenants } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { ValidationError } from '../../common/errors.js';
+import { getTenantTimezone, getZonedParts, parseTenantDateRange, tenantTodayMidnightUtc, parseDateOnlyInZone } from '../../common/timezone.js';
 
 export async function reportRoutes(fastify: FastifyInstance) {
   // Ticket volume over time
@@ -10,24 +11,24 @@ export async function reportRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate, requirePermission('tickets:read')]
   }, async (request) => {
     const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+    const timeZone = await getTenantTimezone(fastify.db, request.tenantId);
     const conditions: any[] = [eq(tickets.tenantId, request.tenantId)];
-    if (startDate) conditions.push(gte(tickets.createdAt, new Date(startDate)));
-    if (endDate) {
-      // Add 1 day to include tickets created on the end date
-      const end = new Date(endDate);
-      end.setDate(end.getDate() + 1);
-      conditions.push(lte(tickets.createdAt, end));
-    }
+    const { start, end } = parseTenantDateRange(startDate, endDate, timeZone);
+    if (start) conditions.push(gte(tickets.createdAt, start));
+    if (end) conditions.push(lt(tickets.createdAt, end));
 
     // Use Drizzle query instead of raw SQL for reliability
     const allTickets = await fastify.db.select({
       createdAt: tickets.createdAt,
     }).from(tickets).where(and(...conditions));
 
-    // Group by day in JS
+    // Group by day (in the tenant's timezone — a ticket at 11pm Eastern
+    // shouldn't get bucketed into "tomorrow" just because it's already past
+    // midnight UTC) in JS
     const dayMap = new Map<string, number>();
     for (const t of allTickets) {
-      const day = new Date(t.createdAt).toISOString().split('T')[0];
+      const p = getZonedParts(new Date(t.createdAt), timeZone);
+      const day = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
       dayMap.set(day, (dayMap.get(day) ?? 0) + 1);
     }
 
@@ -41,16 +42,14 @@ export async function reportRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate, requirePermission('tickets:read')]
   }, async (request) => {
     const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+    const timeZone = await getTenantTimezone(fastify.db, request.tenantId);
     const conditions: any[] = [
       eq(tickets.tenantId, request.tenantId),
       sql`${tickets.status} IN ('resolved', 'closed')`,
     ];
-    if (startDate) conditions.push(gte(tickets.createdAt, new Date(startDate)));
-    if (endDate) {
-      const end = new Date(endDate);
-      end.setDate(end.getDate() + 1);
-      conditions.push(lte(tickets.createdAt, end));
-    }
+    const { start, end } = parseTenantDateRange(startDate, endDate, timeZone);
+    if (start) conditions.push(gte(tickets.createdAt, start));
+    if (end) conditions.push(lt(tickets.createdAt, end));
 
     const where = and(...conditions);
 
@@ -76,9 +75,11 @@ export async function reportRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate, requirePermission('tickets:read')]
   }, async (request) => {
     const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+    const timeZone = await getTenantTimezone(fastify.db, request.tenantId);
     const conditions: any[] = [eq(ticketTimeEntries.tenantId, request.tenantId)];
-    if (startDate) conditions.push(gte(ticketTimeEntries.startedAt, new Date(startDate)));
-    if (endDate) conditions.push(lte(ticketTimeEntries.startedAt, new Date(endDate)));
+    const { start, end } = parseTenantDateRange(startDate, endDate, timeZone);
+    if (start) conditions.push(gte(ticketTimeEntries.startedAt, start));
+    if (end) conditions.push(lt(ticketTimeEntries.startedAt, end));
 
     const rows = await fastify.db
       .select({
@@ -131,13 +132,20 @@ export async function reportRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate, requirePermission('time-entries:write')]
   }, async (request) => {
     const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+    const timeZone = await getTenantTimezone(fastify.db, request.tenantId);
     const conditions: any[] = [eq(ticketTimeEntries.tenantId, request.tenantId)];
-    if (startDate) conditions.push(gte(ticketTimeEntries.startedAt, new Date(startDate)));
-    if (endDate) conditions.push(lte(ticketTimeEntries.startedAt, new Date(endDate)));
+    const { start, end } = parseTenantDateRange(startDate, endDate, timeZone);
+    if (start) conditions.push(gte(ticketTimeEntries.startedAt, start));
+    if (end) conditions.push(lt(ticketTimeEntries.startedAt, end));
+
+    // Truncate to the tenant's own calendar day, not the DB session's (UTC) —
+    // otherwise entries logged late in the evening Eastern get grouped under
+    // tomorrow's date.
+    const dayTrunc = sql`date_trunc('day', ${ticketTimeEntries.startedAt} AT TIME ZONE ${timeZone})`;
 
     const rows = await fastify.db
       .select({
-        day: sql<string>`date_trunc('day', ${ticketTimeEntries.startedAt})`,
+        day: sql<string>`${dayTrunc}`,
         userId: ticketTimeEntries.userId,
         displayName: users.displayName,
         customerId: tickets.customerId,
@@ -151,13 +159,13 @@ export async function reportRoutes(fastify: FastifyInstance) {
       .innerJoin(customers, eq(tickets.customerId, customers.id))
       .where(and(...conditions))
       .groupBy(
-        sql`date_trunc('day', ${ticketTimeEntries.startedAt})`,
+        dayTrunc,
         ticketTimeEntries.userId,
         users.displayName,
         tickets.customerId,
         customers.name,
       )
-      .orderBy(desc(sql`date_trunc('day', ${ticketTimeEntries.startedAt})`));
+      .orderBy(desc(dayTrunc));
 
     return rows;
   });
@@ -185,14 +193,15 @@ export async function reportRoutes(fastify: FastifyInstance) {
       ))
       .orderBy(invoices.dueDate);
 
-    const now = new Date();
-    // Normalize "today" to local midnight so it matches the date-only dueDate basis
-    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    // Normalize "today" to midnight in the tenant's own timezone — using the
+    // container's local midnight (which is UTC) can misclassify an invoice
+    // as overdue (or not) for several hours around the actual day boundary.
+    const timeZone = await getTenantTimezone(fastify.db, request.tenantId);
+    const todayMidnight = tenantTodayMidnightUtc(timeZone);
     const buckets = { current: [] as any[], '1_30': [] as any[], '31_60': [] as any[], '61_90': [] as any[], '90_plus': [] as any[] };
 
     for (const inv of openInvoices) {
-      // dueDate is a date-only string; parse as local midnight (not UTC) to compare like-for-like
-      const due = new Date(`${inv.dueDate}T00:00:00`);
+      const due = parseDateOnlyInZone(inv.dueDate, timeZone);
       const daysOverdue = Math.floor((todayMidnight.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
       const outstandingCents = inv.totalCents - inv.amountPaidCents;
       const item = { ...inv, daysOverdue, outstandingCents };
@@ -224,9 +233,11 @@ export async function reportRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate, requirePermission('tickets:read')]
   }, async (request) => {
     const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+    const timeZone = await getTenantTimezone(fastify.db, request.tenantId);
     const conditions: any[] = [eq(csatRatings.tenantId, request.tenantId)];
-    if (startDate) conditions.push(gte(csatRatings.createdAt, new Date(startDate)));
-    if (endDate) conditions.push(lte(csatRatings.createdAt, new Date(endDate)));
+    const { start, end } = parseTenantDateRange(startDate, endDate, timeZone);
+    if (start) conditions.push(gte(csatRatings.createdAt, start));
+    if (end) conditions.push(lt(csatRatings.createdAt, end));
 
     // Only count rated entries (rating is not null and > 0)
     conditions.push(sql`${csatRatings.rating} IS NOT NULL AND ${csatRatings.rating} > 0`);
@@ -254,9 +265,8 @@ export async function reportRoutes(fastify: FastifyInstance) {
     const { customerId, startDate, endDate } = request.query as { customerId: string; startDate: string; endDate: string };
     if (!customerId || !startDate || !endDate) throw new ValidationError('customerId, startDate, and endDate are required');
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setDate(end.getDate() + 1); // Include end date
+    const timeZone = await getTenantTimezone(fastify.db, request.tenantId);
+    const { start, end } = parseTenantDateRange(startDate, endDate, timeZone) as { start: Date; end: Date };
 
     // Customer info
     const [customer] = await fastify.db.select().from(customers)
@@ -270,7 +280,7 @@ export async function reportRoutes(fastify: FastifyInstance) {
         eq(tickets.tenantId, request.tenantId),
         eq(tickets.customerId, customerId),
         gte(tickets.createdAt, start),
-        lte(tickets.createdAt, end),
+        lt(tickets.createdAt, end),
       ));
 
     const totalTickets = periodTickets.length;

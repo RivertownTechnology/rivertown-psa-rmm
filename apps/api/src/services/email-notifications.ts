@@ -44,6 +44,10 @@ async function getBusinessVars(db: Database, tenantId: string): Promise<Record<s
     businessZip: s.businessZip || '',
     businessPhone: s.businessPhone || '',
     businessEmail: s.businessEmail || '',
+    // Falls back to Eastern (not UTC) since the container itself runs UTC —
+    // without this, times formatted via toLocaleString render in UTC and get
+    // baked into outbound emails looking like the wrong hour to the customer.
+    timezone: tenant?.timezone || 'America/New_York',
   };
 }
 
@@ -280,13 +284,14 @@ export async function sendTicketAssignedEmail(db: Database, tenantId: string, ti
   const contactName = contact ? `${contact.firstName} ${contact.lastName}` : '';
   const contactPhone = contact?.phone || customer?.phone || '';
   const customerAddr = [customer?.address, [customer?.city, customer?.state].filter(Boolean).join(', '), customer?.zip].filter(Boolean).join('\n');
+  const businessVars = await getBusinessVars(db, tenantId);
   const now = new Date();
-  const dateAssigned = now.toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+  const dateAssigned = now.toLocaleString('en-US', { timeZone: businessVars.timezone, weekday: 'short', month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
   // Build discussion HTML
   const discussionHtml = comments.length > 0 ? comments.map(c => {
     const name = authorNames[c.authorId] || (c.authorType === 'system' ? 'System' : 'Unknown');
-    const date = new Date(c.createdAt).toLocaleString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const date = new Date(c.createdAt).toLocaleString('en-US', { timeZone: businessVars.timezone, month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
     const typeLabel = c.isInternal ? '<span style="color:#d97706;font-weight:600">Internal</span>' : '';
     return `<div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #e5e7eb">
       <div style="font-weight:600;font-size:13px">${name} ${typeLabel}</div>
@@ -294,8 +299,6 @@ export async function sendTicketAssignedEmail(db: Database, tenantId: string, ti
       <div style="margin-top:4px;font-size:13px;white-space:pre-wrap">${c.body}</div>
     </div>`;
   }).join('') : '<div style="color:#9ca3af;font-size:13px">No discussion yet.</div>';
-
-  const businessVars = await getBusinessVars(db, tenantId);
 
   const html = `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:600px;margin:0 auto">
     <div style="border-bottom:2px solid #2563eb;padding:16px 0;margin-bottom:24px">

@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { eq, and, count, desc, sql } from 'drizzle-orm';
+import { DEFAULT_TIMEZONE } from '../../common/timezone.js';
 import {
   invoices,
   invoiceLineItems,
@@ -731,7 +732,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
     // Calculate expiry date from JWT
     const jwtPayload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-    const expiresAt = new Date(jwtPayload.exp * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const expiresAt = new Date(jwtPayload.exp * 1000).toLocaleDateString('en-US', { timeZone: tenant?.timezone || DEFAULT_TIMEZONE, year: 'numeric', month: 'long', day: 'numeric' });
 
     const paymentResult = (request.query as Record<string, string>).payment as 'success' | 'cancelled' | undefined;
 

@@ -4,6 +4,7 @@
  */
 import { eq, and, sql, ne, inArray } from 'drizzle-orm';
 import { workflowRules, workflowTicketExecutions, tickets, ticketComments } from '@rivertown/db';
+import { getTenantTimezone, getZonedParts } from '../common/timezone.js';
 
 export function startWorkflowScheduler(db: any) {
   let running = false;
@@ -34,6 +35,22 @@ export function startWorkflowScheduler(db: any) {
           const delayMinutes = Number.isFinite(Number(timeConfig.delayMinutes)) ? Number(timeConfig.delayMinutes) : 0;
           const maxExec = (timeConfig.maxExecutionsPerTicket as number) || 1;
           const trigger = rule.trigger as string;
+
+          // Business-hours/weekend gating — evaluated once per rule (doesn't
+          // depend on ticket data) using the tenant's own timezone, not the
+          // container's (which is UTC, so "8am-5pm" would otherwise mean
+          // 8am-5pm UTC == the middle of the night Eastern).
+          if (timeConfig.businessHoursOnly || timeConfig.excludeWeekends) {
+            const timeZone = await getTenantTimezone(db, rule.tenantId);
+            const zoned = getZonedParts(new Date(), timeZone);
+            const isWeekend = zoned.weekday === 0 || zoned.weekday === 6;
+
+            if (timeConfig.excludeWeekends && isWeekend) continue;
+            if (timeConfig.businessHoursOnly) {
+              if (isWeekend) continue;
+              if (zoned.hour < 8 || zoned.hour >= 17) continue; // outside 8am-5pm tenant-local
+            }
+          }
 
           // Find candidate tickets based on trigger type
           let candidateTickets: any[] = [];
@@ -109,20 +126,6 @@ export function startWorkflowScheduler(db: any) {
                   const sinceLastExec = (Date.now() - new Date(existing.lastExecutedAt).getTime()) / 60000;
                   if (sinceLastExec < repeatInterval) continue;
                 }
-              }
-
-              // Check business hours if required
-              if (timeConfig.businessHoursOnly) {
-                const now = new Date();
-                const hour = now.getHours();
-                const day = now.getDay();
-                if (day === 0 || day === 6) continue; // weekend
-                if (hour < 8 || hour >= 17) continue; // outside 8am-5pm
-              }
-
-              if (timeConfig.excludeWeekends) {
-                const day = new Date().getDay();
-                if (day === 0 || day === 6) continue;
               }
 
               // Evaluate conditions

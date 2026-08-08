@@ -2,6 +2,7 @@ import { eq, and, sql, desc, inArray } from 'drizzle-orm';
 import { tickets, ticketComments, integrationConfigs, customers, contacts, contracts, contractLineItems, invoices, assets, serviceCatalogItems, govOpportunities, govProposals, govComplianceItems, govDocumentLibrary, govDocuments } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import { readCredentials } from '../common/credentials.js';
+import { getTenantTimezone } from '../common/timezone.js';
 
 export interface AIConfig {
   apiKey: string;
@@ -241,9 +242,10 @@ async function gatherDataContext(db: Database, tenantId: string, userMessage: st
     }).from(govOpportunities).where(eq(govOpportunities.tenantId, tenantId)).orderBy(desc(govOpportunities.createdAt)).limit(25);
 
     if (opps.length > 0) {
+      const timeZone = await getTenantTimezone(db, tenantId);
       context.push(`Government Opportunities (${opps.length}):\n${opps.map(o => {
         const val = o.estimatedValue ? `$${(o.estimatedValue / 100).toFixed(2)}` : 'TBD';
-        const deadline = o.submissionDeadline ? new Date(o.submissionDeadline).toLocaleDateString() : 'No deadline';
+        const deadline = o.submissionDeadline ? new Date(o.submissionDeadline).toLocaleDateString('en-US', { timeZone }) : 'No deadline';
         return `- ${o.title} | ${o.agency} [${o.agencyType}] | Status: ${o.status} | Value: ${val} | Set-aside: ${o.setAsideType || 'none'} | Deadline: ${deadline} | Win prob: ${o.winProbability ?? 'N/A'}%${o.samNumber ? ` | SAM#: ${o.samNumber}` : ''}`;
       }).join('\n')}`);
 

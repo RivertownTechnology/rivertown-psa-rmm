@@ -25,6 +25,7 @@ import {
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { useTimer } from '@/lib/timer';
 import { useToast } from '@/lib/toast';
+import { useLiveTicketEvents } from '@/lib/live-events';
 import { TICKET_STATUS_COLORS, PRIORITY_COLORS, statusBadgeClass } from '@/lib/badge-colors';
 
 // ---------------------------------------------------------------------------
@@ -468,7 +469,9 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
     }
     init();
 
-    // Poll ticket data every 30 seconds for real updates (comments, status changes)
+    // Fallback poll in case the live WebSocket connection is down or
+    // reconnecting — the socket below is what makes updates appear
+    // immediately; this just guarantees we're never more than 30s stale.
     const dataInterval = setInterval(() => {
       loadTicket();
       loadComments();
@@ -479,6 +482,19 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
       clearInterval(dataInterval);
     };
   }, [loadTicket, loadComments, loadTimeEntries, loadCustomFields, loadExpenses, loadCustomerName, loadContracts, loadContacts, loadAssets, loadAllCustomers]);
+
+  // Live updates — refetch immediately when the server broadcasts a change
+  // to this ticket (new comment, status/assignment change) instead of
+  // waiting on the 30s fallback poll above.
+  useLiveTicketEvents(useCallback((evt) => {
+    if (evt.ticketId !== ticketId) return;
+    if (evt.type === 'ticket.comment.created') {
+      loadComments();
+    } else if (evt.type === 'ticket.updated') {
+      loadTicket();
+      loadTimeEntries();
+    }
+  }, [ticketId, loadComments, loadTicket, loadTimeEntries]));
 
   // -------------------------------------------------------------------------
   // Ticket field updates

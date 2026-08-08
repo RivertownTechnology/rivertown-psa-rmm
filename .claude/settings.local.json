@@ -148,7 +148,11 @@
       "Bash(python3 -c ' *)",
       "Bash(xargs -I{} sh -c 'echo ==={}===; cat {}')",
       "Bash(awk \"/fastify\\\\.\\(get|post\\)\\\\\\(/{getline; print NR\\\\\": \\\\\"\\\\$0}\" apps/api/src/auth/google.ts)",
-      "Bash(gh run *)"
+      "Bash(gh run *)",
+      "Bash(awk 'NR>=650 && NR<=735 {print NR\": \"$0}' src/modules/invoices/routes.ts)",
+      "Bash(brew list *)",
+      "Bash(brew services *)",
+      "Bash(nginx -v)"
     ]
   }
 }

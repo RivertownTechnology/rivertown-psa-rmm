@@ -9,7 +9,7 @@ const TEST_TENANT_ID = randomUUID();
 
 /**
  * Mock db supporting only the chains device-token routes use:
- *   insert(deviceTokens).values(...).onConflictDoUpdate(...)
+ *   insert(deviceTokens).values(...).onConflictDoUpdate(...).returning()
  *   delete(deviceTokens).where(...)
  */
 function createMockDb() {
@@ -18,10 +18,12 @@ function createMockDb() {
 
   const db = {
     insert: (_table: unknown) => ({
-      values: (vals: unknown) => ({
+      values: (vals: any) => ({
         onConflictDoUpdate: (opts: unknown) => {
           upserts.push({ values: vals, conflict: opts });
-          return Promise.resolve();
+          return {
+            returning: () => Promise.resolve([{ id: randomUUID(), token: vals.token }]),
+          };
         },
       }),
     }),
@@ -58,7 +60,7 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /api/v1/notifications/devices', () => {
-  it('upserts a device token for the authenticated user and returns 204', async () => {
+  it('upserts a device token for the authenticated user and returns 200', async () => {
     const res = await authRequest(
       app,
       {
@@ -74,7 +76,8 @@ describe('POST /api/v1/notifications/devices', () => {
       { sub: TEST_USER_ID, tid: TEST_TENANT_ID },
     );
 
-    expect(res.statusCode).toBe(204);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ token: 'apns-device-token-abc123' });
     expect(mock.upserts).toHaveLength(1);
     const [{ values, conflict }] = mock.upserts;
     expect(values).toMatchObject({
@@ -109,7 +112,7 @@ describe('POST /api/v1/notifications/devices', () => {
       { sub: otherUserId, tid: TEST_TENANT_ID },
     );
 
-    expect(res.statusCode).toBe(204);
+    expect(res.statusCode).toBe(200);
     const last = mock.upserts[mock.upserts.length - 1];
     expect(last.conflict.set.userId).toBe(otherUserId);
   });

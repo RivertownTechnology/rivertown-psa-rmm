@@ -1,6 +1,8 @@
 import { eq, and, lte } from 'drizzle-orm';
-import { tenants, tickets, tenantSequences, recurringTicketRules } from '@rivertown/db';
+import { tickets, tenantSequences, recurringTicketRules } from '@rivertown/db';
 import { sql } from 'drizzle-orm';
+import { getTenantTimezone } from '../common/timezone.js';
+import { calculateNextRecurringRun } from '../common/recurrence.js';
 
 export function startRecurringTicketScheduler(db: any) {
   let running = false;
@@ -38,7 +40,8 @@ export function startRecurringTicketScheduler(db: any) {
           const ticketNumber = parseInt(seqResult.value, 10);
 
           // First: update nextRunAt to prevent duplicate runs
-          const nextRunAt = calculateNextRun(rule.frequency, rule.dayOfWeek, rule.dayOfMonth);
+          const timeZone = await getTenantTimezone(db, rule.tenantId);
+          const nextRunAt = calculateNextRecurringRun(rule.frequency, rule.dayOfWeek, rule.dayOfMonth, timeZone, now);
           await db.update(recurringTicketRules).set({
             lastRunAt: now,
             nextRunAt,
@@ -80,40 +83,4 @@ export function startRecurringTicketScheduler(db: any) {
       running = false;
     }
   }, 60_000);
-}
-
-function calculateNextRun(frequency: string, dayOfWeek?: number | null, dayOfMonth?: number | null): Date {
-  const now = new Date();
-  switch (frequency) {
-    case 'daily': {
-      const next = new Date(now);
-      next.setDate(next.getDate() + 1);
-      next.setHours(8, 0, 0, 0);
-      return next;
-    }
-    case 'weekly': {
-      const next = new Date(now);
-      const targetDay = dayOfWeek ?? 1; // Default Monday
-      const currentDay = next.getDay();
-      let daysUntil = targetDay - currentDay;
-      if (daysUntil <= 0) daysUntil += 7;
-      next.setDate(next.getDate() + daysUntil);
-      next.setHours(8, 0, 0, 0);
-      return next;
-    }
-    case 'monthly': {
-      const next = new Date(now);
-      const targetDay = dayOfMonth ?? 1;
-      next.setMonth(next.getMonth() + 1);
-      next.setDate(Math.min(targetDay, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
-      next.setHours(8, 0, 0, 0);
-      return next;
-    }
-    default: {
-      const next = new Date(now);
-      next.setDate(next.getDate() + 1);
-      next.setHours(8, 0, 0, 0);
-      return next;
-    }
-  }
 }
