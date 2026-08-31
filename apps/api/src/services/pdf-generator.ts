@@ -51,13 +51,17 @@ export async function htmlToPdf(html: string, opts: PdfOptions = {}): Promise<Bu
   const browser = await puppeteer.launch({
     executablePath: browserPath,
     headless: true,
+    // Set PDF_DEBUG=1 to pipe Chromium's own stderr into the container logs.
+    dumpio: process.env.PDF_DEBUG === '1',
     args: [
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      // --no-sandbox is required in the Alpine container; --single-process
-      // breaks Chrome on Windows, so both are Linux-only.
+      // --no-sandbox/--no-zygote are required in the Alpine container but
+      // break desktop Chrome on Windows, so they're Linux-only. Never add
+      // --single-process: it crashes modern Chromium (Target closed errors),
+      // especially on ARM64.
       ...(process.platform !== 'win32'
-        ? ['--no-sandbox', '--disable-setuid-sandbox', '--single-process']
+        ? ['--no-sandbox', '--disable-setuid-sandbox', '--no-zygote']
         : []),
     ],
   });
