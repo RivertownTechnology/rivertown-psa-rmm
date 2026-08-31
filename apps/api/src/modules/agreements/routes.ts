@@ -1,10 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { eq, and, desc } from 'drizzle-orm';
-import { agreements, documentSignatures, tenants } from '@rivertown/db';
+import { agreements, documentSignatures, signatureDocuments, tenants } from '@rivertown/db';
 import { sendQuoteSchema, publicSignSchema, publicDeclineSchema } from '@rivertown/shared';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError } from '../../common/errors.js';
 import { logAudit } from '../../common/audit.js';
+import { clientIp } from '../../common/client-ip.js';
 
 export async function agreementRoutes(fastify: FastifyInstance) {
   // List agreements (filter by customerId / quoteId / status)
@@ -30,7 +31,54 @@ export async function agreementRoutes(fastify: FastifyInstance) {
         eq(documentSignatures.entityType, 'msa'),
         eq(documentSignatures.entityId, id),
       )).orderBy(desc(documentSignatures.createdAt)).limit(1);
-    return { ...agreement, signature: signature ?? null };
+    let hasIdDocument = false;
+    if (signature) {
+      const [doc] = await fastify.db.select({ id: signatureDocuments.id }).from(signatureDocuments)
+        .where(eq(signatureDocuments.signatureId, signature.id)).limit(1);
+      hasIdDocument = Boolean(doc);
+    }
+    return { ...agreement, signature: signature ?? null, hasIdDocument };
+  });
+
+  // Photo ID captured during signing — staff view (preview-token gated so the
+  // browser can open it directly). Views are audit-logged.
+  fastify.get('/api/v1/agreements/:id/id-document', {
+    config: { public: true } as any,
+  }, async (request, reply) => {
+    const token = (request.query as Record<string, string>).token;
+    const { id } = request.params as { id: string };
+    if (!token) { reply.code(401).send({ error: 'Token required' }); return; }
+    let viewerSub = '';
+    try {
+      const payload = fastify.jwt.verify<{ sub: string; tid: string; type: string; resource?: string }>(token);
+      if (payload.type !== 'preview' || payload.resource !== `agreement:${id}`) { reply.code(401).send({ error: 'Invalid token' }); return; }
+      (request as any).tenantId = payload.tid;
+      viewerSub = payload.sub;
+    } catch { reply.code(401).send({ error: 'Invalid or expired token' }); return; }
+
+    const [sig] = await fastify.db.select().from(documentSignatures)
+      .where(and(
+        eq(documentSignatures.tenantId, request.tenantId),
+        eq(documentSignatures.entityType, 'msa'),
+        eq(documentSignatures.entityId, id),
+      )).orderBy(desc(documentSignatures.createdAt)).limit(1);
+    if (!sig) return reply.code(404).send({ error: 'Not found' });
+
+    const [doc] = await fastify.db.select().from(signatureDocuments)
+      .where(eq(signatureDocuments.signatureId, sig.id))
+      .orderBy(desc(signatureDocuments.createdAt)).limit(1);
+    if (!doc) return reply.code(404).send({ error: 'Not found' });
+
+    await logAudit(fastify.db, {
+      tenantId: request.tenantId, actorType: 'user', actorId: viewerSub,
+      action: 'agreement.id_document_viewed', entityType: 'agreement', entityId: id, ipAddress: request.ip,
+    });
+
+    reply
+      .type(doc.mimeType)
+      .header('Content-Disposition', `inline; filename="${doc.fileName.replace(/[^\w .-]/g, '')}"`)
+      .header('Cache-Control', 'no-store')
+      .send(Buffer.from(doc.dataBase64, 'base64'));
   });
 
   // Resend the signing link
@@ -102,7 +150,13 @@ export async function agreementRoutes(fastify: FastifyInstance) {
       )).orderBy(desc(documentSignatures.signedAt)).limit(1);
 
     const { buildAgreementPdf, signatureBlockFromRow } = await import('../../services/quote-signing.js');
-    const pdf = await buildAgreementPdf(fastify.db, request.tenantId, agreement, sig ? signatureBlockFromRow(sig) : undefined);
+    let sigBlock;
+    if (sig) {
+      const [idDoc] = await fastify.db.select({ id: signatureDocuments.id }).from(signatureDocuments)
+        .where(eq(signatureDocuments.signatureId, sig.id)).limit(1);
+      sigBlock = { ...signatureBlockFromRow(sig), idOnFile: Boolean(idDoc) };
+    }
+    const pdf = await buildAgreementPdf(fastify.db, request.tenantId, agreement, sigBlock);
     reply
       .type('application/pdf')
       .header('Content-Disposition', `inline; filename="${agreement.title.replace(/[^\w -]/g, '')}${sig ? '-Signed' : ''}.pdf"`)
@@ -166,8 +220,57 @@ export async function agreementRoutes(fastify: FastifyInstance) {
       declineEndpoint: `${base}/decline`,
       signedName: sig.signerName ?? undefined,
       successMessage: 'Your agreement has been signed. A copy will be emailed to you for your records — welcome aboard!',
+      idCapture: { uploadEndpoint: `${base}/id-upload` },
     });
     reply.type('text/html').send(html);
+  });
+
+  // Photo ID upload from the signing page (JSON base64; images are downscaled
+  // client-side to ~1600px JPEG before upload)
+  fastify.post('/api/public/sign/agreement/:token/id-upload', {
+    config: publicRateLimit,
+    bodyLimit: 12 * 1024 * 1024,
+  }, async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const body = request.body as { fileName?: string; mimeType?: string; dataBase64?: string };
+    const ctx = await loadAgreementSignatureContext(fastify.db, token);
+    if (!ctx) return reply.code(404).send({ error: 'Not found' });
+    const { sig, agreement } = ctx;
+
+    if (!['pending', 'viewed'].includes(sig.status) || !['sent', 'viewed'].includes(agreement.status)) {
+      return reply.code(409).send({ error: 'INVALID_STATUS', message: 'This agreement can no longer be signed from this link.' });
+    }
+    const mimeType = body.mimeType ?? '';
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+      return reply.code(400).send({ error: 'INVALID_TYPE', message: 'Please upload a JPEG, PNG, or WebP image.' });
+    }
+    const dataBase64 = (body.dataBase64 ?? '').replace(/\s/g, '');
+    if (!dataBase64 || !/^[A-Za-z0-9+/=]+$/.test(dataBase64)) {
+      return reply.code(400).send({ error: 'INVALID_DATA', message: 'Image data is missing or malformed.' });
+    }
+    const fileSize = Math.floor(dataBase64.length * 3 / 4);
+    if (fileSize > 8 * 1024 * 1024) {
+      return reply.code(400).send({ error: 'TOO_LARGE', message: 'Image is too large — please try again.' });
+    }
+
+    // One active ID per signature request: replace any prior upload
+    await fastify.db.delete(signatureDocuments).where(eq(signatureDocuments.signatureId, sig.id));
+    await fastify.db.insert(signatureDocuments).values({
+      tenantId: sig.tenantId,
+      signatureId: sig.id,
+      docType: 'photo_id',
+      fileName: (body.fileName ?? 'photo-id.jpg').replace(/[^\w .-]/g, '').slice(0, 100) || 'photo-id.jpg',
+      mimeType,
+      fileSize,
+      dataBase64,
+    });
+
+    await logAudit(fastify.db, {
+      tenantId: sig.tenantId, actorType: 'public_signer', actorId: sig.id,
+      action: 'agreement.id_document_uploaded', entityType: 'agreement', entityId: agreement.id, ipAddress: clientIp(request),
+    });
+
+    return { success: true };
   });
 
   fastify.post('/api/public/sign/agreement/:token', { config: publicRateLimit }, async (request, reply) => {
@@ -184,12 +287,19 @@ export async function agreementRoutes(fastify: FastifyInstance) {
       return reply.code(410).send({ error: 'EXPIRED', message: 'This link has expired. Please request a new one.' });
     }
 
+    // Photo ID must be attached before the agreement can be signed
+    const [idDoc] = await fastify.db.select({ id: signatureDocuments.id }).from(signatureDocuments)
+      .where(eq(signatureDocuments.signatureId, sig.id)).limit(1);
+    if (!idDoc) {
+      return reply.code(400).send({ error: 'ID_REQUIRED', message: 'Please attach a photo of your ID before signing.' });
+    }
+
     const { completeMsaSignature } = await import('../../services/quote-signing.js');
     await completeMsaSignature(fastify.db, sig.tenantId, agreement, sig.id, {
       signerName: body.signerName,
       signerEmail: body.signerEmail,
       signerPhone: body.signerPhone,
-      ip: request.ip,
+      ip: clientIp(request),
       forwardedFor: (request.headers['x-forwarded-for'] as string) ?? undefined,
       userAgent: (request.headers['user-agent'] as string) ?? undefined,
     }, sig.recipientEmail);
@@ -212,7 +322,7 @@ export async function agreementRoutes(fastify: FastifyInstance) {
     await fastify.db.transaction(async (tx) => {
       await tx.update(documentSignatures).set({
         status: 'declined', declinedAt: now, declineReason: body.reason ?? null,
-        ipAddress: request.ip,
+        ipAddress: clientIp(request),
         forwardedFor: (request.headers['x-forwarded-for'] as string) ?? null,
         userAgent: (request.headers['user-agent'] as string) ?? null,
         updatedAt: now,

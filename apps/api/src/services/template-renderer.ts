@@ -449,6 +449,7 @@ export interface QuoteSignatureBlock {
   signedAt: string; // pre-formatted UTC timestamp
   signerEmail?: string;
   signerPhone?: string;
+  idOnFile?: boolean; // photo ID captured during signing (stored separately, never embedded)
 }
 
 function bsSignatureCertificate(sig: QuoteSignatureBlock, docRef: string): string {
@@ -458,7 +459,7 @@ function bsSignatureCertificate(sig: QuoteSignatureBlock, docRef: string): strin
     <div style="font-size:26px;font-weight:600;font-style:italic;margin-bottom:6px">${escapeHtml(sig.signerName)}</div>
     <div style="font-size:12px;line-height:1.7;color:${BS.neutral700}">
       Signed electronically by typed-name signature · ${escapeHtml(sig.signedAt)}<br>
-      ${contact ? `${contact}<br>` : ''}IP address (as reported): ${escapeHtml(sig.ipAddress)} · Document: ${escapeHtml(docRef)}
+      ${contact ? `${contact}<br>` : ''}IP address (as reported): ${escapeHtml(sig.ipAddress)} · Document: ${escapeHtml(docRef)}${sig.idOnFile ? `<br>Photo ID captured and held on file for verification` : ''}
     </div>
   </section>`;
 }
@@ -509,7 +510,8 @@ ${BS_FONT_LINK}
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   @page { size: letter; margin: 0; }
-  html, body { background:${BS.bg}; }
+  /* White ground — the design's paper-gray tint reads as a scanned copy in PDF */
+  html, body { background:#ffffff; }
   body { font-family:${BS.font}; color:${BS.text}; font-size:14px; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   h1, h2 { font-weight:600; }
   table { width:100%; border-collapse:collapse; }
@@ -609,6 +611,8 @@ export function generateSignPage(data: {
   declineEndpoint: string;   // absolute URL for POST decline
   signedName?: string;       // when state === 'signed'
   successMessage: string;    // shown after successful signing
+  // When set, a photo-ID capture step (camera or upload) is required before signing
+  idCapture?: { uploadEndpoint: string };
 }): string {
   const d = data;
   if (d.state === 'expired') {
@@ -666,6 +670,26 @@ export function generateSignPage(data: {
       <input type="email" id="signerEmail" name="signerEmail" required autocomplete="email" placeholder="you@company.com">
       <label for="signerPhone">Phone number *</label>
       <input type="tel" id="signerPhone" name="signerPhone" required minlength="7" maxlength="30" autocomplete="tel" placeholder="(843) 555-0123">
+      ${d.idCapture ? `
+      <label>Photo ID *</label>
+      <p style="margin:0 0 8px;color:#6b7280;font-size:13px">Take a photo of your government-issued ID (driver's license or similar), or upload an image. It is stored securely for verification and never shared.</p>
+      <div id="idControls" style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" id="idCameraBtn" style="background:#374151;color:#fff;border:none;padding:10px 20px;border-radius:6px;font-weight:600;font-size:14px;cursor:pointer">📷 Take Photo</button>
+        <button type="button" id="idFileBtn" style="background:#fff;color:#374151;border:1px solid #d1d5db;padding:10px 20px;border-radius:6px;font-weight:600;font-size:14px;cursor:pointer">Upload File</button>
+        <input type="file" id="idFileInput" accept="image/*" capture="environment" style="display:none">
+      </div>
+      <div id="camWrap" style="display:none;margin-top:10px">
+        <video id="camVideo" autoplay playsinline style="width:100%;max-width:480px;border-radius:8px;background:#000"></video>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <button type="button" id="camCapture" style="background:#16a34a;color:#fff;border:none;padding:10px 24px;border-radius:6px;font-weight:600;cursor:pointer">Capture</button>
+          <button type="button" id="camCancel" style="background:none;border:1px solid #d1d5db;padding:10px 20px;border-radius:6px;cursor:pointer">Cancel</button>
+        </div>
+      </div>
+      <div id="idPreviewWrap" style="display:none;margin-top:10px">
+        <img id="idPreview" alt="ID preview" style="max-width:280px;border-radius:8px;border:1px solid #d1d5db">
+        <div id="idStatus" style="font-size:13px;margin-top:6px;color:#6b7280"></div>
+      </div>
+      ` : ''}
       <div class="agree-row">
         <input type="checkbox" id="agree" required style="margin-top:2px">
         <label for="agree" style="margin:0;font-weight:400">I agree that typing my name above and clicking &quot;Approve &amp; Sign&quot; constitutes a legal electronic signature, and that I accept the terms of this document. My IP address and the date and time of signing will be recorded.</label>
@@ -693,9 +717,95 @@ export function generateSignPage(data: {
     document.getElementById('declineToggle').addEventListener('click', function() {
       document.getElementById('declineBox').classList.toggle('open');
     });
+
+    // ── Photo ID capture (only present on pages that require it) ──
+    var idRequired = ${d.idCapture ? 'true' : 'false'};
+    var idUploaded = false;
+    var idUploadEndpoint = ${JSON.stringify(d.idCapture?.uploadEndpoint ?? '')};
+    var camStream = null;
+    function stopCam() {
+      if (camStream) { camStream.getTracks().forEach(function(t) { t.stop(); }); camStream = null; }
+      var w = document.getElementById('camWrap');
+      if (w) w.style.display = 'none';
+    }
+    function setIdStatus(msg, ok) {
+      var s = document.getElementById('idStatus');
+      if (s) { s.textContent = msg; s.style.color = ok ? '#16a34a' : '#dc2626'; }
+    }
+    function uploadIdImage(canvas) {
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      var wrap = document.getElementById('idPreviewWrap');
+      document.getElementById('idPreview').src = dataUrl;
+      wrap.style.display = 'block';
+      setIdStatus('Uploading…', true);
+      fetch(idUploadEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: 'photo-id.jpg',
+          mimeType: 'image/jpeg',
+          dataBase64: dataUrl.split(',')[1],
+        }),
+      }).then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
+        .then(function(res) {
+          if (res.ok) { idUploaded = true; setIdStatus('✓ ID attached', true); }
+          else { setIdStatus((res.body && res.body.message) || 'Upload failed — please try again.', false); }
+        }).catch(function() { setIdStatus('Upload failed — please try again.', false); });
+    }
+    function downscaleToCanvas(source, w, h) {
+      var max = 1600;
+      var scale = Math.min(1, max / Math.max(w, h));
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+      return canvas;
+    }
+    var camBtn = document.getElementById('idCameraBtn');
+    if (camBtn) {
+      camBtn.addEventListener('click', function() {
+        var video = document.getElementById('camVideo');
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 } } })
+          .then(function(stream) {
+            camStream = stream;
+            video.srcObject = stream;
+            document.getElementById('camWrap').style.display = 'block';
+          })
+          .catch(function() {
+            // No camera / permission denied — fall back to the file picker
+            document.getElementById('idFileInput').click();
+          });
+      });
+      document.getElementById('camCapture').addEventListener('click', function() {
+        var video = document.getElementById('camVideo');
+        if (!video.videoWidth) return;
+        var canvas = downscaleToCanvas(video, video.videoWidth, video.videoHeight);
+        stopCam();
+        uploadIdImage(canvas);
+      });
+      document.getElementById('camCancel').addEventListener('click', stopCam);
+      document.getElementById('idFileBtn').addEventListener('click', function() {
+        document.getElementById('idFileInput').click();
+      });
+      document.getElementById('idFileInput').addEventListener('change', function(e) {
+        var file = e.target.files && e.target.files[0];
+        if (!file) return;
+        var img = new Image();
+        img.onload = function() {
+          uploadIdImage(downscaleToCanvas(img, img.naturalWidth, img.naturalHeight));
+          URL.revokeObjectURL(img.src);
+        };
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
     form.addEventListener('submit', function(e) {
       e.preventDefault();
       errEl.style.display = 'none';
+      if (idRequired && !idUploaded) {
+        showError('Please attach a photo of your ID before signing.');
+        return;
+      }
       var btn = document.getElementById('approveBtn');
       btn.disabled = true; btn.textContent = 'Signing…';
       fetch(${JSON.stringify(d.signEndpoint)}, {
@@ -800,7 +910,9 @@ ${BS_FONT_LINK}
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   @page { size: letter; margin: 0.55in 0; }
-  html, body { background:${BS.bg}; }
+  /* White ground — a tinted body against unpainted @page margins looks like a
+     scan (gray text ground with white bands at header/footer) */
+  html, body { background:#ffffff; }
   body { font-family:${BS.font}; color:${BS.text}; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   .page { width:8.5in; padding:0 0.85in; }
   .content h2 { font-size:17px; font-weight:600; margin:22px 0 8px; }

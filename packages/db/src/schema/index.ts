@@ -38,3 +38,4 @@ export * from './compliance.js';
 export * from './device-tokens.js';
 export * from './document-signatures.js';
 export * from './agreements.js';
+export * from './signature-documents.js';

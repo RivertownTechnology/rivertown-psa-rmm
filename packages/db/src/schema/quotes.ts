@@ -52,6 +52,10 @@ export const quoteLineItems = pgTable(
     description: text('description').notNull(),
     itemType: text('item_type').notNull(),
     unitPriceCents: integer('unit_price_cents').notNull(),
+    // Internal-only: cost snapshot from the service catalog for margin
+    // visibility in the staff UI. Never rendered on customer-facing documents.
+    unitCostCents: integer('unit_cost_cents'),
+    catalogItemId: uuid('catalog_item_id'),
     quantity: numeric('quantity').default('1'),
     sortOrder: integer('sort_order').default(0),
     taxable: boolean('taxable').default(true).notNull(),

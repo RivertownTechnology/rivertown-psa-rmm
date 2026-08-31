@@ -364,6 +364,7 @@ export async function completeMsaSignature(
       signerPhone: signer.signerPhone,
       ipAddress: signer.ip,
       signedAt: formatSignedAt(now),
+      idOnFile: true, // ID upload is enforced before MSA signing
     });
   } catch (err) {
     console.error('[SIGNING] Signed agreement PDF generation failed:', err);

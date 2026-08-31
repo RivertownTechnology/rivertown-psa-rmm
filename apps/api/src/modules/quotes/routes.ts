@@ -20,6 +20,7 @@ import { recalcInvoiceTotals } from '../invoices/routes.js';
 import { NotFoundError } from '../../common/errors.js';
 import { paginationToOffset, paginate } from '../../common/pagination.js';
 import { logAudit } from '../../common/audit.js';
+import { clientIp } from '../../common/client-ip.js';
 
 async function getNextQuoteNumber(db: any, tenantId: string): Promise<number> {
   const [result] = await db
@@ -170,7 +171,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
   // Add line item
   fastify.post('/api/v1/quotes/:id/line-items', { preHandler: [fastify.authenticate, requirePermission('quotes:write')] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = request.body as { description: string; itemType: string; unitPriceCents: number; quantity?: string; taxable?: boolean };
+    const body = request.body as { description: string; itemType: string; unitPriceCents: number; unitCostCents?: number | null; catalogItemId?: string | null; quantity?: string; taxable?: boolean };
     const qty = parseFloat(body.quantity ?? '1');
 
     // Verify the parent quote belongs to this tenant before attaching a line item
@@ -184,6 +185,8 @@ export async function quoteRoutes(fastify: FastifyInstance) {
       description: body.description,
       itemType: body.itemType,
       unitPriceCents: body.unitPriceCents,
+      unitCostCents: body.unitCostCents ?? null,
+      catalogItemId: body.catalogItemId ?? null,
       quantity: body.quantity ?? '1',
       taxable: body.taxable ?? true,
     }).returning();
@@ -192,6 +195,36 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     await recalcQuoteTotals(fastify.db, id, request.tenantId);
 
     reply.code(201);
+    return item;
+  });
+
+  // Update line item (inline qty/price edits from the quote screen)
+  fastify.patch('/api/v1/quotes/:id/line-items/:lineId', { preHandler: [fastify.authenticate, requirePermission('quotes:write')] }, async (request) => {
+    const { id, lineId } = request.params as { id: string; lineId: string };
+    const body = request.body as { description?: string; quantity?: string; unitPriceCents?: number; unitCostCents?: number | null; taxable?: boolean };
+
+    const [existing] = await fastify.db.select().from(quoteLineItems)
+      .where(and(eq(quoteLineItems.id, lineId), eq(quoteLineItems.quoteId, id), eq(quoteLineItems.tenantId, request.tenantId))).limit(1);
+    if (!existing) throw new NotFoundError('Line item', lineId);
+
+    const update: Record<string, unknown> = { updatedAt: new Date() };
+    if (body.description !== undefined) update.description = body.description;
+    if (body.quantity !== undefined) {
+      const qty = parseFloat(body.quantity);
+      if (!Number.isFinite(qty) || qty <= 0) throw new Error('Quantity must be a positive number');
+      update.quantity = body.quantity;
+    }
+    if (body.unitPriceCents !== undefined) {
+      if (!Number.isInteger(body.unitPriceCents) || body.unitPriceCents < 0) throw new Error('Unit price must be a non-negative amount');
+      update.unitPriceCents = body.unitPriceCents;
+    }
+    if (body.unitCostCents !== undefined) update.unitCostCents = body.unitCostCents;
+    if (body.taxable !== undefined) update.taxable = body.taxable;
+
+    const [item] = await fastify.db.update(quoteLineItems).set(update)
+      .where(and(eq(quoteLineItems.id, lineId), eq(quoteLineItems.tenantId, request.tenantId))).returning();
+
+    await recalcQuoteTotals(fastify.db, id, request.tenantId);
     return item;
   });
 
@@ -399,7 +432,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
       signerName: body.signerName,
       signerEmail: body.signerEmail,
       signerPhone: body.signerPhone,
-      ip: request.ip,
+      ip: clientIp(request),
       forwardedFor: (request.headers['x-forwarded-for'] as string) ?? undefined,
       userAgent: (request.headers['user-agent'] as string) ?? undefined,
     };
@@ -426,7 +459,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     const { declineQuoteSignature } = await import('../../services/quote-signing.js');
     await declineQuoteSignature(fastify.db, sig.tenantId, quote.id, sig.id, {
       reason: body.reason,
-      ip: request.ip,
+      ip: clientIp(request),
       forwardedFor: (request.headers['x-forwarded-for'] as string) ?? undefined,
       userAgent: (request.headers['user-agent'] as string) ?? undefined,
     });

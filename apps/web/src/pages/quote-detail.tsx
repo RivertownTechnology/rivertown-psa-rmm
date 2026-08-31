@@ -45,6 +45,8 @@ interface QuoteLineItem {
   description: string;
   itemType: string;
   unitPriceCents: number;
+  unitCostCents: number | null;
+  catalogItemId: string | null;
   quantity: string | null;
   sortOrder: number;
   taxable: boolean;
@@ -80,6 +82,7 @@ interface Agreement {
   status: string;
   sentAt: string | null;
   signedAt: string | null;
+  hasIdDocument?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,9 +147,13 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
     description: '',
     itemType: 'recurring',
     unitPriceCents: '',
+    unitCostCents: '',
     quantity: '1',
     taxable: false,
   });
+
+  // Inline qty/price drafts, keyed by line item id
+  const [lineEdits, setLineEdits] = useState<Record<string, { quantity: string; unitPrice: string }>>({});
 
   // Catalog picker
   const [showCatalog, setShowCatalog] = useState(false);
@@ -177,6 +184,10 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
   const loadLineItems = useCallback(async () => {
     const items = await api<QuoteLineItem[]>(`/quotes/${quoteId}/line-items`);
     setLineItems(items);
+    setLineEdits(Object.fromEntries(items.map(i => [i.id, {
+      quantity: String(parseFloat(i.quantity ?? '1')),
+      unitPrice: (i.unitPriceCents / 100).toFixed(2),
+    }])));
   }, [quoteId]);
 
   const loadSignature = useCallback(async () => {
@@ -186,7 +197,13 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
     } catch { /* */ }
     try {
       const agreements = await api<Agreement[]>(`/agreements?quoteId=${quoteId}`);
-      setAgreement(agreements[0] ?? null);
+      if (agreements[0]) {
+        // Detail call adds signature + hasIdDocument
+        const detail = await api<Agreement>(`/agreements/${agreements[0].id}`);
+        setAgreement(detail);
+      } else {
+        setAgreement(null);
+      }
     } catch { /* */ }
   }, [quoteId]);
 
@@ -258,12 +275,13 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
           description: itemForm.description,
           itemType: itemForm.itemType,
           unitPriceCents: Math.round(parseFloat(itemForm.unitPriceCents) * 100),
+          unitCostCents: itemForm.unitCostCents ? Math.round(parseFloat(itemForm.unitCostCents) * 100) : null,
           quantity: itemForm.quantity,
           taxable: itemForm.taxable,
         }),
       });
       setShowAddItem(false);
-      setItemForm({ description: '', itemType: 'recurring', unitPriceCents: '', quantity: '1', taxable: false });
+      setItemForm({ description: '', itemType: 'recurring', unitPriceCents: '', unitCostCents: '', quantity: '1', taxable: false });
       await reload();
     } finally { setSaving(false); }
   }
@@ -271,6 +289,42 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
   async function deleteLineItem(lineId: string) {
     await api(`/quotes/${quoteId}/line-items/${lineId}`, { method: 'DELETE' });
     await reload();
+  }
+
+  // Commit an inline qty/price edit when the input loses focus (or Enter)
+  async function commitLineEdit(item: QuoteLineItem) {
+    const draft = lineEdits[item.id];
+    if (!draft) return;
+    const qty = parseFloat(draft.quantity);
+    const price = parseFloat(draft.unitPrice);
+    const priceCents = Math.round(price * 100);
+    const qtyChanged = Number.isFinite(qty) && qty > 0 && qty !== parseFloat(item.quantity ?? '1');
+    const priceChanged = Number.isFinite(price) && price >= 0 && priceCents !== item.unitPriceCents;
+    if (!qtyChanged && !priceChanged) {
+      // Reset any invalid draft back to the saved values
+      setLineEdits(prev => ({ ...prev, [item.id]: {
+        quantity: String(parseFloat(item.quantity ?? '1')),
+        unitPrice: (item.unitPriceCents / 100).toFixed(2),
+      }}));
+      return;
+    }
+    const body: Record<string, unknown> = {};
+    if (qtyChanged) body.quantity = String(qty);
+    if (priceChanged) body.unitPriceCents = priceCents;
+    await api(`/quotes/${quoteId}/line-items/${item.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+    await reload();
+  }
+
+  // Internal-only margin readout — never appears on customer-facing documents
+  function marginInfo(item: QuoteLineItem, draftPrice?: string): { label: string; under: boolean } | null {
+    if (item.unitCostCents == null) return null;
+    const price = draftPrice !== undefined && Number.isFinite(parseFloat(draftPrice))
+      ? Math.round(parseFloat(draftPrice) * 100)
+      : item.unitPriceCents;
+    const cost = item.unitCostCents;
+    if (price <= 0) return { label: `Cost ${formatCents(cost)}`, under: cost > 0 };
+    const margin = Math.round(((price - cost) / price) * 100);
+    return { label: `Cost ${formatCents(cost)} · ${margin}% margin`, under: price < cost };
   }
 
   async function openCatalog() {
@@ -288,6 +342,8 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
           description: item.name,
           itemType: item.itemType,
           unitPriceCents: item.defaultUnitPriceCents,
+          unitCostCents: item.defaultUnitCostCents ?? null,
+          catalogItemId: item.id,
           quantity: catalogQty,
           taxable: false,
         }),
@@ -540,8 +596,46 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
                         {typeLabels[item.itemType] ?? item.itemType.replace(/_/g, ' ')}
                       </Badge>
                     </td>
-                    <td className="p-3 text-right">{parseFloat(item.quantity ?? '1')}</td>
-                    <td className="p-3 text-right">{formatCents(item.unitPriceCents)}</td>
+                    <td className="p-3 text-right">
+                      {isDraft ? (
+                        <Input
+                          type="number"
+                          min="0.01"
+                          step="any"
+                          value={lineEdits[item.id]?.quantity ?? ''}
+                          onChange={e => setLineEdits(prev => ({ ...prev, [item.id]: { ...prev[item.id], quantity: e.target.value } }))}
+                          onBlur={() => commitLineEdit(item)}
+                          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                          className="w-20 h-8 text-right ml-auto"
+                        />
+                      ) : (
+                        parseFloat(item.quantity ?? '1')
+                      )}
+                    </td>
+                    <td className="p-3 text-right">
+                      {isDraft ? (
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={lineEdits[item.id]?.unitPrice ?? ''}
+                          onChange={e => setLineEdits(prev => ({ ...prev, [item.id]: { ...prev[item.id], unitPrice: e.target.value } }))}
+                          onBlur={() => commitLineEdit(item)}
+                          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                          className="w-28 h-8 text-right ml-auto"
+                        />
+                      ) : (
+                        formatCents(item.unitPriceCents)
+                      )}
+                      {(() => {
+                        const m = marginInfo(item, isDraft ? lineEdits[item.id]?.unitPrice : undefined);
+                        return m ? (
+                          <div className={`text-xs mt-1 ${m.under ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
+                            {m.label}{m.under ? ' — below cost' : ''}
+                          </div>
+                        ) : null;
+                      })()}
+                    </td>
                     <td className="p-3 text-right font-medium">{formatCents(lineTotal(item))}</td>
                     {isDraft && (
                       <td className="p-3">
@@ -708,6 +802,14 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
                   }}>
                     <FileText className="h-3 w-3 mr-1" /> View PDF
                   </Button>
+                  {agreement.hasIdDocument && (
+                    <Button size="sm" variant="outline" onClick={async () => {
+                      const { token } = await api<{ token: string }>(`/agreements/${agreement.id}/preview-token`, { method: 'POST' });
+                      window.open(`/api/v1/agreements/${agreement.id}/id-document?token=${token}`, '_blank');
+                    }}>
+                      View ID
+                    </Button>
+                  )}
                 </div>
                 {agreement.status !== 'signed' && (
                   <div className="flex items-center gap-2">
@@ -794,17 +896,28 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
                   onChange={e => setItemForm({ ...itemForm, unitPriceCents: e.target.value })}
                 />
               </div>
-              <div className="flex items-end pb-1">
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={itemForm.taxable}
-                    onChange={e => setItemForm({ ...itemForm, taxable: e.target.checked })}
-                    className="rounded border-input"
-                  />
-                  Taxable
-                </label>
+              <div className="space-y-2">
+                <Label>Unit Cost ($) <span className="text-muted-foreground font-normal">— internal only</span></Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="10.00"
+                  value={itemForm.unitCostCents}
+                  onChange={e => setItemForm({ ...itemForm, unitCostCents: e.target.value })}
+                />
               </div>
+            </div>
+            <div className="flex items-center">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={itemForm.taxable}
+                  onChange={e => setItemForm({ ...itemForm, taxable: e.target.checked })}
+                  className="rounded border-input"
+                />
+                Taxable
+              </label>
             </div>
             {itemForm.unitPriceCents && itemForm.quantity && (
               <div className="bg-muted p-3 rounded-md text-sm">
@@ -856,7 +969,9 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
                       <div>
                         <div className="font-medium text-sm">{item.name}</div>
                         <div className="text-xs text-muted-foreground">
-                          Price: {formatCents(item.defaultUnitPriceCents)} | {item.itemType.replace(/_/g, ' ')}
+                          Price: {formatCents(item.defaultUnitPriceCents)}
+                          {item.defaultUnitCostCents != null && ` | Cost: ${formatCents(item.defaultUnitCostCents)}`}
+                          {' | '}{item.itemType.replace(/_/g, ' ')}
                         </div>
                       </div>
                       <Button size="sm" variant="outline" onClick={() => addFromCatalog(item)} disabled={saving}>
