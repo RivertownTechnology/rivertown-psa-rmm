@@ -195,7 +195,8 @@ export const sendQuoteSchema = z.object({
 // Public e-signature (quote approval / MSA signing)
 export const publicSignSchema = z.object({
   signerName: z.string().min(2).max(200),
-  signerEmail: z.string().email().optional(),
+  signerEmail: z.string().email(),
+  signerPhone: z.string().min(7).max(30),
   agree: z.literal(true),
 });
 

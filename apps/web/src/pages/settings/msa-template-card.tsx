@@ -7,6 +7,7 @@ import { FileSignature, Eye, RotateCcw } from 'lucide-react';
 
 const SAMPLE_VARS: Record<string, string> = {
   customerName: 'Acme Manufacturing, LLC',
+  customerAddress: '456 Commerce Dr, Myrtle Beach, SC 29577',
   businessName: 'Rivertown Technology',
   businessAddress: '123 Main St, Conway, SC 29526',
   businessEmail: 'sales@rivertowntechnology.com',
@@ -22,16 +23,20 @@ export function MsaTemplateCard() {
   const [template, setTemplate] = useState('');
   const [mergeFields, setMergeFields] = useState<string[]>([]);
   const [isCustomized, setIsCustomized] = useState(false);
+  const [signerName, setSignerName] = useState('');
+  const [signerTitle, setSignerTitle] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
   async function load() {
     try {
-      const data = await api<{ msaTemplateHtml: string; isCustomized: boolean; mergeFields: string[] }>('/settings/msa-template');
+      const data = await api<{ msaTemplateHtml: string; isCustomized: boolean; mergeFields: string[]; msaSignerName: string; msaSignerTitle: string }>('/settings/msa-template');
       setTemplate(data.msaTemplateHtml);
       setIsCustomized(data.isCustomized);
       setMergeFields(data.mergeFields);
+      setSignerName(data.msaSignerName);
+      setSignerTitle(data.msaSignerTitle);
     } catch { /* */ }
   }
 
@@ -40,7 +45,10 @@ export function MsaTemplateCard() {
   async function handleSave() {
     setSaving(true); setMessage('');
     try {
-      await api('/settings/msa-template', { method: 'PUT', body: JSON.stringify({ msaTemplateHtml: template }) });
+      await api('/settings/msa-template', {
+        method: 'PUT',
+        body: JSON.stringify({ msaTemplateHtml: template, msaSignerName: signerName, msaSignerTitle: signerTitle }),
+      });
       setMessage('MSA template saved');
       await load();
     } catch (err: unknown) { setMessage(err instanceof Error ? err.message : 'Save failed'); }
@@ -50,7 +58,10 @@ export function MsaTemplateCard() {
   async function handleReset() {
     setSaving(true); setMessage('');
     try {
-      await api('/settings/msa-template', { method: 'PUT', body: JSON.stringify({ msaTemplateHtml: '' }) });
+      await api('/settings/msa-template', {
+        method: 'PUT',
+        body: JSON.stringify({ msaTemplateHtml: '', msaSignerName: signerName, msaSignerTitle: signerTitle }),
+      });
       setMessage('Reset to default template');
       await load();
     } catch (err: unknown) { setMessage(err instanceof Error ? err.message : 'Reset failed'); }
@@ -76,6 +87,28 @@ export function MsaTemplateCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         {message && <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-sm p-3 rounded-md border border-blue-200 dark:border-blue-800">{message}</div>}
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <span className="text-sm font-medium">Countersigner name</span>
+            <input
+              value={signerName}
+              onChange={e => setSignerName(e.target.value)}
+              placeholder="Blake Turner"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1"
+            />
+            <p className="text-xs text-muted-foreground mt-1">Auto-applied as Rivertown's signature when the client signs</p>
+          </div>
+          <div>
+            <span className="text-sm font-medium">Countersigner title</span>
+            <input
+              value={signerTitle}
+              onChange={e => setSignerTitle(e.target.value)}
+              placeholder="Owner"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1"
+            />
+          </div>
+        </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-muted-foreground">Merge fields:</span>

@@ -30,6 +30,7 @@ export type SignatureEntityType = 'quote' | 'msa';
 export interface SignerInfo {
   signerName: string;
   signerEmail?: string;
+  signerPhone?: string;
   ip: string;
   forwardedFor?: string;
   userAgent?: string;
@@ -41,12 +42,26 @@ function formatSignedAt(date: Date): string {
 
 export function signatureBlockFromRow(row: {
   signerName: string | null; ipAddress: string | null; signedAt: Date | null;
+  signerEmail?: string | null; signerPhone?: string | null;
 }): QuoteSignatureBlock {
   return {
     signerName: row.signerName ?? '',
     ipAddress: row.ipAddress ?? '',
     signedAt: row.signedAt ? formatSignedAt(row.signedAt) : '',
+    signerEmail: row.signerEmail ?? undefined,
+    signerPhone: row.signerPhone ?? undefined,
   };
+}
+
+/** MSA number, derived from the source quote (fallback: agreement id fragment). */
+async function getMsaNumber(db: Database, agreement: { id: string; quoteId: string | null; createdAt: Date }): Promise<string> {
+  const year = agreement.createdAt.getFullYear();
+  if (agreement.quoteId) {
+    const [quote] = await db.select({ quoteNumber: quotes.quoteNumber }).from(quotes)
+      .where(eq(quotes.id, agreement.quoteId)).limit(1);
+    if (quote) return `MSA-${year}-${String(quote.quoteNumber).padStart(3, '0')}`;
+  }
+  return `MSA-${year}-${agreement.id.slice(0, 6).toUpperCase()}`;
 }
 
 /**
@@ -125,6 +140,7 @@ export async function completeQuoteSignature(
       status: 'signed',
       signerName: signer.signerName,
       signerEmail: signer.signerEmail ?? null,
+      signerPhone: signer.signerPhone ?? null,
       ipAddress: signer.ip,
       forwardedFor: signer.forwardedFor ?? null,
       userAgent: signer.userAgent ?? null,
@@ -219,9 +235,15 @@ export async function createAndSendMsa(
   const s = await getBusinessSettings(db, tenantId);
   const template = s.msaTemplateHtml || getDefaultMsaTemplate();
   const effectiveDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const customerAddress = [
+    customer.address,
+    [customer.city, customer.state].filter(Boolean).join(', '),
+    customer.zip,
+  ].filter(Boolean).join(', ') || 'the address on file';
 
   const contentHtml = renderTemplate(template, {
     customerName: escapeHtml(customer.name),
+    customerAddress: escapeHtml(customerAddress),
     businessName: escapeHtml(s.businessName || s.tenantName || ''),
     businessAddress: escapeHtml(s.businessAddress || ''),
     businessEmail: escapeHtml(s.businessEmail || ''),
@@ -234,7 +256,7 @@ export async function createAndSendMsa(
     customerId: quote.customerId,
     quoteId: quote.id,
     agreementType: 'msa',
-    title: 'Master Service Agreement',
+    title: 'Master Services Agreement',
     contentHtml,
     status: 'sent',
     effectiveDate: new Date().toISOString().split('T')[0],
@@ -259,24 +281,38 @@ export async function resendAgreement(
     .where(and(eq(agreements.id, agreementId), eq(agreements.tenantId, tenantId)));
 }
 
-/** Renders the signed (or unsigned) agreement PDF. */
+/**
+ * Renders the agreement PDF. When the client has signed, Rivertown's
+ * countersignature is auto-applied from the msaSignerName/msaSignerTitle
+ * settings (dated the same moment).
+ */
 export async function buildAgreementPdf(
-  db: Database, tenantId: string, agreement: { title: string; contentHtml: string; customerId: string },
-  signature?: QuoteSignatureBlock,
+  db: Database, tenantId: string,
+  agreement: { id: string; title: string; contentHtml: string; customerId: string; quoteId: string | null; createdAt: Date },
+  clientSignature?: QuoteSignatureBlock,
 ): Promise<Buffer> {
   const s = await getBusinessSettings(db, tenantId);
   const [customer] = await db.select().from(customers)
     .where(and(eq(customers.id, agreement.customerId), eq(customers.tenantId, tenantId))).limit(1);
+  const msaNumber = await getMsaNumber(db, agreement);
   const html = generateAgreementPdfHtml({
     title: agreement.title,
+    msaNumber,
     contentHtml: agreement.contentHtml,
     businessName: s.businessName || s.tenantName || '',
     businessPhone: s.businessPhone || '',
     businessEmail: s.businessEmail || '',
     businessCity: s.businessCity || undefined,
     businessState: s.businessState || undefined,
-    signature,
-    docRef: `${agreement.title} — ${customer?.name ?? ''}`,
+    businessWebsite: s.businessWebsite || undefined,
+    clientName: customer?.name ?? 'Client',
+    providerSigner: clientSignature ? {
+      name: s.msaSignerName || 'Authorized Representative',
+      title: s.msaSignerTitle || 'Owner',
+      signedAt: clientSignature.signedAt,
+    } : undefined,
+    clientSignature,
+    docRef: `${msaNumber} — ${customer?.name ?? ''}`,
   });
   return htmlToPdf(html, { margin: { top: '0', right: '0', bottom: '0', left: '0' } });
 }
@@ -288,7 +324,7 @@ export async function buildAgreementPdf(
  */
 export async function completeMsaSignature(
   db: Database, tenantId: string,
-  agreement: { id: string; title: string; contentHtml: string; customerId: string },
+  agreement: { id: string; title: string; contentHtml: string; customerId: string; quoteId: string | null; createdAt: Date },
   signatureId: string, signer: SignerInfo, recipientEmail: string,
 ): Promise<void> {
   const now = new Date();
@@ -297,6 +333,7 @@ export async function completeMsaSignature(
       status: 'signed',
       signerName: signer.signerName,
       signerEmail: signer.signerEmail ?? null,
+      signerPhone: signer.signerPhone ?? null,
       ipAddress: signer.ip,
       forwardedFor: signer.forwardedFor ?? null,
       userAgent: signer.userAgent ?? null,
@@ -323,6 +360,8 @@ export async function completeMsaSignature(
   try {
     pdfBuffer = await buildAgreementPdf(db, tenantId, agreement, {
       signerName: signer.signerName,
+      signerEmail: signer.signerEmail,
+      signerPhone: signer.signerPhone,
       ipAddress: signer.ip,
       signedAt: formatSignedAt(now),
     });

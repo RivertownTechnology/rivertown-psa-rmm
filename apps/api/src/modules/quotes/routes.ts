@@ -259,6 +259,42 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     return { contactEmail, billingEmail: customer?.billingEmail ?? null };
   });
 
+  // Signed quote PDF (regenerated on demand; includes the signature
+  // certificate when the quote was e-signed). Uses the short-lived preview
+  // token so the browser can open it directly.
+  fastify.get('/api/v1/quotes/:id/signed-pdf', {
+    config: { public: true } as any,
+  }, async (request, reply) => {
+    const token = (request.query as Record<string, string>).token;
+    const { id } = request.params as { id: string };
+    if (!token) { reply.code(401).send({ error: 'Token required' }); return; }
+    try {
+      const payload = fastify.jwt.verify<{ tid: string; type: string; resource?: string }>(token);
+      if (payload.type !== 'preview' || payload.resource !== `quote:${id}`) { reply.code(401).send({ error: 'Invalid token' }); return; }
+      (request as any).tenantId = payload.tid;
+    } catch { reply.code(401).send({ error: 'Invalid or expired token' }); return; }
+
+    const [quote] = await fastify.db.select().from(quotes)
+      .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);
+    if (!quote) throw new NotFoundError('Quote', id);
+
+    const [sig] = await fastify.db.select().from(documentSignatures)
+      .where(and(
+        eq(documentSignatures.tenantId, request.tenantId),
+        eq(documentSignatures.entityType, 'quote'),
+        eq(documentSignatures.entityId, id),
+        eq(documentSignatures.status, 'signed'),
+      )).orderBy(desc(documentSignatures.signedAt)).limit(1);
+
+    const { buildQuotePdf } = await import('../../services/document-email.js');
+    const { signatureBlockFromRow } = await import('../../services/quote-signing.js');
+    const pdf = await buildQuotePdf(fastify.db, request.tenantId, id, sig ? signatureBlockFromRow(sig) : undefined);
+    reply
+      .type('application/pdf')
+      .header('Content-Disposition', `inline; filename="Quote-${quote.quoteNumber}${sig ? '-Signed' : ''}.pdf"`)
+      .send(pdf);
+  });
+
   // Latest signature request for the quote (send history + signed metadata)
   fastify.get('/api/v1/quotes/:id/signature', { preHandler: [fastify.authenticate, requirePermission('quotes:read')] }, async (request) => {
     const { id } = request.params as { id: string };
@@ -362,6 +398,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     const signer = {
       signerName: body.signerName,
       signerEmail: body.signerEmail,
+      signerPhone: body.signerPhone,
       ip: request.ip,
       forwardedFor: (request.headers['x-forwarded-for'] as string) ?? undefined,
       userAgent: (request.headers['user-agent'] as string) ?? undefined,

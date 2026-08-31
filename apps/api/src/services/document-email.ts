@@ -9,7 +9,7 @@ import {
 } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import { sendEmail, sendBillingEmail, sendSalesEmail } from './email.js';
-import { renderTemplate, generateInvoiceHtml, generateQuoteHtml } from './template-renderer.js';
+import { renderTemplate, generateInvoiceHtml, generateQuoteHtml, getDefaultTemplates } from './template-renderer.js';
 import type { QuoteSignatureBlock } from './template-renderer.js';
 import { htmlToPdf } from './pdf-generator.js';
 
@@ -18,9 +18,11 @@ import { htmlToPdf } from './pdf-generator.js';
 async function getBusinessVars(db: Database, tenantId: string): Promise<Record<string, string>> {
   const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
   const s = (tenant?.settings ?? {}) as Record<string, string>;
+  const apiBaseUrl = process.env.API_BASE_URL || 'https://rivertownapi-production.up.railway.app';
   return {
     businessName: s.businessName || tenant?.name || '',
-    businessLogo: s.businessLogo || '',
+    // Fall back to the bundled logo served by the API so emails are always branded
+    businessLogo: s.businessLogo || `${apiBaseUrl}/api/public/branding/logo.png`,
     businessAddress: s.businessAddress || '',
     businessCity: s.businessCity || '',
     businessState: s.businessState || '',
@@ -249,21 +251,16 @@ export async function sendQuoteEmailWithTemplate(
   const ts = (tenant?.settings ?? {}) as Record<string, string>;
   vars.quoteFooter = ts.quoteFooter || '';
 
-  const template = await getTemplate(db, tenantId, 'quote_sent');
+  // Tenant-customized template first, else the branded built-in default.
+  const template = await getTemplate(db, tenantId, 'quote_sent')
+    ?? getDefaultTemplates().find(t => t.templateType === 'quote_sent')!;
 
-  let subject: string, html: string;
-  if (template) {
-    subject = renderTemplate(template.subject, vars);
-    html = renderTemplate(template.bodyHtml, vars);
-    // Older tenant templates predate the approval link — append a button so
-    // the customer can always reach the signing page.
-    if (opts.approveUrl && !template.bodyHtml.includes('approveQuoteUrl')) {
-      html += `<div style="text-align:center;margin:28px 0"><a href="${opts.approveUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Review &amp; Approve Quote</a></div>`;
-    }
-  } else {
-    subject = `Quote #${quote.quoteNumber}: ${quote.title}`;
-    html = `<p>Please find attached Quote #${quote.quoteNumber} for $${formatCents(quote.totalCents)}.</p>
-      <div style="text-align:center;margin:28px 0"><a href="${opts.approveUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Review &amp; Approve Quote</a></div>`;
+  const subject = renderTemplate(template.subject, vars);
+  let html = renderTemplate(template.bodyHtml, vars);
+  // Older tenant templates predate the approval link — append a button so
+  // the customer can always reach the signing page.
+  if (opts.approveUrl && !template.bodyHtml.includes('approveQuoteUrl')) {
+    html += `<div style="text-align:center;margin:28px 0"><a href="${opts.approveUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Review &amp; Approve Quote</a></div>`;
   }
 
   // PDF attachment is required — a quote email without the document is worse
@@ -300,26 +297,31 @@ export async function sendAgreementEmail(
     const [quote] = await db.select().from(quotes).where(eq(quotes.id, agreement.quoteId)).limit(1);
     if (quote) quoteNumber = String(quote.quoteNumber);
   }
+  const msaYear = (agreement.createdAt ?? new Date()).getFullYear();
+  const msaNumber = quoteNumber
+    ? `MSA-${msaYear}-${quoteNumber.padStart(3, '0')}`
+    : `MSA-${msaYear}-${agreement.id.slice(0, 6).toUpperCase()}`;
+  const effectiveDate = agreement.effectiveDate
+    ? new Date(`${agreement.effectiveDate}T12:00:00`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+    : '';
 
   const vars: Record<string, string> = {
     ...await getBusinessVars(db, tenantId),
     ...buildCustomerVars(customer),
     agreementTitle: agreement.title,
     quoteNumber,
+    msaNumber,
+    effectiveDate,
     signAgreementUrl: opts.signUrl,
   };
 
-  const template = await getTemplate(db, tenantId, 'msa_sent');
+  // Tenant-customized template first, else the branded built-in default —
+  // never a bare-text fallback.
+  const template = await getTemplate(db, tenantId, 'msa_sent')
+    ?? getDefaultTemplates().find(t => t.templateType === 'msa_sent')!;
 
-  let subject: string, html: string;
-  if (template) {
-    subject = renderTemplate(template.subject, vars);
-    html = renderTemplate(template.bodyHtml, vars);
-  } else {
-    subject = `${agreement.title} — signature requested`;
-    html = `<p>Thank you for approving your quote! Please review and sign your service agreement:</p>
-      <div style="text-align:center;margin:28px 0"><a href="${opts.signUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Review &amp; Sign Agreement</a></div>`;
-  }
+  const subject = renderTemplate(template.subject, vars);
+  const html = renderTemplate(template.bodyHtml, vars);
 
   const sent = await sendSalesEmail(db, tenantId, { to: opts.to, subject, html });
   if (!sent) throw new Error('Email provider rejected the agreement email — check the Sales Email settings.');
@@ -340,16 +342,11 @@ export async function sendSignedAgreementCopy(
     agreementTitle: agreement.title,
   };
 
-  const template = await getTemplate(db, tenantId, 'msa_signed');
+  const template = await getTemplate(db, tenantId, 'msa_signed')
+    ?? getDefaultTemplates().find(t => t.templateType === 'msa_signed')!;
 
-  let subject: string, html: string;
-  if (template) {
-    subject = renderTemplate(template.subject, vars);
-    html = renderTemplate(template.bodyHtml, vars);
-  } else {
-    subject = `Signed copy of your ${agreement.title}`;
-    html = `<p>Your ${agreement.title} has been signed. A copy is attached for your records. Welcome aboard!</p>`;
-  }
+  const subject = renderTemplate(template.subject, vars);
+  const html = renderTemplate(template.bodyHtml, vars);
 
   const sent = await sendSalesEmail(db, tenantId, {
     to, subject, html,

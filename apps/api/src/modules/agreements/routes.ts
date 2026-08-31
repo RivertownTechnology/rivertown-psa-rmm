@@ -63,6 +63,52 @@ export async function agreementRoutes(fastify: FastifyInstance) {
     return { success: true };
   });
 
+  // Short-lived preview token so the browser can open the PDF directly
+  fastify.post('/api/v1/agreements/:id/preview-token', {
+    preHandler: [fastify.authenticate, requirePermission('quotes:read')],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    const token = fastify.jwt.sign(
+      { sub: request.user.sub, tid: request.tenantId, role: request.user.role, type: 'preview' as const, resource: `agreement:${id}` },
+      { expiresIn: '60s' },
+    );
+    return { token };
+  });
+
+  // Agreement PDF (regenerated on demand; includes both signature blocks —
+  // client typed signature + auto-applied provider countersignature — when signed)
+  fastify.get('/api/v1/agreements/:id/pdf', {
+    config: { public: true } as any,
+  }, async (request, reply) => {
+    const token = (request.query as Record<string, string>).token;
+    const { id } = request.params as { id: string };
+    if (!token) { reply.code(401).send({ error: 'Token required' }); return; }
+    try {
+      const payload = fastify.jwt.verify<{ tid: string; type: string; resource?: string }>(token);
+      if (payload.type !== 'preview' || payload.resource !== `agreement:${id}`) { reply.code(401).send({ error: 'Invalid token' }); return; }
+      (request as any).tenantId = payload.tid;
+    } catch { reply.code(401).send({ error: 'Invalid or expired token' }); return; }
+
+    const [agreement] = await fastify.db.select().from(agreements)
+      .where(and(eq(agreements.id, id), eq(agreements.tenantId, request.tenantId))).limit(1);
+    if (!agreement) throw new NotFoundError('Agreement', id);
+
+    const [sig] = await fastify.db.select().from(documentSignatures)
+      .where(and(
+        eq(documentSignatures.tenantId, request.tenantId),
+        eq(documentSignatures.entityType, 'msa'),
+        eq(documentSignatures.entityId, id),
+        eq(documentSignatures.status, 'signed'),
+      )).orderBy(desc(documentSignatures.signedAt)).limit(1);
+
+    const { buildAgreementPdf, signatureBlockFromRow } = await import('../../services/quote-signing.js');
+    const pdf = await buildAgreementPdf(fastify.db, request.tenantId, agreement, sig ? signatureBlockFromRow(sig) : undefined);
+    reply
+      .type('application/pdf')
+      .header('Content-Disposition', `inline; filename="${agreement.title.replace(/[^\w -]/g, '')}${sig ? '-Signed' : ''}.pdf"`)
+      .send(pdf);
+  });
+
   // ── Public agreement signing (no auth; opaque token) ─────────────
 
   const publicRateLimit = { rateLimit: { max: 20, timeWindow: '1 minute' } } as any;
@@ -142,6 +188,7 @@ export async function agreementRoutes(fastify: FastifyInstance) {
     await completeMsaSignature(fastify.db, sig.tenantId, agreement, sig.id, {
       signerName: body.signerName,
       signerEmail: body.signerEmail,
+      signerPhone: body.signerPhone,
       ip: request.ip,
       forwardedFor: (request.headers['x-forwarded-for'] as string) ?? undefined,
       userAgent: (request.headers['user-agent'] as string) ?? undefined,

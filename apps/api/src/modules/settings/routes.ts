@@ -1212,6 +1212,32 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== PUBLIC BRANDING ASSETS (used in outbound email templates) =====
+
+  const brandingFiles: Record<string, string> = {
+    'logo.png': 'Horizontal_transparent_background.png',
+    'shield.png': 'Small_icon_transparent_background.png',
+    'stacked.png': 'Large_transparent_background_1.png',
+  };
+
+  fastify.get('/api/public/branding/:file', {
+    config: { public: true } as any,
+  }, async (request, reply) => {
+    const { file } = request.params as { file: string };
+    const mapped = brandingFiles[file];
+    if (!mapped) return reply.code(404).send({ error: 'Not found' });
+    const { readFileSync } = await import('fs');
+    const { fileURLToPath } = await import('url');
+    const path = await import('path');
+    try {
+      const dir = path.dirname(fileURLToPath(import.meta.url));
+      const buf = readFileSync(path.join(dir, '..', '..', 'assets', 'branding', mapped));
+      reply.type('image/png').header('Cache-Control', 'public, max-age=86400').send(buf);
+    } catch {
+      reply.code(404).send({ error: 'Not found' });
+    }
+  });
+
   // ===== SALES EMAIL (Mailjet) — quotes, agreements & MSAs =====
 
   fastify.get(
@@ -1326,7 +1352,9 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       return {
         msaTemplateHtml: s.msaTemplateHtml || getDefaultMsaTemplate(),
         isCustomized: Boolean(s.msaTemplateHtml),
-        mergeFields: ['customerName', 'businessName', 'businessAddress', 'businessEmail', 'effectiveDate', 'quoteNumber'],
+        msaSignerName: s.msaSignerName || '',
+        msaSignerTitle: s.msaSignerTitle || '',
+        mergeFields: ['customerName', 'customerAddress', 'businessName', 'businessAddress', 'businessEmail', 'effectiveDate', 'quoteNumber'],
       };
     },
   );
@@ -1335,7 +1363,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     '/api/v1/settings/msa-template',
     { preHandler: [fastify.authenticate, requirePermission('*')] },
     async (request) => {
-      const body = request.body as { msaTemplateHtml?: string };
+      const body = request.body as { msaTemplateHtml?: string; msaSignerName?: string; msaSignerTitle?: string };
       const [tenant] = await fastify.db.select().from(tenants)
         .where(eq(tenants.id, request.tenantId)).limit(1);
       const settings = { ...((tenant?.settings ?? {}) as Record<string, unknown>) };
@@ -1344,6 +1372,8 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       } else {
         delete settings.msaTemplateHtml; // empty = reset to default
       }
+      if (body.msaSignerName !== undefined) settings.msaSignerName = body.msaSignerName;
+      if (body.msaSignerTitle !== undefined) settings.msaSignerTitle = body.msaSignerTitle;
       await fastify.db.update(tenants).set({ settings, updatedAt: new Date() })
         .where(eq(tenants.id, request.tenantId));
       return { success: true };

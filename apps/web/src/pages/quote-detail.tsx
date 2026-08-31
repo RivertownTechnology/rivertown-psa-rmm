@@ -65,6 +65,7 @@ interface SignatureInfo {
   recipientEmail: string;
   signerName: string | null;
   signerEmail: string | null;
+  signerPhone: string | null;
   ipAddress: string | null;
   viewedAt: string | null;
   signedAt: string | null;
@@ -650,6 +651,12 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
                       <span className="font-medium">{signature.signerName}</span>
                       {signature.signerEmail && <span className="text-muted-foreground">({signature.signerEmail})</span>}
                     </div>
+                    {signature.signerPhone && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground w-28">Phone</span>
+                        <span>{signature.signerPhone}</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2">
                       <span className="text-muted-foreground w-28">Signed at</span>
                       <span>{signature.signedAt ? new Date(signature.signedAt).toLocaleString() : ''}</span>
@@ -657,6 +664,14 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
                     <div className="flex items-center gap-2">
                       <span className="text-muted-foreground w-28">IP address</span>
                       <span className="font-mono text-xs">{signature.ipAddress}</span>
+                    </div>
+                    <div className="pt-1">
+                      <Button size="sm" variant="outline" onClick={async () => {
+                        const { token } = await api<{ token: string }>(`/quotes/${quoteId}/preview-token`, { method: 'POST' });
+                        window.open(`/api/v1/quotes/${quoteId}/signed-pdf?token=${token}`, '_blank');
+                      }}>
+                        <FileText className="h-3 w-3 mr-1" /> View Signed Quote PDF
+                      </Button>
                     </div>
                   </>
                 )}
@@ -687,6 +702,12 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
                   {agreement.signedAt && (
                     <span className="text-muted-foreground">signed {new Date(agreement.signedAt).toLocaleString()}</span>
                   )}
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    const { token } = await api<{ token: string }>(`/agreements/${agreement.id}/preview-token`, { method: 'POST' });
+                    window.open(`/api/v1/agreements/${agreement.id}/pdf?token=${token}`, '_blank');
+                  }}>
+                    <FileText className="h-3 w-3 mr-1" /> View PDF
+                  </Button>
                 </div>
                 {agreement.status !== 'signed' && (
                   <div className="flex items-center gap-2">

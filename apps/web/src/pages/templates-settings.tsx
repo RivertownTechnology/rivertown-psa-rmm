@@ -81,7 +81,10 @@ const variableGroups: Record<string, string[]> = {
   ],
   Comment: ['commentBody'],
   Quote: [
-    'quoteNumber', 'quoteTitle', 'quoteSummary', 'totalFormatted', 'validUntil',
+    'quoteNumber', 'quoteTitle', 'quoteSummary', 'totalFormatted', 'validUntil', 'approveQuoteUrl',
+  ],
+  Agreement: [
+    'agreementTitle', 'msaNumber', 'effectiveDate', 'signAgreementUrl',
   ],
   Invoice: [
     'invoiceNumber', 'issueDate', 'dueDate', 'totalFormatted',

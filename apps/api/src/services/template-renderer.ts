@@ -148,13 +148,19 @@ export function getDefaultTemplates(): Array<{
       bodyHtml: `${header}
         <h2 style="color:#111;margin:0 0 8px">{{agreementTitle}}</h2>
         <p>Hi {{customerName}},</p>
-        <p>Thank you for approving Quote #{{quoteNumber}}! The next step is to sign your service agreement — a simple month-to-month agreement with no long-term commitment.</p>
+        <p>Thank you for approving {{#quoteNumber}}Quote #{{quoteNumber}}{{/quoteNumber}}{{^quoteNumber}}your quote{{/quoteNumber}}! The last step is to sign your service agreement. It's a simple <strong>month-to-month</strong> agreement — no long-term commitment, and it includes our 30-day money-back guarantee.</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:8px">
+          {{#msaNumber}}<tr><td style="padding:12px 16px;color:#6b7280;width:160px">Agreement No.</td><td style="padding:12px 16px;font-weight:600">{{msaNumber}}</td></tr>{{/msaNumber}}
+          {{#effectiveDate}}<tr><td style="padding:12px 16px;color:#6b7280;border-top:1px solid #e5e7eb">Effective Date</td><td style="padding:12px 16px;border-top:1px solid #e5e7eb">{{effectiveDate}}</td></tr>{{/effectiveDate}}
+          <tr><td style="padding:12px 16px;color:#6b7280;border-top:1px solid #e5e7eb">Term</td><td style="padding:12px 16px;border-top:1px solid #e5e7eb">Month to month · 30 days' notice to cancel</td></tr>
+          {{#quoteNumber}}<tr><td style="padding:12px 16px;color:#6b7280;border-top:1px solid #e5e7eb">Covers</td><td style="padding:12px 16px;border-top:1px solid #e5e7eb">Services in accepted Quote #{{quoteNumber}}</td></tr>{{/quoteNumber}}
+        </table>
         <div style="text-align:center;margin:28px 0">
           <a href="{{signAgreementUrl}}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Review &amp; Sign Agreement</a>
         </div>
-        <p style="margin:16px 0;color:#6b7280;font-size:13px">Signing takes less than a minute — just review the agreement and type your name.</p>
+        <p style="margin:16px 0;color:#6b7280;font-size:13px">Signing takes less than a minute — review the agreement, then type your name, email, and phone number. You'll receive a fully signed copy for your records right after.</p>
       ${footer}`,
-      bodyText: '{{agreementTitle}}\n\nThank you for approving Quote #{{quoteNumber}}. Please review and sign your month-to-month service agreement:\n{{signAgreementUrl}}',
+      bodyText: '{{agreementTitle}} {{msaNumber}}\n\nThank you for approving Quote #{{quoteNumber}}. Please review and sign your month-to-month service agreement (effective {{effectiveDate}}):\n{{signAgreementUrl}}\n\nYou will receive a fully signed copy for your records after signing.',
     },
     {
       templateType: 'msa_signed',
@@ -441,15 +447,18 @@ export interface QuoteSignatureBlock {
   signerName: string;
   ipAddress: string;
   signedAt: string; // pre-formatted UTC timestamp
+  signerEmail?: string;
+  signerPhone?: string;
 }
 
 function bsSignatureCertificate(sig: QuoteSignatureBlock, docRef: string): string {
+  const contact = [sig.signerEmail, sig.signerPhone].filter(Boolean).map(v => escapeHtml(v as string)).join(' · ');
   return `<section style="margin-top:8px">
     <div style="font-size:11.5px;letter-spacing:0.14em;text-transform:uppercase;color:${BS.accent700};margin-bottom:10px">Electronically Signed</div>
     <div style="font-size:26px;font-weight:600;font-style:italic;margin-bottom:6px">${escapeHtml(sig.signerName)}</div>
     <div style="font-size:12px;line-height:1.7;color:${BS.neutral700}">
       Signed electronically by typed-name signature · ${escapeHtml(sig.signedAt)}<br>
-      IP address (as reported): ${escapeHtml(sig.ipAddress)} · Document: ${escapeHtml(docRef)}
+      ${contact ? `${contact}<br>` : ''}IP address (as reported): ${escapeHtml(sig.ipAddress)} · Document: ${escapeHtml(docRef)}
     </div>
   </section>`;
 }
@@ -653,8 +662,10 @@ export function generateSignPage(data: {
     <form id="signForm">
       <label for="signerName">Full name *</label>
       <input type="text" id="signerName" name="signerName" required minlength="2" maxlength="200" autocomplete="name" placeholder="Jane Q. Smith">
-      <label for="signerEmail">Email (optional)</label>
-      <input type="email" id="signerEmail" name="signerEmail" autocomplete="email" placeholder="you@company.com">
+      <label for="signerEmail">Email *</label>
+      <input type="email" id="signerEmail" name="signerEmail" required autocomplete="email" placeholder="you@company.com">
+      <label for="signerPhone">Phone number *</label>
+      <input type="tel" id="signerPhone" name="signerPhone" required minlength="7" maxlength="30" autocomplete="tel" placeholder="(843) 555-0123">
       <div class="agree-row">
         <input type="checkbox" id="agree" required style="margin-top:2px">
         <label for="agree" style="margin:0;font-weight:400">I agree that typing my name above and clicking &quot;Approve &amp; Sign&quot; constitutes a legal electronic signature, and that I accept the terms of this document. My IP address and the date and time of signing will be recorded.</label>
@@ -692,7 +703,8 @@ export function generateSignPage(data: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           signerName: document.getElementById('signerName').value.trim(),
-          signerEmail: document.getElementById('signerEmail').value.trim() || undefined,
+          signerEmail: document.getElementById('signerEmail').value.trim(),
+          signerPhone: document.getElementById('signerPhone').value.trim(),
           agree: true,
         }),
       }).then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
@@ -736,63 +748,132 @@ export function generateSignPage(data: {
 
 export function generateAgreementPdfHtml(data: {
   title: string;
+  msaNumber: string;         // e.g. "MSA-2026-004"
   contentHtml: string;       // trusted, admin-authored template rendered with escaped merge values
   businessName: string; businessPhone: string; businessEmail: string;
-  businessCity?: string; businessState?: string;
-  signature?: QuoteSignatureBlock;
-  docRef: string;            // e.g. "MSA — Acme Corp — 2026-08-31"
+  businessCity?: string; businessState?: string; businessWebsite?: string;
+  clientName: string;
+  // Provider countersignature — auto-applied when the client signs.
+  providerSigner?: { name: string; title: string; signedAt: string };
+  clientSignature?: QuoteSignatureBlock;
+  docRef: string;            // e.g. "MSA-2026-004 — Acme Corp"
 }): string {
   const d = data;
-  const businessName = escapeHtml(d.businessName || 'Rivertown Technology');
+  const businessName = escapeHtml(d.businessName || 'Rivertown Technology, LLC');
   const phone = escapeHtml(d.businessPhone || '(843) 410-3982');
   const email = escapeHtml(d.businessEmail || 'sales@rivertowntechnology.com');
+  const website = escapeHtml((d.businessWebsite || 'rivertowntechnology.com').replace(/^https?:\/\//, ''));
   const location = [d.businessCity, d.businessState].filter(Boolean).map(v => escapeHtml(v as string)).join(', ') || 'Conway, South Carolina';
+  const clientName = escapeHtml(d.clientName);
+  const msaNumber = escapeHtml(d.msaNumber);
+  const logo = brandingAsset('Horizontal_transparent_background.png');
+  const blankLine = `<div style="border-bottom:1px solid ${BS.neutral500};height:26px"></div>`;
+
+  const providerBlock = d.providerSigner ? `
+    <div style="font-size:24px;font-weight:600;font-style:italic;border-bottom:1px solid ${BS.neutral500};padding:0 0 2px;min-height:26px">${escapeHtml(d.providerSigner.name)}</div>
+    <div style="color:${BS.neutral700};font-size:11.5px;margin:4px 0 16px">Signature (electronic)</div>
+    <div>Name: <strong>${escapeHtml(d.providerSigner.name)}</strong></div>
+    <div style="margin-top:8px">Title: <strong>${escapeHtml(d.providerSigner.title)}</strong></div>
+    <div style="margin-top:8px">Date: <strong>${escapeHtml(d.providerSigner.signedAt)}</strong></div>` : `
+    ${blankLine}
+    <div style="color:${BS.neutral700};font-size:11.5px;margin:4px 0 16px">Signature</div>
+    <div>Name: ______________________________</div>
+    <div style="margin-top:8px">Title: ______________________________</div>
+    <div style="margin-top:8px">Date: ______________________________</div>`;
+
+  const clientBlock = d.clientSignature ? `
+    <div style="font-size:24px;font-weight:600;font-style:italic;border-bottom:1px solid ${BS.neutral500};padding:0 0 2px;min-height:26px">${escapeHtml(d.clientSignature.signerName)}</div>
+    <div style="color:${BS.neutral700};font-size:11.5px;margin:4px 0 16px">Signature (electronic)</div>
+    <div>Name: <strong>${escapeHtml(d.clientSignature.signerName)}</strong></div>
+    ${d.clientSignature.signerEmail ? `<div style="margin-top:8px">Email: <strong>${escapeHtml(d.clientSignature.signerEmail)}</strong></div>` : ''}
+    ${d.clientSignature.signerPhone ? `<div style="margin-top:8px">Phone: <strong>${escapeHtml(d.clientSignature.signerPhone)}</strong></div>` : ''}
+    <div style="margin-top:8px">Date: <strong>${escapeHtml(d.clientSignature.signedAt)}</strong></div>` : `
+    ${blankLine}
+    <div style="color:${BS.neutral700};font-size:11.5px;margin:4px 0 16px">Signature</div>
+    <div>Name: ______________________________</div>
+    <div style="margin-top:8px">Title: ______________________________</div>
+    <div style="margin-top:8px">Date: ______________________________</div>`;
 
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${escapeHtml(d.title)}</title>
+<html><head><meta charset="utf-8"><title>${escapeHtml(d.title)} ${msaNumber}</title>
 ${BS_FONT_LINK}
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  @page { size: letter; margin: 0; }
+  @page { size: letter; margin: 0.55in 0; }
   html, body { background:${BS.bg}; }
-  body { font-family:${BS.font}; color:${BS.text}; font-size:13px; line-height:1.6; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  .page { width:8.5in; min-height:11in; padding:0.6in 0.68in 0.55in; display:flex; flex-direction:column; gap:20px; }
-  .content h1, .content h2, .content h3 { font-weight:600; margin:18px 0 8px; }
-  .content h1 { font-size:24px; } .content h2 { font-size:18px; } .content h3 { font-size:15px; }
-  .content p, .content li { margin:0 0 10px; }
-  .content ul, .content ol { padding-left:20px; }
+  body { font-family:${BS.font}; color:${BS.text}; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .page { width:8.5in; padding:0 0.85in; }
+  .content h2 { font-size:17px; font-weight:600; margin:22px 0 8px; }
+  .content h1 { font-size:24px; font-weight:600; margin:22px 0 8px; }
+  .content p { font-size:13.5px; line-height:1.65; margin:0 0 8px; }
+  .content ul, .content ol { padding-left:20px; font-size:13.5px; line-height:1.65; margin:0 0 8px; }
+  .sig-block { break-inside:avoid; margin-top:34px; }
 </style></head>
 <body>
 <section class="page">
-  <header>
-    ${bsTopRail(`Veteran-Owned · ${location}`, escapeHtml(d.title))}
-    <h1 style="font-size:28px;font-weight:600;margin:16px 0 0">${escapeHtml(d.title)}</h1>
-  </header>
+  ${bsTopRail(`Veteran-Owned · ${location}`, `MSA No. ${msaNumber}`)}
+  ${logo
+    ? `<img src="${logo}" alt="${businessName}" style="height:54px;width:auto;display:block;margin:20px 0 10px">`
+    : `<div style="font-size:26px;font-weight:600;margin:20px 0 10px">${businessName}</div>`}
+  <h1 style="font-size:32px;font-weight:600;margin:0 0 6px">${escapeHtml(d.title)}</h1>
   <div class="content">${d.contentHtml}</div>
-  ${d.signature ? bsSignatureCertificate(d.signature, d.docRef) : ''}
-  <footer style="margin-top:auto">
-    ${bsBottomRail(phone, email, businessName)}
-  </footer>
+  <div class="sig-block">
+    <div style="border-top:1px solid ${BS.text};border-bottom:3px solid ${BS.text};padding:6px 0;font-size:11.5px;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:18px">Agreed and accepted</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;font-size:13px">
+      <div>
+        <div style="font-weight:600;margin-bottom:26px">${businessName}</div>
+        ${providerBlock}
+      </div>
+      <div>
+        <div style="font-weight:600;margin-bottom:26px">${clientName}</div>
+        ${clientBlock}
+      </div>
+    </div>
+    ${d.clientSignature ? bsSignatureCertificate(d.clientSignature, d.docRef) : ''}
+    <p style="font-size:11px;color:${BS.neutral500};margin:26px 0 0;line-height:1.5">${businessName} · ${location} · ${phone} · ${email} · ${website}</p>
+  </div>
 </section>
 </body></html>`;
 }
 
 export function getDefaultMsaTemplate(): string {
-  return `<h2>Master Service Agreement</h2>
-<p>This Master Service Agreement ("Agreement") is entered into as of {{effectiveDate}} between <strong>{{businessName}}</strong> ("Provider") and <strong>{{customerName}}</strong> ("Client"), and governs the managed IT services described in Quote {{quoteNumber}}.</p>
-<h3>1. Services</h3>
-<p>Provider will deliver the managed services described in the accepted quote. Service scope, quantities, and pricing are as stated in Quote {{quoteNumber}} and any subsequently accepted quotes or change orders.</p>
-<h3>2. Term — Month to Month</h3>
-<p>This Agreement is month to month. It begins on {{effectiveDate}} and renews automatically each month until either party gives written notice of termination at least thirty (30) days before the end of the then-current monthly term. There is no long-term commitment and no early-termination fee.</p>
-<h3>3. Fees &amp; Billing</h3>
-<p>Fees are billed monthly in advance at the rates in the accepted quote. Invoices are due on receipt unless otherwise stated. Work outside the scope of the accepted quote will be quoted and approved before any billing.</p>
-<h3>4. Client Responsibilities</h3>
-<p>Client will provide reasonable access to systems, timely responses to requests, and accurate information necessary for Provider to deliver the services.</p>
-<h3>5. Confidentiality</h3>
-<p>Each party will keep the other party's non-public information confidential and use it only to perform under this Agreement.</p>
-<h3>6. Limitation of Liability</h3>
-<p>Neither party is liable for indirect, incidental, or consequential damages. Provider's total liability under this Agreement is limited to the fees paid by Client in the three (3) months preceding the claim.</p>
-<h3>7. Governing Law</h3>
-<p>This Agreement is governed by the laws of the State of South Carolina.</p>
-<p style="margin-top:16px">Questions about this Agreement can be directed to {{businessEmail}}.</p>`;
+  return `<p style="font-style:italic;font-size:14px;margin:0 0 24px">This Master Services Agreement ("Agreement") is entered into as of {{effectiveDate}} (the "Effective Date") by and between <strong style="font-style:normal">Rivertown Technology, LLC</strong>, a South Carolina limited liability company with its principal place of business in Conway, South Carolina ("Provider"), and <strong style="font-style:normal">{{customerName}}</strong>, with its principal place of business at {{customerAddress}} ("Client"). Provider and Client may each be referred to as a "Party" and together as the "Parties."</p>
+<h2>1. Services</h2>
+<p>1.1 Provider will perform the managed information technology, cybersecurity, cloud, and related services described in one or more quotes or proposals accepted by Client in writing or by email (each, a "Quote"). Each accepted Quote is incorporated into and governed by this Agreement.</p>
+<p>1.2 In the event of a conflict between this Agreement and a Quote, the Quote controls for that engagement only.</p>
+<p>1.3 Day-to-day support requests are submitted, tracked, and resolved through Provider's ticketing system; Client agrees to route support requests through that system (or Provider's support phone line) so work can be tracked and documented. Provider delivers support remotely or onsite, as the issue reasonably requires. Support hours, response times, and included services are as stated in the applicable Quote and Provider's then-current published service tiers.</p>
+<h2>2. Term and Termination</h2>
+<p>2.1 This Agreement begins on the Effective Date and continues on a <strong>month-to-month</strong> basis until terminated by either Party with thirty (30) days' written notice. Where a Quote includes Microsoft 365 or other third-party licensing that requires an annual or longer commitment, the term for those licenses is one (1) year (or the required commitment period); Client remains responsible for those license fees through the end of that commitment even if managed services are otherwise terminated.</p>
+<p>2.2 Either Party may terminate immediately for a material breach that remains uncured fifteen (15) days after written notice.</p>
+<p>2.3 <em>Money-back guarantee.</em> If Client terminates within the first thirty (30) days of the initial Quote, Provider will refund the managed services fees paid for that period.</p>
+<p>2.4 Upon termination, Provider will reasonably cooperate in the orderly transition of services, including return of Client credentials and documentation. Transition assistance beyond ten (10) hours may be billed at Provider's standard hourly rate.</p>
+<h2>3. Fees and Payment</h2>
+<p>3.1 Client will pay the fees stated in each accepted Quote. Recurring fees are billed monthly in advance; time-and-materials work is billed monthly in arrears. Invoices are due within fifteen (15) days.</p>
+<p>3.2 Third-party licensing (including Microsoft 365 and Google Workspace subscriptions), hardware, and project work outside the scope of routine support are quoted and billed separately. Projects may be billable depending on their complexity, scope, and effort; Provider will identify billable project work and provide a Quote for Client's approval before the work begins.</p>
+<p>3.3 After-hours emergency and weekend support is included or billable per the Client's service tier as stated in the applicable Quote.</p>
+<p>3.4 Amounts more than thirty (30) days past due may accrue interest at 1.5% per month or the maximum lawful rate, whichever is less. Provider may suspend services for accounts more than forty-five (45) days past due after written notice.</p>
+<h2>4. Client Responsibilities</h2>
+<p>4.1 Client will provide timely access to systems, personnel, credentials, and information reasonably required for Provider to perform the services, and will maintain lawful licenses for all software Provider is asked to manage.</p>
+<p>4.2 Client is responsible for the accuracy and legality of its data and for its personnel's compliance with reasonable security policies communicated by Provider.</p>
+<h2>5. Third-Party Services and Data Backup</h2>
+<p>5.1 Services may depend on third-party platforms (including Microsoft 365, Google Workspace, and hosting or telecommunications providers). Those platforms are governed by their own terms, and Provider does not control and is not responsible for their availability, security, or data-retention practices.</p>
+<p>5.2 <em>Backup responsibility.</em> Client acknowledges that, under their own terms of service, Microsoft and Google are not responsible for restoring lost Microsoft 365 or Google Workspace data. Backup of such data is Client's responsibility unless Client subscribes to a backup service under a Quote, in which case Provider's responsibility is limited to operating that service as described.</p>
+<p>5.3 <em>Security incidents.</em> Cybersecurity threats evolve constantly, and no service, tool, or combination of services — including any backup or cybersecurity package — can guarantee the prevention of all data loss, downtime, or security incidents. Provider does not warrant that the services will detect or prevent every threat, and Provider is not responsible or liable for security breaches, ransomware, phishing, social engineering, zero-day exploits, or other malicious acts of third parties, except to the extent caused by Provider's gross negligence or willful misconduct. Provider will perform services in a professional and workmanlike manner consistent with industry standards.</p>
+<p>5.4 Provider may recommend security services, tooling, or practices from time to time. If Client declines a recommended security measure, Client assumes the risks associated with that decision, and Provider is not liable for incidents that the declined measure was designed to mitigate.</p>
+<h2>6. Confidentiality</h2>
+<p>Each Party will protect the other's non-public information with at least the care it uses for its own confidential information (and no less than reasonable care), use it only to perform under this Agreement, and disclose it only to personnel and contractors bound by comparable obligations, or as required by law. This section survives termination for three (3) years; trade secrets are protected for as long as they remain trade secrets.</p>
+<h2>7. Data Security and Privacy</h2>
+<p>Provider will maintain commercially reasonable administrative, technical, and physical safeguards for Client data it accesses or stores. Where Client is subject to specific regulatory regimes (e.g., HIPAA, PCI-DSS), the Parties will execute the applicable addenda (e.g., a Business Associate Agreement) before Provider handles regulated data, and compliance-scoped services will be stated in a Quote.</p>
+<h2>8. Warranties and Disclaimer</h2>
+<p>Each Party warrants it has the authority to enter this Agreement. Provider warrants the services will be performed in a professional and workmanlike manner. EXCEPT AS EXPRESSLY STATED, THE SERVICES ARE PROVIDED "AS IS" AND PROVIDER DISCLAIMS ALL OTHER WARRANTIES, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.</p>
+<h2>9. Limitation of Liability</h2>
+<p>NEITHER PARTY IS LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR FOR LOST PROFITS, REVENUE, OR DATA. EACH PARTY'S TOTAL LIABILITY ARISING OUT OF THIS AGREEMENT IS LIMITED TO THE FEES PAID BY CLIENT TO PROVIDER IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM. THESE LIMITS DO NOT APPLY TO BREACHES OF SECTION 6, A PARTY'S GROSS NEGLIGENCE OR WILLFUL MISCONDUCT, OR CLIENT'S PAYMENT OBLIGATIONS.</p>
+<h2>10. Insurance</h2>
+<p>Provider maintains commercially reasonable general liability and cyber/errors-and-omissions insurance and will furnish certificates of insurance upon written request.</p>
+<h2>11. Independent Contractor; Non-Solicitation</h2>
+<p>Provider is an independent contractor; nothing here creates a partnership, joint venture, or employment relationship. During the term and for twelve (12) months after, neither Party will solicit for employment the other's personnel who performed under this Agreement, except through general postings not targeted at such personnel.</p>
+<h2>12. Force Majeure</h2>
+<p>Neither Party is liable for delay or failure caused by events beyond its reasonable control, including natural disasters, hurricanes, utility or internet outages, acts of government, or third-party platform failures, provided the affected Party gives prompt notice and resumes performance as soon as practicable.</p>
+<h2>13. General</h2>
+<p>This Agreement is governed by the laws of the State of South Carolina, with exclusive venue in the state and federal courts of Horry County, South Carolina. It, together with all accepted Quotes, is the entire agreement between the Parties and supersedes all prior discussions. Amendments must be in writing and signed by both Parties. Neither Party may assign this Agreement without the other's consent, except to a successor in a merger or sale of substantially all assets. If any provision is unenforceable, the remainder stays in effect. Notices must be in writing to the addresses on the signature page (email acceptable with confirmation of receipt).</p>`;
 }

@@ -15,6 +15,7 @@ export const documentSignatures = pgTable(
     status: text('status').default('pending').notNull(), // pending | viewed | signed | declined | revoked
     signerName: text('signer_name'),
     signerEmail: text('signer_email'),
+    signerPhone: text('signer_phone'),
     ipAddress: text('ip_address'),
     forwardedFor: text('forwarded_for'), // raw X-Forwarded-For chain as received
     userAgent: text('user_agent'),
