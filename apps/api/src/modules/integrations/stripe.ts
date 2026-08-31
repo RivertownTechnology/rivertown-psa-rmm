@@ -7,7 +7,7 @@ import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError } from '../../common/errors.js';
 import { readCredentials, writeCredentials } from '../../common/credentials.js';
 
-async function getStripeFromDb(db: any, tenantId: string): Promise<{ stripe: Stripe; webhookSecret: string } | null> {
+export async function getStripeFromDb(db: any, tenantId: string): Promise<{ stripe: Stripe; webhookSecret: string } | null> {
   const [config] = await db.select().from(integrationConfigs)
     .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'stripe')))
     .limit(1);
@@ -226,6 +226,34 @@ export async function stripeRoutes(fastify: FastifyInstance) {
           syncPaymentToQBO(fastify.db, tenantId, payment.id)
             .catch((e: any) => console.error('[QBO] Stripe payment sync failed:', e));
         });
+      }
+    }
+
+    // Identity verification results (MSA e-signing ID checks)
+    if (event.type === 'identity.verification_session.verified'
+      || event.type === 'identity.verification_session.requires_input'
+      || event.type === 'identity.verification_session.canceled') {
+      const session = event.data.object as Stripe.Identity.VerificationSession;
+      const signatureId = session.metadata?.signatureId;
+      const agreementId = session.metadata?.agreementId;
+      const sigTenantId = session.metadata?.tenantId;
+
+      if (signatureId) {
+        const { documentSignatures } = await import('@rivertown/db');
+        await fastify.db.update(documentSignatures).set({
+          verificationStatus: session.status,
+          updatedAt: new Date(),
+        }).where(eq(documentSignatures.id, signatureId));
+        console.log(`[STRIPE] Identity verification ${session.status} for signature ${signatureId}`);
+
+        if (session.status === 'verified' && sigTenantId && agreementId) {
+          const { notifyTenantStaff } = await import('../../services/notifications.js');
+          notifyTenantStaff(fastify.db, {
+            tenantId: sigTenantId, type: 'identity_verified',
+            title: 'MSA signer identity verified by Stripe Identity',
+            entityType: 'agreement', entityId: agreementId,
+          }).catch((e: unknown) => console.error('[STRIPE] Identity notification failed:', e));
+        }
       }
     }
 

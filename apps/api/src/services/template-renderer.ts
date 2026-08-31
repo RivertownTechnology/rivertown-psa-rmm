@@ -449,7 +449,8 @@ export interface QuoteSignatureBlock {
   signedAt: string; // pre-formatted UTC timestamp
   signerEmail?: string;
   signerPhone?: string;
-  idOnFile?: boolean; // photo ID captured during signing (stored separately, never embedded)
+  idOnFile?: boolean; // identity captured/verified during signing (stored separately, never embedded)
+  idVerifiedVia?: 'stripe' | 'photo';
 }
 
 function bsSignatureCertificate(sig: QuoteSignatureBlock, docRef: string): string {
@@ -459,7 +460,7 @@ function bsSignatureCertificate(sig: QuoteSignatureBlock, docRef: string): strin
     <div style="font-size:26px;font-weight:600;font-style:italic;margin-bottom:6px">${escapeHtml(sig.signerName)}</div>
     <div style="font-size:12px;line-height:1.7;color:${BS.neutral700}">
       Signed electronically by typed-name signature · ${escapeHtml(sig.signedAt)}<br>
-      ${contact ? `${contact}<br>` : ''}IP address (as reported): ${escapeHtml(sig.ipAddress)} · Document: ${escapeHtml(docRef)}${sig.idOnFile ? `<br>Photo ID captured and held on file for verification` : ''}
+      ${contact ? `${contact}<br>` : ''}IP address (as reported): ${escapeHtml(sig.ipAddress)} · Document: ${escapeHtml(docRef)}${sig.idOnFile ? `<br>${sig.idVerifiedVia === 'stripe' ? 'Identity verified via Stripe Identity document verification' : 'Photo ID captured and held on file for verification'}` : ''}
     </div>
   </section>`;
 }
@@ -621,6 +622,9 @@ export function generateSignPage(data: {
   // qrDataUrl: QR image (data URI) linking to the mobile capture page;
   // statusEndpoint: polled so a phone upload marks the step complete here.
   idCapture?: { uploadEndpoint: string; qrDataUrl?: string; statusEndpoint?: string };
+  // Stripe Identity mode (takes precedence over idCapture): hosted document
+  // verification. startEndpoint returns { url }; statusEndpoint is polled.
+  idVerify?: { startEndpoint: string; statusEndpoint: string; initialStatus: string };
 }): string {
   const d = data;
   if (d.state === 'expired') {
@@ -678,7 +682,15 @@ export function generateSignPage(data: {
       <input type="email" id="signerEmail" name="signerEmail" required autocomplete="email" placeholder="you@company.com">
       <label for="signerPhone">Phone number *</label>
       <input type="tel" id="signerPhone" name="signerPhone" required minlength="7" maxlength="30" autocomplete="tel" placeholder="(843) 555-0123">
-      ${d.idCapture ? `
+      ${d.idVerify ? `
+      <label>Identity verification *</label>
+      <p style="margin:0 0 8px;color:#6b7280;font-size:13px">We verify your government-issued ID through Stripe Identity — it takes about a minute and works on this device or your phone.</p>
+      <div id="verifyBox">
+        <button type="button" id="verifyBtn" style="background:#374151;color:#fff;border:none;padding:12px 24px;border-radius:6px;font-weight:600;font-size:14px;cursor:pointer">🪪 Verify My Identity</button>
+        <div id="verifyStatus" style="font-size:14px;margin-top:8px;color:#6b7280"></div>
+      </div>
+      ` : ''}
+      ${d.idCapture && !d.idVerify ? `
       <label>Photo ID *</label>
       <p style="margin:0 0 8px;color:#6b7280;font-size:13px">Take a photo of your government-issued ID (driver's license or similar), or upload an image. It is stored securely for verification and never shared.</p>
       <div id="idControls" style="display:flex;gap:8px;flex-wrap:wrap">
@@ -732,8 +744,68 @@ export function generateSignPage(data: {
       document.getElementById('declineBox').classList.toggle('open');
     });
 
+    // ── Stripe Identity verification (only present on pages that require it) ──
+    var verifyRequired = ${d.idVerify ? 'true' : 'false'};
+    var verifyStatus = ${JSON.stringify(d.idVerify?.initialStatus ?? 'none')};
+    var verifyStartEndpoint = ${JSON.stringify(d.idVerify?.startEndpoint ?? '')};
+    var verifyStatusEndpoint = ${JSON.stringify(d.idVerify?.statusEndpoint ?? '')};
+    var verifyPollTimer = null;
+    function verifyDone(s) { return s === 'processing' || s === 'verified'; }
+    function renderVerifyStatus() {
+      var el = document.getElementById('verifyStatus');
+      var btn = document.getElementById('verifyBtn');
+      if (!el) return;
+      if (verifyStatus === 'verified') {
+        el.textContent = '✓ Identity verified';
+        el.style.color = '#16a34a';
+        if (btn) btn.style.display = 'none';
+      } else if (verifyStatus === 'processing') {
+        el.textContent = '✓ Documents submitted — verification is processing. You can sign now.';
+        el.style.color = '#16a34a';
+        if (btn) btn.style.display = 'none';
+      } else if (verifyStatus === 'requires_input') {
+        el.textContent = 'Verification needs another attempt — please try again.';
+        el.style.color = '#dc2626';
+        if (btn) { btn.style.display = ''; btn.textContent = '🪪 Retry Verification'; }
+      } else {
+        el.textContent = '';
+      }
+    }
+    function pollVerifyStatus() {
+      if (!verifyStatusEndpoint || verifyStatus === 'verified') return;
+      fetch(verifyStatusEndpoint).then(function(r) { return r.json(); })
+        .then(function(j) {
+          if (j && j.status && j.status !== verifyStatus) { verifyStatus = j.status; renderVerifyStatus(); }
+          if (verifyStatus === 'verified' && verifyPollTimer) { clearInterval(verifyPollTimer); verifyPollTimer = null; }
+        }).catch(function() {});
+    }
+    if (verifyRequired) {
+      renderVerifyStatus();
+      // Poll so the page updates after the customer returns from Stripe (or
+      // completes verification on their phone via Stripe's own hand-off)
+      verifyPollTimer = setInterval(pollVerifyStatus, 4000);
+      var vBtn = document.getElementById('verifyBtn');
+      if (vBtn) {
+        vBtn.addEventListener('click', function() {
+          vBtn.disabled = true; vBtn.textContent = 'Starting…';
+          fetch(verifyStartEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
+            .then(function(res) {
+              if (res.ok && res.body && res.body.url) { window.location.href = res.body.url; }
+              else {
+                vBtn.disabled = false; vBtn.textContent = '🪪 Verify My Identity';
+                showError((res.body && (res.body.message || res.body.error)) || 'Could not start verification. Please try again.');
+              }
+            }).catch(function() {
+              vBtn.disabled = false; vBtn.textContent = '🪪 Verify My Identity';
+              showError('Could not start verification. Please try again.');
+            });
+        });
+      }
+    }
+
     // ── Photo ID capture (only present on pages that require it) ──
-    var idRequired = ${d.idCapture ? 'true' : 'false'};
+    var idRequired = ${d.idCapture && !d.idVerify ? 'true' : 'false'};
     var idUploaded = false;
     var idUploadEndpoint = ${JSON.stringify(d.idCapture?.uploadEndpoint ?? '')};
     var camStream = null;
@@ -853,6 +925,10 @@ export function generateSignPage(data: {
       errEl.style.display = 'none';
       if (idRequired && !idUploaded) {
         showError('Please attach a photo of your ID before signing.');
+        return;
+      }
+      if (verifyRequired && !verifyDone(verifyStatus)) {
+        showError('Please complete identity verification before signing.');
         return;
       }
       var btn = document.getElementById('approveBtn');

@@ -356,6 +356,11 @@ export async function completeMsaSignature(
 
   // Fulfilment is best-effort: each step logs its own failure without undoing
   // the committed signature.
+  // Identity was established either via Stripe Identity or the photo fallback
+  const [sigRow] = await db.select({ verificationSessionId: documentSignatures.verificationSessionId })
+    .from(documentSignatures).where(eq(documentSignatures.id, signatureId)).limit(1);
+  const idVerifiedVia = sigRow?.verificationSessionId ? 'stripe' as const : 'photo' as const;
+
   let pdfBuffer: Buffer | null = null;
   try {
     pdfBuffer = await buildAgreementPdf(db, tenantId, agreement, {
@@ -364,7 +369,8 @@ export async function completeMsaSignature(
       signerPhone: signer.signerPhone,
       ipAddress: signer.ip,
       signedAt: formatSignedAt(now),
-      idOnFile: true, // ID upload is enforced before MSA signing
+      idOnFile: true, // identity is enforced before MSA signing
+      idVerifiedVia,
     });
   } catch (err) {
     console.error('[SIGNING] Signed agreement PDF generation failed:', err);

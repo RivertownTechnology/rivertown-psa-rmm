@@ -154,7 +154,12 @@ export async function agreementRoutes(fastify: FastifyInstance) {
     if (sig) {
       const [idDoc] = await fastify.db.select({ id: signatureDocuments.id }).from(signatureDocuments)
         .where(eq(signatureDocuments.signatureId, sig.id)).limit(1);
-      sigBlock = { ...signatureBlockFromRow(sig), idOnFile: Boolean(idDoc) };
+      const viaStripe = Boolean(sig.verificationSessionId) && ['processing', 'verified'].includes(sig.verificationStatus ?? '');
+      sigBlock = {
+        ...signatureBlockFromRow(sig),
+        idOnFile: Boolean(idDoc) || viaStripe,
+        idVerifiedVia: viaStripe ? 'stripe' as const : 'photo' as const,
+      };
     }
     const pdf = await buildAgreementPdf(fastify.db, request.tenantId, agreement, sigBlock);
     reply
@@ -212,15 +217,31 @@ export async function agreementRoutes(fastify: FastifyInstance) {
     const docHtml = `<div style="padding:40px;font-family:Georgia,'Times New Roman',serif;line-height:1.6">${agreement.contentHtml}</div>`;
     const base = `${process.env.API_BASE_URL || 'https://rivertownapi-production.up.railway.app'}/api/public/sign/agreement/${token}`;
 
-    // QR code that hands the ID-capture step off to a phone
-    let qrDataUrl: string | undefined;
-    if (state === 'active') {
-      try {
-        const QRCode = (await import('qrcode')).default;
-        qrDataUrl = await QRCode.toDataURL(`${base}/id-capture`, { margin: 1, width: 200 });
-      } catch (err) {
-        request.log.error({ err }, '[AGREEMENTS] QR generation failed');
+    // Stripe Identity when configured; photo capture (with QR phone hand-off)
+    // as the fallback so signing never depends on Stripe being set up.
+    const { getStripeFromDb } = await import('../integrations/stripe.js');
+    const stripeConfigured = Boolean(await getStripeFromDb(fastify.db, sig.tenantId));
+
+    let idVerify: { startEndpoint: string; statusEndpoint: string; initialStatus: string } | undefined;
+    let idCapture: { uploadEndpoint: string; qrDataUrl?: string; statusEndpoint?: string } | undefined;
+
+    if (stripeConfigured) {
+      idVerify = {
+        startEndpoint: `${base}/verify-session`,
+        statusEndpoint: `${base}/verification-status`,
+        initialStatus: sig.verificationStatus ?? 'none',
+      };
+    } else {
+      let qrDataUrl: string | undefined;
+      if (state === 'active') {
+        try {
+          const QRCode = (await import('qrcode')).default;
+          qrDataUrl = await QRCode.toDataURL(`${base}/id-capture`, { margin: 1, width: 200 });
+        } catch (err) {
+          request.log.error({ err }, '[AGREEMENTS] QR generation failed');
+        }
       }
+      idCapture = { uploadEndpoint: `${base}/id-upload`, qrDataUrl, statusEndpoint: `${base}/id-status` };
     }
 
     const html = generateSignPage({
@@ -232,9 +253,80 @@ export async function agreementRoutes(fastify: FastifyInstance) {
       declineEndpoint: `${base}/decline`,
       signedName: sig.signerName ?? undefined,
       successMessage: 'Your agreement has been signed. A copy will be emailed to you for your records — welcome aboard!',
-      idCapture: { uploadEndpoint: `${base}/id-upload`, qrDataUrl, statusEndpoint: `${base}/id-status` },
+      idCapture,
+      idVerify,
     });
     reply.type('text/html').send(html);
+  });
+
+  // Start (or restart) a Stripe Identity verification session for this signer
+  fastify.post('/api/public/sign/agreement/:token/verify-session', { config: publicRateLimit }, async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const ctx = await loadAgreementSignatureContext(fastify.db, token);
+    if (!ctx) return reply.code(404).send({ error: 'Not found' });
+    const { sig, agreement } = ctx;
+
+    if (!['pending', 'viewed'].includes(sig.status) || !['sent', 'viewed'].includes(agreement.status)) {
+      return reply.code(409).send({ error: 'INVALID_STATUS', message: 'This agreement can no longer be signed from this link.' });
+    }
+
+    const { getStripeFromDb } = await import('../integrations/stripe.js');
+    const stripeData = await getStripeFromDb(fastify.db, sig.tenantId);
+    if (!stripeData) return reply.code(400).send({ error: 'NOT_CONFIGURED', message: 'Identity verification is not configured.' });
+
+    const base = `${process.env.API_BASE_URL || 'https://rivertownapi-production.up.railway.app'}/api/public/sign/agreement/${token}`;
+    try {
+      const session = await stripeData.stripe.identity.verificationSessions.create({
+        type: 'document',
+        metadata: {
+          tenantId: sig.tenantId,
+          signatureId: sig.id,
+          agreementId: agreement.id,
+        },
+        return_url: base,
+      });
+      await fastify.db.update(documentSignatures).set({
+        verificationSessionId: session.id,
+        verificationStatus: session.status,
+        updatedAt: new Date(),
+      }).where(eq(documentSignatures.id, sig.id));
+      return { url: session.url };
+    } catch (err) {
+      request.log.error({ err }, '[AGREEMENTS] Stripe Identity session creation failed');
+      const message = err instanceof Error ? err.message : 'Verification could not be started';
+      return reply.code(502).send({ error: 'STRIPE_ERROR', message });
+    }
+  });
+
+  // Polled by the signing page; refreshes non-final statuses from Stripe so
+  // the page updates even without the webhook configured
+  fastify.get('/api/public/sign/agreement/:token/verification-status', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } } as any,
+  }, async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const ctx = await loadAgreementSignatureContext(fastify.db, token);
+    if (!ctx) return reply.code(404).send({ error: 'Not found' });
+    const { sig } = ctx;
+
+    if (!sig.verificationSessionId) return { status: 'none' };
+    if (sig.verificationStatus === 'verified') return { status: 'verified' };
+
+    try {
+      const { getStripeFromDb } = await import('../integrations/stripe.js');
+      const stripeData = await getStripeFromDb(fastify.db, sig.tenantId);
+      if (!stripeData) return { status: sig.verificationStatus ?? 'none' };
+      const session = await stripeData.stripe.identity.verificationSessions.retrieve(sig.verificationSessionId);
+      if (session.status !== sig.verificationStatus) {
+        await fastify.db.update(documentSignatures).set({
+          verificationStatus: session.status,
+          updatedAt: new Date(),
+        }).where(eq(documentSignatures.id, sig.id));
+      }
+      return { status: session.status };
+    } catch (err) {
+      request.log.error({ err }, '[AGREEMENTS] Stripe Identity status check failed');
+      return { status: sig.verificationStatus ?? 'none' };
+    }
   });
 
   // Mobile ID-capture page (opened by scanning the QR on the signing page)
@@ -338,11 +430,20 @@ export async function agreementRoutes(fastify: FastifyInstance) {
       return reply.code(410).send({ error: 'EXPIRED', message: 'This link has expired. Please request a new one.' });
     }
 
-    // Photo ID must be attached before the agreement can be signed
-    const [idDoc] = await fastify.db.select({ id: signatureDocuments.id }).from(signatureDocuments)
-      .where(eq(signatureDocuments.signatureId, sig.id)).limit(1);
-    if (!idDoc) {
-      return reply.code(400).send({ error: 'ID_REQUIRED', message: 'Please attach a photo of your ID before signing.' });
+    // Identity must be established before the agreement can be signed:
+    // Stripe Identity (submitted or verified) when configured, else a photo ID.
+    const { getStripeFromDb } = await import('../integrations/stripe.js');
+    const stripeConfigured = Boolean(await getStripeFromDb(fastify.db, sig.tenantId));
+    if (stripeConfigured) {
+      if (!['processing', 'verified'].includes(sig.verificationStatus ?? '')) {
+        return reply.code(400).send({ error: 'ID_REQUIRED', message: 'Please complete identity verification before signing.' });
+      }
+    } else {
+      const [idDoc] = await fastify.db.select({ id: signatureDocuments.id }).from(signatureDocuments)
+        .where(eq(signatureDocuments.signatureId, sig.id)).limit(1);
+      if (!idDoc) {
+        return reply.code(400).send({ error: 'ID_REQUIRED', message: 'Please attach a photo of your ID before signing.' });
+      }
     }
 
     const { completeMsaSignature } = await import('../../services/quote-signing.js');

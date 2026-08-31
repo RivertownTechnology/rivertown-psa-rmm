@@ -83,6 +83,10 @@ interface Agreement {
   sentAt: string | null;
   signedAt: string | null;
   hasIdDocument?: boolean;
+  signature?: {
+    verificationStatus: string | null;
+    verificationSessionId: string | null;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -802,6 +806,17 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
                   }}>
                     <FileText className="h-3 w-3 mr-1" /> View PDF
                   </Button>
+                  {agreement.signature?.verificationSessionId && (
+                    <Badge
+                      variant={agreement.signature.verificationStatus === 'verified' ? 'default' : 'secondary'}
+                      className={agreement.signature.verificationStatus === 'verified' ? 'bg-green-600 hover:bg-green-600/80' : ''}
+                      title={`Stripe Identity session ${agreement.signature.verificationSessionId}`}
+                    >
+                      ID: {agreement.signature.verificationStatus === 'verified' ? 'verified'
+                        : agreement.signature.verificationStatus === 'processing' ? 'verifying…'
+                        : agreement.signature.verificationStatus ?? 'not started'}
+                    </Badge>
+                  )}
                   {agreement.hasIdDocument && (
                     <Button size="sm" variant="outline" onClick={async () => {
                       const { token } = await api<{ token: string }>(`/agreements/${agreement.id}/preview-token`, { method: 'POST' });

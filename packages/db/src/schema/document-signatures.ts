@@ -16,6 +16,9 @@ export const documentSignatures = pgTable(
     signerName: text('signer_name'),
     signerEmail: text('signer_email'),
     signerPhone: text('signer_phone'),
+    // Stripe Identity verification (null when using the photo-capture fallback)
+    verificationSessionId: text('verification_session_id'),
+    verificationStatus: text('verification_status'), // requires_input | processing | verified | canceled
     ipAddress: text('ip_address'),
     forwardedFor: text('forwarded_for'), // raw X-Forwarded-For chain as received
     userAgent: text('user_agent'),
