@@ -80,6 +80,11 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets:
       - postgres_password
+    # LAN-only admin access (pgAdmin etc.) — do NOT forward 5432 on the router.
+    ports:
+      - target: 5432
+        published: 5432
+        protocol: tcp
     volumes:
       - type: bind
         source: /mnt/ssd/pgdata

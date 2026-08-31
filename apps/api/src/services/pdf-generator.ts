@@ -1,4 +1,5 @@
 import puppeteer from 'puppeteer-core';
+import { accessSync } from 'fs';
 
 let browserPath: string | undefined;
 
@@ -23,7 +24,10 @@ function findChromium(): string {
   for (const p of paths) {
     if (p) {
       try {
-        require('fs').accessSync(p);
+        // NOTE: must be a real import — require() doesn't exist in this ESM
+        // module, and a ReferenceError here is swallowed by the catch, making
+        // every path probe "fail" even when Chromium is installed.
+        accessSync(p);
         return p;
       } catch { /* skip */ }
     }
