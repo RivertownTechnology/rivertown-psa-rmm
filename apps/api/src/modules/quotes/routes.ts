@@ -683,6 +683,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     const s = (tenant?.settings ?? {}) as Record<string, string>;
 
     const { generateQuoteHtml } = await import('../../services/template-renderer.js');
+    const { formatDateLong } = await import('../../services/document-email.js');
 
     const html = generateQuoteHtml({
       businessName: s.businessName || tenant?.name || 'Company',
@@ -702,7 +703,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
       customerPhone: customer?.phone ?? '',
       quoteNumber: quote.quoteNumber,
       title: quote.title,
-      validUntil: quote.validUntil ?? '',
+      validUntil: formatDateLong(quote.validUntil),
       summary: quote.summary ?? '',
       lineItems: lineItemRows.map(li => ({
         description: li.description,

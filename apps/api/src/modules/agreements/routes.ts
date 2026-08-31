@@ -211,6 +211,18 @@ export async function agreementRoutes(fastify: FastifyInstance) {
 
     const docHtml = `<div style="padding:40px;font-family:Georgia,'Times New Roman',serif;line-height:1.6">${agreement.contentHtml}</div>`;
     const base = `${process.env.API_BASE_URL || 'https://rivertownapi-production.up.railway.app'}/api/public/sign/agreement/${token}`;
+
+    // QR code that hands the ID-capture step off to a phone
+    let qrDataUrl: string | undefined;
+    if (state === 'active') {
+      try {
+        const QRCode = (await import('qrcode')).default;
+        qrDataUrl = await QRCode.toDataURL(`${base}/id-capture`, { margin: 1, width: 200 });
+      } catch (err) {
+        request.log.error({ err }, '[AGREEMENTS] QR generation failed');
+      }
+    }
+
     const html = generateSignPage({
       state,
       docLabel: agreement.title,
@@ -220,9 +232,48 @@ export async function agreementRoutes(fastify: FastifyInstance) {
       declineEndpoint: `${base}/decline`,
       signedName: sig.signerName ?? undefined,
       successMessage: 'Your agreement has been signed. A copy will be emailed to you for your records — welcome aboard!',
-      idCapture: { uploadEndpoint: `${base}/id-upload` },
+      idCapture: { uploadEndpoint: `${base}/id-upload`, qrDataUrl, statusEndpoint: `${base}/id-status` },
     });
     reply.type('text/html').send(html);
+  });
+
+  // Mobile ID-capture page (opened by scanning the QR on the signing page)
+  fastify.get('/api/public/sign/agreement/:token/id-capture', { config: publicRateLimit }, async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const ctx = await loadAgreementSignatureContext(fastify.db, token);
+    if (!ctx) return reply.code(404).send({ error: 'Not found' });
+    const { sig, agreement } = ctx;
+
+    if (!['pending', 'viewed'].includes(sig.status) || !['sent', 'viewed'].includes(agreement.status)) {
+      return reply.type('text/html').send('<p style="font-family:sans-serif;padding:24px">This link is no longer active.</p>');
+    }
+
+    const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, sig.tenantId)).limit(1);
+    const businessName = ((tenant?.settings as Record<string, string>)?.businessName) || tenant?.name || 'Rivertown Technology';
+    const [doc] = await fastify.db.select({ id: signatureDocuments.id }).from(signatureDocuments)
+      .where(eq(signatureDocuments.signatureId, sig.id)).limit(1);
+
+    const { generateIdCapturePage } = await import('../../services/template-renderer.js');
+    const base = `${process.env.API_BASE_URL || 'https://rivertownapi-production.up.railway.app'}/api/public/sign/agreement/${token}`;
+    reply.type('text/html').send(generateIdCapturePage({
+      businessName,
+      docLabel: agreement.title,
+      uploadEndpoint: `${base}/id-upload`,
+      alreadyUploaded: Boolean(doc),
+    }));
+  });
+
+  // Polled by the signing page to detect a phone-side upload (higher rate
+  // limit than the other public routes: one poll every ~4s)
+  fastify.get('/api/public/sign/agreement/:token/id-status', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } } as any,
+  }, async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const ctx = await loadAgreementSignatureContext(fastify.db, token);
+    if (!ctx) return reply.code(404).send({ error: 'Not found' });
+    const [doc] = await fastify.db.select({ id: signatureDocuments.id }).from(signatureDocuments)
+      .where(eq(signatureDocuments.signatureId, ctx.sig.id)).limit(1);
+    return { uploaded: Boolean(doc) };
   });
 
   // Photo ID upload from the signing page (JSON base64; images are downscaled

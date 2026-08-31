@@ -574,7 +574,13 @@ ${BS_FONT_LINK}
   <section>
     <div style="font-size:11.5px;letter-spacing:0.14em;text-transform:uppercase;color:${BS.accent700};margin-bottom:10px">Terms</div>
     <ul style="margin:0;padding-left:16px;font-size:12px;line-height:1.7;color:${BS.neutral700}">
-      ${d.footer ? d.footer.split(/\r?\n/).filter(l => l.trim()).map(l => `<li>${escapeHtml(l.trim())}</li>`).join('') : ''}
+      ${d.footer ? d.footer.split(/\r?\n/)
+        .filter(l => l.trim())
+        // The quote's own valid-until date is authoritative — drop static
+        // "valid for N days" boilerplate from the footer setting so the two
+        // never contradict each other.
+        .filter(l => !(validUntil && /valid/i.test(l)))
+        .map(l => `<li>${escapeHtml(l.trim())}</li>`).join('') : ''}
       ${validUntil ? `<li>Quote valid through ${validUntil}.</li>` : ''}
     </ul>
   </section>
@@ -611,8 +617,10 @@ export function generateSignPage(data: {
   declineEndpoint: string;   // absolute URL for POST decline
   signedName?: string;       // when state === 'signed'
   successMessage: string;    // shown after successful signing
-  // When set, a photo-ID capture step (camera or upload) is required before signing
-  idCapture?: { uploadEndpoint: string };
+  // When set, a photo-ID capture step (camera or upload) is required before signing.
+  // qrDataUrl: QR image (data URI) linking to the mobile capture page;
+  // statusEndpoint: polled so a phone upload marks the step complete here.
+  idCapture?: { uploadEndpoint: string; qrDataUrl?: string; statusEndpoint?: string };
 }): string {
   const d = data;
   if (d.state === 'expired') {
@@ -675,9 +683,15 @@ export function generateSignPage(data: {
       <p style="margin:0 0 8px;color:#6b7280;font-size:13px">Take a photo of your government-issued ID (driver's license or similar), or upload an image. It is stored securely for verification and never shared.</p>
       <div id="idControls" style="display:flex;gap:8px;flex-wrap:wrap">
         <button type="button" id="idCameraBtn" style="background:#374151;color:#fff;border:none;padding:10px 20px;border-radius:6px;font-weight:600;font-size:14px;cursor:pointer">📷 Take Photo</button>
+        ${d.idCapture?.qrDataUrl ? `<button type="button" id="idQrBtn" style="background:#fff;color:#374151;border:1px solid #d1d5db;padding:10px 20px;border-radius:6px;font-weight:600;font-size:14px;cursor:pointer">📱 Scan with Phone</button>` : ''}
         <button type="button" id="idFileBtn" style="background:#fff;color:#374151;border:1px solid #d1d5db;padding:10px 20px;border-radius:6px;font-weight:600;font-size:14px;cursor:pointer">Upload File</button>
         <input type="file" id="idFileInput" accept="image/*" capture="environment" style="display:none">
       </div>
+      ${d.idCapture?.qrDataUrl ? `
+      <div id="qrWrap" style="display:none;margin-top:10px;text-align:center;max-width:280px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px">
+        <img src="${d.idCapture.qrDataUrl}" alt="Scan to capture ID on your phone" style="width:200px;height:200px">
+        <p style="margin:8px 0 0;font-size:13px;color:#6b7280">Scan with your phone's camera to take the photo there. This page updates automatically when it's done.</p>
+      </div>` : ''}
       <div id="camWrap" style="display:none;margin-top:10px">
         <video id="camVideo" autoplay playsinline style="width:100%;max-width:480px;border-radius:8px;background:#000"></video>
         <div style="margin-top:8px;display:flex;gap:8px">
@@ -735,7 +749,9 @@ export function generateSignPage(data: {
     function uploadIdImage(canvas) {
       var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
       var wrap = document.getElementById('idPreviewWrap');
-      document.getElementById('idPreview').src = dataUrl;
+      var previewImg = document.getElementById('idPreview');
+      previewImg.src = dataUrl;
+      previewImg.style.display = '';
       wrap.style.display = 'block';
       setIdStatus('Uploading…', true);
       fetch(idUploadEndpoint, {
@@ -761,6 +777,39 @@ export function generateSignPage(data: {
       canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
       return canvas;
     }
+    // Poll for a phone-side upload (QR hand-off) so this page marks the ID
+    // step complete without a refresh
+    var idStatusEndpoint = ${JSON.stringify(d.idCapture?.statusEndpoint ?? '')};
+    var idPollTimer = null;
+    function markIdUploadedRemotely() {
+      idUploaded = true;
+      var wrap = document.getElementById('idPreviewWrap');
+      var img = document.getElementById('idPreview');
+      if (img && !img.src) img.style.display = 'none';
+      if (wrap) wrap.style.display = 'block';
+      var qr = document.getElementById('qrWrap');
+      if (qr) qr.style.display = 'none';
+      stopCam();
+      setIdStatus('✓ ID attached from your phone', true);
+      if (idPollTimer) { clearInterval(idPollTimer); idPollTimer = null; }
+    }
+    if (idRequired && idStatusEndpoint) {
+      idPollTimer = setInterval(function() {
+        if (idUploaded) { clearInterval(idPollTimer); idPollTimer = null; return; }
+        fetch(idStatusEndpoint).then(function(r) { return r.json(); })
+          .then(function(j) { if (j && j.uploaded && !idUploaded) markIdUploadedRemotely(); })
+          .catch(function() {});
+      }, 4000);
+    }
+    var qrBtn = document.getElementById('idQrBtn');
+    if (qrBtn) {
+      qrBtn.addEventListener('click', function() {
+        stopCam();
+        var qr = document.getElementById('qrWrap');
+        qr.style.display = qr.style.display === 'none' ? 'block' : 'none';
+      });
+    }
+
     var camBtn = document.getElementById('idCameraBtn');
     if (camBtn) {
       camBtn.addEventListener('click', function() {
@@ -846,6 +895,125 @@ export function generateSignPage(data: {
             showError((res.body && (res.body.message || res.body.error)) || 'Something went wrong. Please try again.');
           }
         }).catch(function() { btn.disabled = false; showError('Network error. Please try again.'); });
+    });
+  })();
+  </script>
+</body></html>`;
+}
+
+/**
+ * Focused mobile page for the QR hand-off: capture/upload a photo ID on a
+ * phone while the signing page stays open on the computer.
+ */
+export function generateIdCapturePage(data: {
+  businessName: string;
+  docLabel: string;
+  uploadEndpoint: string;
+  alreadyUploaded: boolean;
+}): string {
+  const d = data;
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Photo ID — ${escapeHtml(d.businessName)}</title>
+<style>
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,-apple-system,sans-serif; background:#f3f4f6; color:#374151; margin:0; padding:20px; }
+  .card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.1); padding:24px; max-width:480px; margin:0 auto; }
+  h1 { font-size:20px; color:#111; margin:0 0 6px; }
+  .btn { display:block; width:100%; border:none; border-radius:8px; padding:16px; font-weight:600; font-size:16px; cursor:pointer; margin-top:12px; }
+  .btn-primary { background:#374151; color:#fff; }
+  .btn-secondary { background:#fff; color:#374151; border:1px solid #d1d5db; }
+  .btn-capture { background:#16a34a; color:#fff; }
+  video, img.preview { width:100%; border-radius:8px; margin-top:12px; background:#000; }
+  #idStatus { font-size:14px; margin-top:10px; text-align:center; }
+</style></head>
+<body>
+  <div class="card">
+    <h1>Photo ID</h1>
+    <p style="margin:0;color:#6b7280;font-size:14px">${escapeHtml(d.docLabel)} · ${escapeHtml(d.businessName)}</p>
+    ${d.alreadyUploaded ? `
+    <p style="color:#16a34a;font-weight:600;margin-top:16px">✓ Your ID is already attached. You can return to the signing page — it updates automatically. To replace it, capture a new photo below.</p>
+    ` : `
+    <p style="margin-top:12px;font-size:14px;line-height:1.5">Take a photo of your government-issued ID (driver's license or similar). It is stored securely for verification and never shared.</p>
+    `}
+    <button type="button" class="btn btn-primary" id="idCameraBtn">📷 Take Photo</button>
+    <button type="button" class="btn btn-secondary" id="idFileBtn">Choose from Library</button>
+    <input type="file" id="idFileInput" accept="image/*" capture="environment" style="display:none">
+    <div id="camWrap" style="display:none">
+      <video id="camVideo" autoplay playsinline></video>
+      <button type="button" class="btn btn-capture" id="camCapture">Capture</button>
+      <button type="button" class="btn btn-secondary" id="camCancel">Cancel</button>
+    </div>
+    <div id="idPreviewWrap" style="display:none">
+      <img id="idPreview" class="preview" alt="ID preview">
+      <div id="idStatus"></div>
+    </div>
+  </div>
+  <script>
+  (function() {
+    var camStream = null;
+    function stopCam() {
+      if (camStream) { camStream.getTracks().forEach(function(t) { t.stop(); }); camStream = null; }
+      document.getElementById('camWrap').style.display = 'none';
+    }
+    function setIdStatus(msg, ok) {
+      var s = document.getElementById('idStatus');
+      s.textContent = msg; s.style.color = ok ? '#16a34a' : '#dc2626';
+    }
+    function uploadIdImage(canvas) {
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      document.getElementById('idPreview').src = dataUrl;
+      document.getElementById('idPreviewWrap').style.display = 'block';
+      setIdStatus('Uploading…', true);
+      fetch(${JSON.stringify(d.uploadEndpoint)}, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: 'photo-id.jpg', mimeType: 'image/jpeg', dataBase64: dataUrl.split(',')[1] }),
+      }).then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
+        .then(function(res) {
+          if (res.ok) setIdStatus('✓ ID uploaded — you can return to the signing page. It updates automatically.', true);
+          else setIdStatus((res.body && res.body.message) || 'Upload failed — please try again.', false);
+        }).catch(function() { setIdStatus('Upload failed — please try again.', false); });
+    }
+    function downscaleToCanvas(source, w, h) {
+      var max = 1600;
+      var scale = Math.min(1, max / Math.max(w, h));
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+      return canvas;
+    }
+    document.getElementById('idCameraBtn').addEventListener('click', function() {
+      var video = document.getElementById('camVideo');
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 } } })
+        .then(function(stream) {
+          camStream = stream;
+          video.srcObject = stream;
+          document.getElementById('camWrap').style.display = 'block';
+        })
+        .catch(function() { document.getElementById('idFileInput').click(); });
+    });
+    document.getElementById('camCapture').addEventListener('click', function() {
+      var video = document.getElementById('camVideo');
+      if (!video.videoWidth) return;
+      var canvas = downscaleToCanvas(video, video.videoWidth, video.videoHeight);
+      stopCam();
+      uploadIdImage(canvas);
+    });
+    document.getElementById('camCancel').addEventListener('click', stopCam);
+    document.getElementById('idFileBtn').addEventListener('click', function() {
+      document.getElementById('idFileInput').click();
+    });
+    document.getElementById('idFileInput').addEventListener('change', function(e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      var img = new Image();
+      img.onload = function() {
+        uploadIdImage(downscaleToCanvas(img, img.naturalWidth, img.naturalHeight));
+        URL.revokeObjectURL(img.src);
+      };
+      img.src = URL.createObjectURL(file);
     });
   })();
   </script>

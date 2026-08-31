@@ -73,6 +73,14 @@ function formatCents(cents: number): string {
   return (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** 'YYYY-MM-DD' → 'September 30, 2026' (noon avoids timezone day-shift). */
+export function formatDateLong(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  const d = new Date(`${dateStr}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
 // --- Invoice Email ---
 
 export async function sendInvoiceEmailWithTemplate(
@@ -191,7 +199,7 @@ export async function buildQuoteDocumentHtml(
     customerZip: customer.zip ?? undefined, customerEmail: customer.billingEmail ?? undefined,
     customerPhone: customer.phone ?? undefined,
     quoteNumber: quote.quoteNumber, title: quote.title, summary: quote.summary ?? '',
-    validUntil: quote.validUntil ?? '',
+    validUntil: formatDateLong(quote.validUntil),
     issuedDate: (quote.sentAt ?? quote.createdAt)?.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
     lineItems: lineItemRows.map(li => ({
       description: li.description, itemType: li.itemType, quantity: li.quantity ?? '1',
@@ -243,7 +251,7 @@ export async function sendQuoteEmailWithTemplate(
     quoteTitle: quote.title,
     quoteSummary: quote.summary ?? '',
     totalFormatted: formatCents(quote.totalCents),
-    validUntil: quote.validUntil ?? '',
+    validUntil: formatDateLong(quote.validUntil),
     approveQuoteUrl: opts.approveUrl,
   };
 
