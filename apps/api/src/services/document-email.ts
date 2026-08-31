@@ -4,12 +4,13 @@
  */
 import { eq, and } from 'drizzle-orm';
 import {
-  invoices, invoiceLineItems, quotes, quoteLineItems,
+  invoices, invoiceLineItems, quotes, quoteLineItems, agreements,
   customers, contacts, tenants, emailTemplates, payments, integrationConfigs,
 } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
-import { sendEmail, sendBillingEmail } from './email.js';
+import { sendEmail, sendBillingEmail, sendSalesEmail } from './email.js';
 import { renderTemplate, generateInvoiceHtml, generateQuoteHtml } from './template-renderer.js';
+import type { QuoteSignatureBlock } from './template-renderer.js';
 import { htmlToPdf } from './pdf-generator.js';
 
 // --- Shared helpers ---
@@ -146,22 +147,92 @@ export async function sendInvoiceEmailWithTemplate(
 
 // --- Quote Email ---
 
-export async function sendQuoteEmailWithTemplate(db: Database, tenantId: string, quoteId: string): Promise<boolean> {
+/** Fetches the from-address of the sales email channel (for display in the PDF). */
+async function getSalesFromAddress(db: Database, tenantId: string): Promise<string> {
+  const [config] = await db.select().from(integrationConfigs)
+    .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'sales-email')))
+    .limit(1);
+  const creds = (config?.credentials ?? {}) as Record<string, unknown>;
+  return (creds.fromAddress as string) || '';
+}
+
+/**
+ * Renders the Broadsheet-style quote document HTML (used for the PDF
+ * attachment, the public signing page, and the signed-copy PDF).
+ */
+export async function buildQuoteDocumentHtml(
+  db: Database, tenantId: string, quoteId: string,
+  signature?: QuoteSignatureBlock,
+): Promise<string> {
   const [quote] = await db.select().from(quotes)
     .where(and(eq(quotes.id, quoteId), eq(quotes.tenantId, tenantId))).limit(1);
-  if (!quote) return false;
+  if (!quote) throw new Error('Quote not found');
 
   const [customer] = await db.select().from(customers).where(eq(customers.id, quote.customerId)).limit(1);
-  if (!customer?.billingEmail) return false;
+  if (!customer) throw new Error('Customer not found');
+
+  const lineItemRows = await db.select().from(quoteLineItems)
+    .where(eq(quoteLineItems.quoteId, quoteId)).orderBy(quoteLineItems.sortOrder);
+
+  const bv = await getBusinessVars(db, tenantId);
+  const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+  const ts = (tenant?.settings ?? {}) as Record<string, string>;
+
+  return generateQuoteHtml({
+    businessName: bv.businessName, businessAddress: bv.businessAddress, businessCity: bv.businessCity,
+    businessState: bv.businessState, businessZip: bv.businessZip, businessPhone: bv.businessPhone,
+    businessEmail: bv.businessEmail, businessLogo: bv.businessLogo,
+    businessWebsite: ts.businessWebsite || '',
+    salesEmail: await getSalesFromAddress(db, tenantId),
+    customerName: customer.name, customerAddress: customer.address ?? undefined,
+    customerCity: customer.city ?? undefined, customerState: customer.state ?? undefined,
+    customerZip: customer.zip ?? undefined, customerEmail: customer.billingEmail ?? undefined,
+    customerPhone: customer.phone ?? undefined,
+    quoteNumber: quote.quoteNumber, title: quote.title, summary: quote.summary ?? '',
+    validUntil: quote.validUntil ?? '',
+    issuedDate: (quote.sentAt ?? quote.createdAt)?.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+    lineItems: lineItemRows.map(li => ({
+      description: li.description, itemType: li.itemType, quantity: li.quantity ?? '1',
+      unitPrice: (li.unitPriceCents / 100).toFixed(2),
+      total: ((li.unitPriceCents * parseFloat(li.quantity ?? '1')) / 100).toFixed(2),
+    })),
+    subtotal: (quote.subtotalCents / 100).toFixed(2), tax: (quote.taxCents / 100).toFixed(2),
+    total: (quote.totalCents / 100).toFixed(2),
+    style: ts.quoteStyle || 'modern', footer: ts.quoteFooter || '',
+    signature,
+  });
+}
+
+/** Full-bleed PDF of the quote document (optionally with signature certificate). */
+export async function buildQuotePdf(
+  db: Database, tenantId: string, quoteId: string,
+  signature?: QuoteSignatureBlock,
+): Promise<Buffer> {
+  const html = await buildQuoteDocumentHtml(db, tenantId, quoteId, signature);
+  return htmlToPdf(html, { margin: { top: '0', right: '0', bottom: '0', left: '0' } });
+}
+
+/**
+ * Sends the quote email with PDF attachment and approval link via the sales
+ * email channel. Throws on any failure (PDF generation or email rejection) —
+ * callers surface the error to the UI instead of silently succeeding.
+ */
+export async function sendQuoteEmailWithTemplate(
+  db: Database, tenantId: string, quoteId: string,
+  opts: { to: string; approveUrl: string },
+): Promise<void> {
+  const [quote] = await db.select().from(quotes)
+    .where(and(eq(quotes.id, quoteId), eq(quotes.tenantId, tenantId))).limit(1);
+  if (!quote) throw new Error('Quote not found');
+
+  const [customer] = await db.select().from(customers).where(eq(customers.id, quote.customerId)).limit(1);
+  if (!customer) throw new Error('Customer not found');
 
   let contact = null;
   if (quote.contactId) {
     const [c] = await db.select().from(contacts).where(eq(contacts.id, quote.contactId)).limit(1);
     contact = c ?? null;
   }
-
-  const lineItemRows = await db.select().from(quoteLineItems)
-    .where(eq(quoteLineItems.quoteId, quoteId)).orderBy(quoteLineItems.sortOrder);
 
   const vars: Record<string, string> = {
     ...await getBusinessVars(db, tenantId),
@@ -171,6 +242,7 @@ export async function sendQuoteEmailWithTemplate(db: Database, tenantId: string,
     quoteSummary: quote.summary ?? '',
     totalFormatted: formatCents(quote.totalCents),
     validUntil: quote.validUntil ?? '',
+    approveQuoteUrl: opts.approveUrl,
   };
 
   const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
@@ -183,43 +255,107 @@ export async function sendQuoteEmailWithTemplate(db: Database, tenantId: string,
   if (template) {
     subject = renderTemplate(template.subject, vars);
     html = renderTemplate(template.bodyHtml, vars);
+    // Older tenant templates predate the approval link — append a button so
+    // the customer can always reach the signing page.
+    if (opts.approveUrl && !template.bodyHtml.includes('approveQuoteUrl')) {
+      html += `<div style="text-align:center;margin:28px 0"><a href="${opts.approveUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Review &amp; Approve Quote</a></div>`;
+    }
   } else {
     subject = `Quote #${quote.quoteNumber}: ${quote.title}`;
-    html = `<p>Please find attached Quote #${quote.quoteNumber} for $${formatCents(quote.totalCents)}.</p>`;
+    html = `<p>Please find attached Quote #${quote.quoteNumber} for $${formatCents(quote.totalCents)}.</p>
+      <div style="text-align:center;margin:28px 0"><a href="${opts.approveUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Review &amp; Approve Quote</a></div>`;
   }
 
-  // Generate PDF HTML attachment
-  const bv = vars;
-  const pdfHtml = generateQuoteHtml({
-    businessName: bv.businessName, businessAddress: bv.businessAddress, businessCity: bv.businessCity,
-    businessState: bv.businessState, businessZip: bv.businessZip, businessPhone: bv.businessPhone,
-    businessEmail: bv.businessEmail, businessLogo: bv.businessLogo,
-    customerName: customer.name, customerAddress: customer.address ?? undefined,
-    customerCity: customer.city ?? undefined, customerState: customer.state ?? undefined,
-    customerZip: customer.zip ?? undefined, customerEmail: customer.billingEmail ?? undefined,
-    customerPhone: customer.phone ?? undefined,
-    quoteNumber: quote.quoteNumber, title: quote.title, summary: quote.summary ?? '',
-    validUntil: quote.validUntil ?? '',
-    lineItems: lineItemRows.map(li => ({
-      description: li.description, quantity: li.quantity ?? '1',
-      unitPrice: (li.unitPriceCents / 100).toFixed(2),
-      total: ((li.unitPriceCents * parseFloat(li.quantity ?? '1')) / 100).toFixed(2),
-    })),
-    subtotal: (quote.subtotalCents / 100).toFixed(2), tax: (quote.taxCents / 100).toFixed(2),
-    total: (quote.totalCents / 100).toFixed(2),
-    style: ts.quoteStyle || 'modern', footer: ts.quoteFooter || '',
-  });
-
-  // Generate PDF attachment
-  let attachments;
+  // PDF attachment is required — a quote email without the document is worse
+  // than a visible failure.
+  let pdfBuffer: Buffer;
   try {
-    const pdfBuffer = await htmlToPdf(pdfHtml);
-    attachments = [{ filename: `Quote-${quote.quoteNumber}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }];
+    pdfBuffer = await buildQuotePdf(db, tenantId, quoteId);
   } catch (err) {
-    console.error('[PDF] Quote PDF generation failed, sending without attachment:', err);
+    throw new Error(`Quote PDF generation failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  return sendBillingEmail(db, tenantId, { to: customer.billingEmail, subject, html, attachments });
+  const sent = await sendSalesEmail(db, tenantId, {
+    to: opts.to, subject, html,
+    attachments: [{ filename: `Quote-${quote.quoteNumber}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
+  });
+  if (!sent) throw new Error('Email provider rejected the message — check the Sales Email settings.');
+}
+
+// --- Agreement (MSA) Emails ---
+
+export async function sendAgreementEmail(
+  db: Database, tenantId: string, agreementId: string,
+  opts: { to: string; signUrl: string },
+): Promise<void> {
+  const [agreement] = await db.select().from(agreements)
+    .where(and(eq(agreements.id, agreementId), eq(agreements.tenantId, tenantId))).limit(1);
+  if (!agreement) throw new Error('Agreement not found');
+
+  const [customer] = await db.select().from(customers).where(eq(customers.id, agreement.customerId)).limit(1);
+  if (!customer) throw new Error('Customer not found');
+
+  let quoteNumber = '';
+  if (agreement.quoteId) {
+    const [quote] = await db.select().from(quotes).where(eq(quotes.id, agreement.quoteId)).limit(1);
+    if (quote) quoteNumber = String(quote.quoteNumber);
+  }
+
+  const vars: Record<string, string> = {
+    ...await getBusinessVars(db, tenantId),
+    ...buildCustomerVars(customer),
+    agreementTitle: agreement.title,
+    quoteNumber,
+    signAgreementUrl: opts.signUrl,
+  };
+
+  const template = await getTemplate(db, tenantId, 'msa_sent');
+
+  let subject: string, html: string;
+  if (template) {
+    subject = renderTemplate(template.subject, vars);
+    html = renderTemplate(template.bodyHtml, vars);
+  } else {
+    subject = `${agreement.title} — signature requested`;
+    html = `<p>Thank you for approving your quote! Please review and sign your service agreement:</p>
+      <div style="text-align:center;margin:28px 0"><a href="${opts.signUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Review &amp; Sign Agreement</a></div>`;
+  }
+
+  const sent = await sendSalesEmail(db, tenantId, { to: opts.to, subject, html });
+  if (!sent) throw new Error('Email provider rejected the agreement email — check the Sales Email settings.');
+}
+
+export async function sendSignedAgreementCopy(
+  db: Database, tenantId: string, agreementId: string, pdfBuffer: Buffer, to: string,
+): Promise<void> {
+  const [agreement] = await db.select().from(agreements)
+    .where(and(eq(agreements.id, agreementId), eq(agreements.tenantId, tenantId))).limit(1);
+  if (!agreement) throw new Error('Agreement not found');
+
+  const [customer] = await db.select().from(customers).where(eq(customers.id, agreement.customerId)).limit(1);
+
+  const vars: Record<string, string> = {
+    ...await getBusinessVars(db, tenantId),
+    ...(customer ? buildCustomerVars(customer) : {}),
+    agreementTitle: agreement.title,
+  };
+
+  const template = await getTemplate(db, tenantId, 'msa_signed');
+
+  let subject: string, html: string;
+  if (template) {
+    subject = renderTemplate(template.subject, vars);
+    html = renderTemplate(template.bodyHtml, vars);
+  } else {
+    subject = `Signed copy of your ${agreement.title}`;
+    html = `<p>Your ${agreement.title} has been signed. A copy is attached for your records. Welcome aboard!</p>`;
+  }
+
+  const sent = await sendSalesEmail(db, tenantId, {
+    to, subject, html,
+    attachments: [{ filename: `${agreement.title.replace(/[^\w -]/g, '')}-Signed.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
+  });
+  if (!sent) throw new Error('Email provider rejected the signed-copy email — check the Sales Email settings.');
 }
 
 // --- Payment Receipt Email ---

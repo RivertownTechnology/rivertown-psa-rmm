@@ -1,5 +1,27 @@
-function escapeHtml(str: string): string {
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
+
+export function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Brand logo PNGs shipped with the API (apps/api/src/assets/branding), inlined
+// as data URIs so PDFs render without any network fetch.
+const brandingAssetCache = new Map<string, string>();
+function brandingAsset(filename: string): string {
+  const cached = brandingAssetCache.get(filename);
+  if (cached !== undefined) return cached;
+  let uri = '';
+  try {
+    const dir = path.dirname(fileURLToPath(import.meta.url));
+    const buf = readFileSync(path.join(dir, '..', 'assets', 'branding', filename));
+    uri = `data:image/png;base64,${buf.toString('base64')}`;
+  } catch {
+    uri = '';
+  }
+  brandingAssetCache.set(filename, uri);
+  return uri;
 }
 
 export function renderTemplate(template: string, variables: Record<string, string>): string {
@@ -112,9 +134,41 @@ export function getDefaultTemplates(): Array<{
           <div style="color:#6b7280;margin-top:4px">Valid until {{validUntil}}</div>
         </div>
         {{#quoteSummary}}<p style="margin:16px 0">{{quoteSummary}}</p>{{/quoteSummary}}
-        <p style="margin:16px 0;color:#6b7280;font-size:13px">Please reply to this email with any questions or to approve this quote.</p>
+        {{#approveQuoteUrl}}<div style="text-align:center;margin:28px 0">
+          <a href="{{approveQuoteUrl}}" style="display:inline-block;background:#16a34a;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Review &amp; Approve Quote</a>
+        </div>{{/approveQuoteUrl}}
+        <p style="margin:16px 0;color:#6b7280;font-size:13px">A PDF copy of this quote is attached. Reply to this email with any questions{{^approveQuoteUrl}} or to approve this quote{{/approveQuoteUrl}}.</p>
       ${footer}`,
-      bodyText: 'Quote #{{quoteNumber}}: {{quoteTitle}}\nTotal: ${{totalFormatted}}\nValid until: {{validUntil}}\n\n{{quoteSummary}}',
+      bodyText: 'Quote #{{quoteNumber}}: {{quoteTitle}}\nTotal: ${{totalFormatted}}\nValid until: {{validUntil}}\n\n{{quoteSummary}}\n\nReview & approve: {{approveQuoteUrl}}',
+    },
+    {
+      templateType: 'msa_sent',
+      name: 'Agreement Sent',
+      subject: '{{agreementTitle}} — signature requested',
+      bodyHtml: `${header}
+        <h2 style="color:#111;margin:0 0 8px">{{agreementTitle}}</h2>
+        <p>Hi {{customerName}},</p>
+        <p>Thank you for approving Quote #{{quoteNumber}}! The next step is to sign your service agreement — a simple month-to-month agreement with no long-term commitment.</p>
+        <div style="text-align:center;margin:28px 0">
+          <a href="{{signAgreementUrl}}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Review &amp; Sign Agreement</a>
+        </div>
+        <p style="margin:16px 0;color:#6b7280;font-size:13px">Signing takes less than a minute — just review the agreement and type your name.</p>
+      ${footer}`,
+      bodyText: '{{agreementTitle}}\n\nThank you for approving Quote #{{quoteNumber}}. Please review and sign your month-to-month service agreement:\n{{signAgreementUrl}}',
+    },
+    {
+      templateType: 'msa_signed',
+      name: 'Agreement Signed',
+      subject: 'Signed copy of your {{agreementTitle}}',
+      bodyHtml: `${header}
+        <div style="text-align:center;margin:16px 0">
+          <div style="display:inline-block;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:50%;width:64px;height:64px;line-height:64px;font-size:32px;color:#16a34a">&#10003;</div>
+        </div>
+        <h2 style="color:#16a34a;margin:0 0 8px;text-align:center">Agreement Signed</h2>
+        <p style="text-align:center">Welcome aboard, {{customerName}}!</p>
+        <p style="text-align:center;color:#6b7280">A signed copy of your {{agreementTitle}} is attached to this email for your records. We're excited to get started.</p>
+      ${footer}`,
+      bodyText: 'Your {{agreementTitle}} has been signed. A copy is attached for your records. Welcome aboard!',
     },
     {
       templateType: 'invoice_sent',
@@ -353,65 +407,392 @@ export function generateInvoiceViewPage(data: {
 </body></html>`;
 }
 
-// Same for quotes
+// ---------------------------------------------------------------------------
+// "Broadsheet" quote document (design handoff: Rivertown Technology Sales Docs)
+// Newsprint-style: serif type on paper white, thick-thin rails, no boxes.
+// ---------------------------------------------------------------------------
+
+const BS = {
+  bg: '#f3f2f2',
+  text: '#201e1d',
+  accent700: '#006786',
+  accent2_700: '#aa0b56',
+  neutral700: '#605d5d',
+  neutral500: '#9b9797',
+  font: `"Source Serif 4", Georgia, "Times New Roman", serif`,
+};
+
+const BS_FONT_LINK = `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">`;
+
+function bsTopRail(left: string, right: string): string {
+  return `<div style="border-top:3px solid ${BS.text};border-bottom:1px solid ${BS.text};display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-size:11.5px;letter-spacing:0.08em;text-transform:uppercase">
+    <span>${left}</span><span>${right}</span>
+  </div>`;
+}
+
+function bsBottomRail(phone: string, emailLine: string, rightNote: string): string {
+  return `<div style="border-top:1px solid ${BS.text};border-bottom:3px solid ${BS.text};padding:12px 0 10px;display:flex;justify-content:space-between;align-items:baseline">
+    <div style="font-size:20px;font-weight:600">${phone} <span style="font-weight:400;font-size:13px;color:${BS.neutral700}">· ${emailLine}</span></div>
+    <div style="font-size:12px;color:${BS.neutral700}">${rightNote}</div>
+  </div>`;
+}
+
+export interface QuoteSignatureBlock {
+  signerName: string;
+  ipAddress: string;
+  signedAt: string; // pre-formatted UTC timestamp
+}
+
+function bsSignatureCertificate(sig: QuoteSignatureBlock, docRef: string): string {
+  return `<section style="margin-top:8px">
+    <div style="font-size:11.5px;letter-spacing:0.14em;text-transform:uppercase;color:${BS.accent700};margin-bottom:10px">Electronically Signed</div>
+    <div style="font-size:26px;font-weight:600;font-style:italic;margin-bottom:6px">${escapeHtml(sig.signerName)}</div>
+    <div style="font-size:12px;line-height:1.7;color:${BS.neutral700}">
+      Signed electronically by typed-name signature · ${escapeHtml(sig.signedAt)}<br>
+      IP address (as reported): ${escapeHtml(sig.ipAddress)} · Document: ${escapeHtml(docRef)}
+    </div>
+  </section>`;
+}
+
 export function generateQuoteHtml(data: {
   businessName: string; businessAddress: string; businessCity: string; businessState: string; businessZip: string;
-  businessPhone: string; businessEmail: string; businessLogo: string;
+  businessPhone: string; businessEmail: string; businessLogo: string; businessWebsite?: string;
   customerName: string; customerAddress?: string; customerCity?: string; customerState?: string;
   customerZip?: string; customerEmail?: string; customerPhone?: string;
-  quoteNumber: number; title: string; validUntil: string; summary: string;
-  lineItems: Array<{ description: string; quantity: string; unitPrice: string; total: string }>;
+  quoteNumber: number; title: string; validUntil: string; summary: string; issuedDate?: string;
+  lineItems: Array<{ description: string; itemType?: string; quantity: string; unitPrice: string; total: string }>;
   subtotal: string; tax: string; total: string;
   style: string; footer: string;
+  salesEmail?: string;
+  signature?: QuoteSignatureBlock;
 }): string {
   const d = data;
-  const primaryColor = d.style === 'modern' ? '#2563eb' : d.style === 'classic' ? '#1a1a1a' : '#374151';
-  const headerBg = d.style === 'modern' ? '#2563eb' : d.style === 'classic' ? '#f8f9fa' : '#ffffff';
-  const headerText = d.style === 'modern' ? '#ffffff' : '#111111';
+  const year = new Date().getFullYear();
+  const quoteRef = `Q-${year}-${String(d.quoteNumber).padStart(3, '0')}`;
+  const phone = escapeHtml(d.businessPhone || '(843) 410-3982');
+  const email = escapeHtml(d.salesEmail || d.businessEmail || 'sales@rivertowntechnology.com');
+  const website = escapeHtml((d.businessWebsite || 'rivertowntechnology.com').replace(/^https?:\/\//, ''));
+  const businessName = escapeHtml(d.businessName || 'Rivertown Technology');
+  const customerName = escapeHtml(d.customerName);
+  const issued = escapeHtml(d.issuedDate || new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
+  const validUntil = escapeHtml(d.validUntil);
+  const location = [d.businessCity, d.businessState].filter(Boolean).map(escapeHtml).join(', ') || 'Conway, South Carolina';
+
+  const stackedLogo = brandingAsset('Large_transparent_background_1.png');
+  const shieldLogo = brandingAsset('Small_icon_transparent_background.png');
 
   const rows = d.lineItems.map(li => `
     <tr>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">${li.description}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${li.quantity}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${li.unitPrice}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:600">${li.total}</td>
+      <td style="padding:10px 10px 10px 0;border-bottom:1px solid ${BS.neutral500}40;vertical-align:top">
+        <strong style="font-weight:600">${escapeHtml(li.description)}</strong>
+        ${li.itemType ? `<br><span style="font-size:11.5px;color:${BS.neutral500};text-transform:capitalize">${escapeHtml(li.itemType.replace(/_/g, ' '))}</span>` : ''}
+      </td>
+      <td style="padding:10px;border-bottom:1px solid ${BS.neutral500}40;text-align:center;white-space:nowrap;vertical-align:top">${escapeHtml(li.quantity)}</td>
+      <td style="padding:10px;border-bottom:1px solid ${BS.neutral500}40;text-align:right;white-space:nowrap;vertical-align:top">$${escapeHtml(li.unitPrice)}</td>
+      <td style="padding:10px 0 10px 10px;border-bottom:1px solid ${BS.neutral500}40;text-align:right;white-space:nowrap;vertical-align:top">$${escapeHtml(li.total)}</td>
     </tr>`).join('');
 
+  const showTax = parseFloat(d.tax) > 0;
+
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Quote #${d.quoteNumber}</title>
-<style>* { margin:0; padding:0; box-sizing:border-box; } body { font-family:system-ui,-apple-system,sans-serif; color:#374151; font-size:14px; } @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } } .page { max-width:800px; margin:0 auto; padding:40px; } table { width:100%; border-collapse:collapse; }</style></head>
-<body><div class="page">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px;padding:24px;background:${headerBg};border-radius:8px">
-    <div>
-      ${d.businessLogo ? `<img src="${d.businessLogo}" style="max-height:60px;margin-bottom:8px"><br>` : ''}
-      <div style="font-size:20px;font-weight:700;color:${headerText}">${d.businessName}</div>
-      <div style="font-size:12px;color:${d.style === 'modern' ? 'rgba(255,255,255,0.8)' : '#6b7280'};margin-top:4px">${d.businessAddress ? `${d.businessAddress}<br>` : ''}${[d.businessCity, d.businessState].filter(Boolean).join(', ')}${d.businessZip ? ` ${d.businessZip}` : ''}${(d.businessPhone || d.businessEmail) ? '<br>' : ''}${[d.businessPhone, d.businessEmail].filter(Boolean).join(' | ')}</div>
-    </div>
-    <div style="text-align:right">
-      <div style="font-size:28px;font-weight:700;color:${headerText}">QUOTE</div>
-      <div style="font-size:16px;color:${d.style === 'modern' ? 'rgba(255,255,255,0.8)' : '#6b7280'};">#${d.quoteNumber}</div>
-    </div>
-  </div>
-  <div style="margin-bottom:24px"><div style="font-size:20px;font-weight:600">${d.title}</div>
-    <div style="color:#6b7280;margin-top:4px">Prepared for: <strong>${d.customerName}</strong>${d.customerAddress ? `, ${d.customerAddress}` : ''}${[d.customerCity, d.customerState].filter(Boolean).length ? `, ${[d.customerCity, d.customerState].filter(Boolean).join(', ')}` : ''}${d.customerZip ? ` ${d.customerZip}` : ''}${d.customerEmail ? ` | ${d.customerEmail}` : ''} | Valid until: <strong>${d.validUntil}</strong></div>
-    ${d.summary ? `<p style="margin-top:8px">${d.summary}</p>` : ''}
-  </div>
-  <table style="margin-bottom:24px">
-    <thead><tr style="background:#f9fafb">
-      <th style="padding:10px 12px;text-align:left;border-bottom:2px solid ${primaryColor};font-size:12px;text-transform:uppercase">Description</th>
-      <th style="padding:10px 12px;text-align:right;border-bottom:2px solid ${primaryColor};font-size:12px;text-transform:uppercase">Qty</th>
-      <th style="padding:10px 12px;text-align:right;border-bottom:2px solid ${primaryColor};font-size:12px;text-transform:uppercase">Unit Price</th>
-      <th style="padding:10px 12px;text-align:right;border-bottom:2px solid ${primaryColor};font-size:12px;text-transform:uppercase">Total</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <div style="display:flex;justify-content:flex-end;margin-bottom:32px">
-    <div style="width:250px">
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e5e7eb"><span style="color:#6b7280">Subtotal</span><span>$${d.subtotal}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e5e7eb"><span style="color:#6b7280">Tax</span><span>$${d.tax}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:2px solid ${primaryColor};font-size:18px;font-weight:700"><span>Total</span><span>$${d.total}</span></div>
+<html><head><meta charset="utf-8"><title>Quote ${quoteRef}</title>
+${BS_FONT_LINK}
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  @page { size: letter; margin: 0; }
+  html, body { background:${BS.bg}; }
+  body { font-family:${BS.font}; color:${BS.text}; font-size:14px; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  h1, h2 { font-weight:600; }
+  table { width:100%; border-collapse:collapse; }
+  .cover { width:8.5in; height:11in; padding:0.7in 0.68in 0.6in; display:flex; flex-direction:column; page-break-after:always; }
+  .quote-page { width:8.5in; min-height:11in; padding:0.6in 0.68in 0.55in; display:flex; flex-direction:column; gap:24px; }
+</style></head>
+<body>
+<section class="cover">
+  ${bsTopRail(`Veteran-Owned · ${location}`, 'Service Quote')}
+  ${stackedLogo
+    ? `<img src="${stackedLogo}" alt="${businessName}" style="width:280px;height:auto;align-self:flex-start;margin:90px 0 0">`
+    : `<div style="font-size:44px;font-weight:600;margin:90px 0 0">${businessName}</div>`}
+  <div style="margin-top:70px">
+    <div style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:${BS.accent700};margin-bottom:12px">Managed IT Services Quote</div>
+    <h1 style="font-size:40px;font-weight:600;line-height:1.15;margin:0 0 18px">Prepared for<br>${customerName}</h1>
+    <div style="font-size:14px;line-height:1.8;color:${BS.neutral700}">
+      <div>Quote no. <strong style="color:${BS.text}">${quoteRef}</strong></div>
+      <div>Issued <strong style="color:${BS.text}">${issued}</strong>${validUntil ? ` · Valid through <strong style="color:${BS.text}">${validUntil}</strong>` : ''}</div>
+      <div>Prepared by ${businessName}</div>
     </div>
   </div>
-  ${d.footer ? `<div style="font-size:12px;color:#9ca3af;text-align:center;margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb">${d.footer}</div>` : ''}
-</div></body></html>`;
+  <footer style="margin-top:auto">
+    <div style="border-top:1px solid ${BS.text};border-bottom:3px solid ${BS.text};padding:14px 0 12px;display:flex;justify-content:space-between;align-items:baseline">
+      <div style="font-size:22px;font-weight:600">${phone}</div>
+      <div style="font-size:13px;color:${BS.neutral700}">${email} · ${website}</div>
+    </div>
+  </footer>
+</section>
+<section class="quote-page">
+  <header>
+    ${bsTopRail(`${businessName} · Quote ${quoteRef}`, customerName)}
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:20px;margin-top:12px">
+      <div>
+        <h2 style="font-size:28px;font-weight:600;margin:0 0 4px">Your monthly investment</h2>
+        <p style="font-size:13.5px;margin:0;color:${BS.neutral700}">${escapeHtml(d.summary || d.title || 'Flat-rate managed IT. No surprise bills — billable extras are disclosed upfront.')}</p>
+      </div>
+      ${shieldLogo ? `<img src="${shieldLogo}" alt="" style="height:48px;width:auto;flex:none">` : ''}
+    </div>
+  </header>
+  <section>
+    <table style="font-size:13.5px">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:0 10px 8px 0;border-bottom:1px solid ${BS.text};font-size:11.5px;letter-spacing:0.08em;text-transform:uppercase;font-weight:600">Service</th>
+          <th style="text-align:center;padding:0 10px 8px;border-bottom:1px solid ${BS.text};font-size:11.5px;letter-spacing:0.08em;text-transform:uppercase;font-weight:600">Qty</th>
+          <th style="text-align:right;padding:0 10px 8px;border-bottom:1px solid ${BS.text};font-size:11.5px;letter-spacing:0.08em;text-transform:uppercase;font-weight:600">Unit</th>
+          <th style="text-align:right;padding:0 0 8px 10px;border-bottom:1px solid ${BS.text};font-size:11.5px;letter-spacing:0.08em;text-transform:uppercase;font-weight:600">Amount</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+      <div style="text-align:right">
+        ${showTax ? `<div style="font-size:13px;color:${BS.neutral700};margin-bottom:6px">Subtotal $${escapeHtml(d.subtotal)} · Tax $${escapeHtml(d.tax)}</div>` : ''}
+        <div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:${BS.neutral500}">Total investment</div>
+        <div style="font-size:38px;font-weight:600;color:${BS.accent700}">$${escapeHtml(d.total)}</div>
+      </div>
+    </div>
+  </section>
+  <section>
+    <div style="font-size:11.5px;letter-spacing:0.14em;text-transform:uppercase;color:${BS.accent700};margin-bottom:10px">Terms</div>
+    <ul style="margin:0;padding-left:16px;font-size:12px;line-height:1.7;color:${BS.neutral700}">
+      ${d.footer ? d.footer.split(/\r?\n/).filter(l => l.trim()).map(l => `<li>${escapeHtml(l.trim())}</li>`).join('') : ''}
+      ${validUntil ? `<li>Quote valid through ${validUntil}.</li>` : ''}
+    </ul>
+  </section>
+  ${d.signature ? bsSignatureCertificate(d.signature, `Quote ${quoteRef}`) : ''}
+  <footer style="margin-top:auto">
+    ${bsBottomRail(phone, email, d.signature ? `Signed &amp; accepted — welcome aboard.` : 'Ready to start? Use the link in your email to accept this quote.')}
+  </footer>
+</section>
+</body></html>`;
+}
+
+// ---------------------------------------------------------------------------
+// Public e-signature pages (quote approval + MSA signing)
+// ---------------------------------------------------------------------------
+
+export type SignPageState = 'active' | 'signed' | 'declined' | 'expired' | 'revoked';
+
+function signStatusPage(businessName: string, heading: string, message: string): string {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(heading)} — ${escapeHtml(businessName)}</title>
+<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f3f4f6;color:#374151;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px}
+.card{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.1);padding:40px;max-width:480px;text-align:center}</style></head>
+<body><div class="card"><h1 style="font-size:22px;color:#111;margin:0 0 12px">${escapeHtml(heading)}</h1>
+<p style="margin:0;line-height:1.6">${escapeHtml(message)}</p></div></body></html>`;
+}
+
+export function generateSignPage(data: {
+  state: SignPageState;
+  docLabel: string;          // e.g. "Quote Q-2026-004" or "Master Service Agreement"
+  docHtml: string;           // rendered document body to embed
+  businessName: string;
+  signEndpoint: string;      // absolute URL for POST sign
+  declineEndpoint: string;   // absolute URL for POST decline
+  signedName?: string;       // when state === 'signed'
+  successMessage: string;    // shown after successful signing
+}): string {
+  const d = data;
+  if (d.state === 'expired') {
+    return signStatusPage(d.businessName, 'Link Expired', `This link for ${d.docLabel} has expired. Please contact ${d.businessName} to request a new one.`);
+  }
+  if (d.state === 'revoked') {
+    return signStatusPage(d.businessName, 'Link No Longer Valid', `A newer version of ${d.docLabel} has been sent. Please use the link in the most recent email from ${d.businessName}.`);
+  }
+  if (d.state === 'declined') {
+    return signStatusPage(d.businessName, 'Declined', `${d.docLabel} was declined. If this was a mistake, please contact ${d.businessName}.`);
+  }
+
+  const alreadySigned = d.state === 'signed';
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(d.docLabel)} — ${escapeHtml(d.businessName)}</title>
+<style>
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,-apple-system,sans-serif; background:#e5e7eb; color:#374151; margin:0; }
+  .action-bar { background:#ffffff; border-bottom:1px solid #d1d5db; padding:14px 24px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; position:sticky; top:0; z-index:10; }
+  .doc-container { max-width:880px; margin:24px auto 0; background:#ffffff; box-shadow:0 1px 3px rgba(0,0,0,0.1); overflow:auto; }
+  .sign-panel { max-width:880px; margin:24px auto; background:#ffffff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1); padding:32px; }
+  .sign-panel h2 { margin:0 0 8px; font-size:20px; color:#111; }
+  .sign-panel label { display:block; font-size:13px; font-weight:600; margin:16px 0 4px; color:#374151; }
+  .sign-panel input[type=text], .sign-panel input[type=email], .sign-panel textarea { width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:15px; font-family:inherit; }
+  .agree-row { display:flex; gap:10px; align-items:flex-start; margin:16px 0; font-size:13px; line-height:1.5; }
+  .btn-approve { background:#16a34a; color:#fff; border:none; padding:14px 40px; border-radius:6px; font-weight:600; font-size:16px; cursor:pointer; }
+  .btn-approve:disabled { background:#9ca3af; cursor:not-allowed; }
+  .btn-decline { background:none; border:none; color:#6b7280; text-decoration:underline; font-size:13px; cursor:pointer; padding:8px; }
+  .decline-box { display:none; margin-top:12px; }
+  .decline-box.open { display:block; }
+  .btn-decline-confirm { background:#dc2626; color:#fff; border:none; padding:10px 24px; border-radius:6px; font-weight:600; font-size:14px; cursor:pointer; margin-top:8px; }
+  .error-msg { color:#dc2626; font-size:14px; margin-top:12px; display:none; }
+  .footer-note { text-align:center; padding:24px; color:#9ca3af; font-size:13px; }
+  @media (max-width:640px) { .sign-panel { padding:20px; margin:16px 12px; } .doc-container { margin:16px 12px 0; } }
+</style></head>
+<body>
+  <div class="action-bar">
+    <div style="font-weight:600;color:#111">${escapeHtml(d.docLabel)}</div>
+    <div style="font-size:13px;color:#6b7280">${escapeHtml(d.businessName)}</div>
+  </div>
+  <div class="doc-container">${d.docHtml}</div>
+  <div class="sign-panel" id="signPanel">
+    ${alreadySigned ? `
+    <h2>Already Signed</h2>
+    <p style="margin:0;color:#16a34a;font-weight:600">This document was signed${d.signedName ? ` by ${escapeHtml(d.signedName)}` : ''}. No further action is needed.</p>
+    ` : `
+    <h2>Review &amp; Approve</h2>
+    <p style="margin:0;color:#6b7280;font-size:14px">Type your full legal name below to electronically sign and accept.</p>
+    <form id="signForm">
+      <label for="signerName">Full name *</label>
+      <input type="text" id="signerName" name="signerName" required minlength="2" maxlength="200" autocomplete="name" placeholder="Jane Q. Smith">
+      <label for="signerEmail">Email (optional)</label>
+      <input type="email" id="signerEmail" name="signerEmail" autocomplete="email" placeholder="you@company.com">
+      <div class="agree-row">
+        <input type="checkbox" id="agree" required style="margin-top:2px">
+        <label for="agree" style="margin:0;font-weight:400">I agree that typing my name above and clicking &quot;Approve &amp; Sign&quot; constitutes a legal electronic signature, and that I accept the terms of this document. My IP address and the date and time of signing will be recorded.</label>
+      </div>
+      <button type="submit" class="btn-approve" id="approveBtn">Approve &amp; Sign</button>
+      <div><button type="button" class="btn-decline" id="declineToggle">I would like to decline instead</button></div>
+      <div class="decline-box" id="declineBox">
+        <label for="declineReason">Reason (optional)</label>
+        <textarea id="declineReason" rows="3" maxlength="2000" placeholder="Let us know why so we can follow up."></textarea>
+        <br><button type="button" class="btn-decline-confirm" id="declineBtn">Decline</button>
+      </div>
+      <div class="error-msg" id="errorMsg"></div>
+    </form>
+    `}
+  </div>
+  <div class="footer-note">Questions? Contact ${escapeHtml(d.businessName)}.</div>
+  <script>
+  (function() {
+    var form = document.getElementById('signForm');
+    if (!form) return;
+    var panel = document.getElementById('signPanel');
+    var errEl = document.getElementById('errorMsg');
+    function showError(msg) { errEl.textContent = msg; errEl.style.display = 'block'; }
+    function done(html) { panel.innerHTML = html; panel.scrollIntoView({ behavior: 'smooth' }); }
+    document.getElementById('declineToggle').addEventListener('click', function() {
+      document.getElementById('declineBox').classList.toggle('open');
+    });
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      errEl.style.display = 'none';
+      var btn = document.getElementById('approveBtn');
+      btn.disabled = true; btn.textContent = 'Signing…';
+      fetch(${JSON.stringify(d.signEndpoint)}, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signerName: document.getElementById('signerName').value.trim(),
+          signerEmail: document.getElementById('signerEmail').value.trim() || undefined,
+          agree: true,
+        }),
+      }).then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
+        .then(function(res) {
+          if (res.ok) {
+            done('<h2 style="color:#16a34a">Signed — thank you!</h2><p style="line-height:1.6">' + ${JSON.stringify(escapeHtml(data.successMessage))} + '</p>');
+          } else {
+            btn.disabled = false; btn.textContent = 'Approve & Sign';
+            showError((res.body && (res.body.message || res.body.error)) || 'Something went wrong. Please try again.');
+          }
+        }).catch(function() {
+          btn.disabled = false; btn.textContent = 'Approve & Sign';
+          showError('Network error. Please try again.');
+        });
+    });
+    document.getElementById('declineBtn').addEventListener('click', function() {
+      var btn = document.getElementById('declineBtn');
+      btn.disabled = true;
+      fetch(${JSON.stringify(d.declineEndpoint)}, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: document.getElementById('declineReason').value.trim() || undefined }),
+      }).then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
+        .then(function(res) {
+          if (res.ok) {
+            done('<h2>Declined</h2><p style="line-height:1.6">Thanks for letting us know. We may reach out to see how we can adjust the proposal.</p>');
+          } else {
+            btn.disabled = false;
+            showError((res.body && (res.body.message || res.body.error)) || 'Something went wrong. Please try again.');
+          }
+        }).catch(function() { btn.disabled = false; showError('Network error. Please try again.'); });
+    });
+  })();
+  </script>
+</body></html>`;
+}
+
+// ---------------------------------------------------------------------------
+// Agreements (MSA) — PDF document + default template
+// ---------------------------------------------------------------------------
+
+export function generateAgreementPdfHtml(data: {
+  title: string;
+  contentHtml: string;       // trusted, admin-authored template rendered with escaped merge values
+  businessName: string; businessPhone: string; businessEmail: string;
+  businessCity?: string; businessState?: string;
+  signature?: QuoteSignatureBlock;
+  docRef: string;            // e.g. "MSA — Acme Corp — 2026-08-31"
+}): string {
+  const d = data;
+  const businessName = escapeHtml(d.businessName || 'Rivertown Technology');
+  const phone = escapeHtml(d.businessPhone || '(843) 410-3982');
+  const email = escapeHtml(d.businessEmail || 'sales@rivertowntechnology.com');
+  const location = [d.businessCity, d.businessState].filter(Boolean).map(v => escapeHtml(v as string)).join(', ') || 'Conway, South Carolina';
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${escapeHtml(d.title)}</title>
+${BS_FONT_LINK}
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  @page { size: letter; margin: 0; }
+  html, body { background:${BS.bg}; }
+  body { font-family:${BS.font}; color:${BS.text}; font-size:13px; line-height:1.6; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .page { width:8.5in; min-height:11in; padding:0.6in 0.68in 0.55in; display:flex; flex-direction:column; gap:20px; }
+  .content h1, .content h2, .content h3 { font-weight:600; margin:18px 0 8px; }
+  .content h1 { font-size:24px; } .content h2 { font-size:18px; } .content h3 { font-size:15px; }
+  .content p, .content li { margin:0 0 10px; }
+  .content ul, .content ol { padding-left:20px; }
+</style></head>
+<body>
+<section class="page">
+  <header>
+    ${bsTopRail(`Veteran-Owned · ${location}`, escapeHtml(d.title))}
+    <h1 style="font-size:28px;font-weight:600;margin:16px 0 0">${escapeHtml(d.title)}</h1>
+  </header>
+  <div class="content">${d.contentHtml}</div>
+  ${d.signature ? bsSignatureCertificate(d.signature, d.docRef) : ''}
+  <footer style="margin-top:auto">
+    ${bsBottomRail(phone, email, businessName)}
+  </footer>
+</section>
+</body></html>`;
+}
+
+export function getDefaultMsaTemplate(): string {
+  return `<h2>Master Service Agreement</h2>
+<p>This Master Service Agreement ("Agreement") is entered into as of {{effectiveDate}} between <strong>{{businessName}}</strong> ("Provider") and <strong>{{customerName}}</strong> ("Client"), and governs the managed IT services described in Quote {{quoteNumber}}.</p>
+<h3>1. Services</h3>
+<p>Provider will deliver the managed services described in the accepted quote. Service scope, quantities, and pricing are as stated in Quote {{quoteNumber}} and any subsequently accepted quotes or change orders.</p>
+<h3>2. Term — Month to Month</h3>
+<p>This Agreement is month to month. It begins on {{effectiveDate}} and renews automatically each month until either party gives written notice of termination at least thirty (30) days before the end of the then-current monthly term. There is no long-term commitment and no early-termination fee.</p>
+<h3>3. Fees &amp; Billing</h3>
+<p>Fees are billed monthly in advance at the rates in the accepted quote. Invoices are due on receipt unless otherwise stated. Work outside the scope of the accepted quote will be quoted and approved before any billing.</p>
+<h3>4. Client Responsibilities</h3>
+<p>Client will provide reasonable access to systems, timely responses to requests, and accurate information necessary for Provider to deliver the services.</p>
+<h3>5. Confidentiality</h3>
+<p>Each party will keep the other party's non-public information confidential and use it only to perform under this Agreement.</p>
+<h3>6. Limitation of Liability</h3>
+<p>Neither party is liable for indirect, incidental, or consequential damages. Provider's total liability under this Agreement is limited to the fees paid by Client in the three (3) months preceding the claim.</p>
+<h3>7. Governing Law</h3>
+<p>This Agreement is governed by the laws of the State of South Carolina.</p>
+<p style="margin-top:16px">Questions about this Agreement can be directed to {{businessEmail}}.</p>`;
 }

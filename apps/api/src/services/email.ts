@@ -284,17 +284,29 @@ export async function sendBillingEmail(db: Database, tenantId: string, options: 
 
   console.log(`[BILLING-EMAIL] Sending to=${options.to} subject="${options.subject}" via Mailjet API`);
 
+  return sendViaMailjet(
+    { apiKey, secretKey, fromAddress, fromName, replyTo },
+    options,
+    'BILLING-EMAIL',
+  );
+}
+
+async function sendViaMailjet(
+  sender: { apiKey: string; secretKey: string; fromAddress: string; fromName: string; replyTo?: string },
+  options: EmailOptions,
+  logPrefix: string,
+): Promise<boolean> {
   try {
     const message: Record<string, unknown> = {
-      From: { Email: fromAddress, Name: fromName },
+      From: { Email: sender.fromAddress, Name: sender.fromName },
       To: [{ Email: options.to }],
       Subject: options.subject,
       HTMLPart: options.html || undefined,
       TextPart: options.text ?? (options.html?.replace(/<[^>]*>/g, '') || undefined),
     };
 
-    if (replyTo) {
-      message.ReplyTo = { Email: replyTo };
+    if (sender.replyTo) {
+      message.ReplyTo = { Email: sender.replyTo };
     }
 
     if (options.attachments?.length) {
@@ -311,28 +323,63 @@ export async function sendBillingEmail(db: Database, tenantId: string, options: 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Basic ${Buffer.from(`${apiKey}:${secretKey}`).toString('base64')}`,
+        Authorization: `Basic ${Buffer.from(`${sender.apiKey}:${sender.secretKey}`).toString('base64')}`,
       },
       body: JSON.stringify({ Messages: [message] }),
     });
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error(`[BILLING-EMAIL] Mailjet API error (${res.status}):`, errText.substring(0, 500));
+      console.error(`[${logPrefix}] Mailjet API error (${res.status}):`, errText.substring(0, 500));
       return false;
     }
 
     const result = await res.json() as { Messages: Array<{ Status: string }> };
     const status = result.Messages?.[0]?.Status;
     if (status === 'success') {
-      console.log(`[BILLING-EMAIL] Sent successfully to=${options.to}`);
+      console.log(`[${logPrefix}] Sent successfully to=${options.to}`);
       return true;
     }
 
-    console.error(`[BILLING-EMAIL] Mailjet returned status: ${status}`);
+    console.error(`[${logPrefix}] Mailjet returned status: ${status}`);
     return false;
   } catch (err) {
-    console.error(`[BILLING-EMAIL] Failed to=${options.to}:`, err);
+    console.error(`[${logPrefix}] Failed to=${options.to}:`, err);
     return false;
   }
+}
+
+/**
+ * Send email using the sales email config (quotes, agreements, MSAs) via Mailjet.
+ * Falls back to the billing email config (which itself falls back to sendEmail)
+ * when sales email is not configured.
+ */
+export async function sendSalesEmail(db: Database, tenantId: string, options: EmailOptions): Promise<boolean> {
+  const [config] = await db.select().from(integrationConfigs)
+    .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'sales-email')))
+    .limit(1);
+
+  if (!config?.isEnabled) {
+    return sendBillingEmail(db, tenantId, options);
+  }
+
+  const creds = readCredentials(config.credentials);
+  const apiKey = creds.apiKey as string;
+  const secretKey = creds.secretKey as string;
+  const fromAddress = (creds.fromAddress as string) ?? 'sales@localhost';
+  const fromName = (creds.fromName as string) ?? 'Sales';
+  const replyTo = options.replyTo || (creds.replyTo as string) || undefined;
+
+  if (!apiKey || !secretKey) {
+    console.error('[SALES-EMAIL] Missing Mailjet API key or secret key');
+    return sendBillingEmail(db, tenantId, options);
+  }
+
+  console.log(`[SALES-EMAIL] Sending to=${options.to} subject="${options.subject}" via Mailjet API`);
+
+  return sendViaMailjet(
+    { apiKey, secretKey, fromAddress, fromName, replyTo },
+    options,
+    'SALES-EMAIL',
+  );
 }

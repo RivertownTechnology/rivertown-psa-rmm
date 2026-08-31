@@ -590,23 +590,36 @@ export async function portalRoutes(fastify: FastifyInstance) {
       .orderBy(desc(quotes.createdAt)).limit(50);
   });
 
-  fastify.post('/api/v1/portal/quotes/:id/approve', async (request) => {
+  fastify.post('/api/v1/portal/quotes/:id/approve', async (request, reply) => {
     const { id } = request.params as { id: string };
     const user = getPortalUser(request);
     requirePerm(user, 'billing');
+    const [existing] = await fastify.db.select().from(quotes)
+      .where(and(eq(quotes.id, id), eq(quotes.tenantId, user.tid), eq(quotes.customerId, user.cid))).limit(1);
+    if (!existing) throw new NotFoundError('Quote', id);
+    if (!['sent', 'viewed'].includes(existing.status)) {
+      reply.code(409).send({ error: 'INVALID_STATUS', message: `Cannot approve a quote with status "${existing.status}"` });
+      return;
+    }
     const [updated] = await fastify.db.update(quotes).set({ status: 'approved', approvedAt: new Date(), approvedBy: user.sub, updatedAt: new Date() })
       .where(and(eq(quotes.id, id), eq(quotes.tenantId, user.tid), eq(quotes.customerId, user.cid))).returning();
-    if (!updated) throw new NotFoundError('Quote', id);
     return updated;
   });
 
-  fastify.post('/api/v1/portal/quotes/:id/reject', async (request) => {
+  fastify.post('/api/v1/portal/quotes/:id/reject', async (request, reply) => {
     const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as { reason?: string };
     const user = getPortalUser(request);
     requirePerm(user, 'billing');
-    const [updated] = await fastify.db.update(quotes).set({ status: 'rejected', updatedAt: new Date() })
+    const [existing] = await fastify.db.select().from(quotes)
+      .where(and(eq(quotes.id, id), eq(quotes.tenantId, user.tid), eq(quotes.customerId, user.cid))).limit(1);
+    if (!existing) throw new NotFoundError('Quote', id);
+    if (!['sent', 'viewed'].includes(existing.status)) {
+      reply.code(409).send({ error: 'INVALID_STATUS', message: `Cannot reject a quote with status "${existing.status}"` });
+      return;
+    }
+    const [updated] = await fastify.db.update(quotes).set({ status: 'rejected', declineReason: body.reason?.slice(0, 2000) ?? null, updatedAt: new Date() })
       .where(and(eq(quotes.id, id), eq(quotes.tenantId, user.tid), eq(quotes.customerId, user.cid))).returning();
-    if (!updated) throw new NotFoundError('Quote', id);
     return updated;
   });
 

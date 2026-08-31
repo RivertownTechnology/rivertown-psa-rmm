@@ -8,7 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Search, Trash2, FileText } from 'lucide-react';
+import { Plus, Search, Trash2, FileText, Send } from 'lucide-react';
+import { SendQuoteDialog } from '@/components/send-quote-dialog';
 import { Combobox } from '@/components/ui/combobox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -44,6 +45,7 @@ interface PaginatedResponse {
 const QUOTE_STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/20',
   sent: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
+  viewed: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20',
   approved: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
   rejected: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
   converted: 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20',
@@ -68,6 +70,7 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
     validUntil: '',
   });
   const [confirmState, setConfirmState] = useState<{open: boolean; id?: string; quoteNumber?: number}>({open: false});
+  const [sendState, setSendState] = useState<{open: boolean; id?: string; quoteNumber?: number; isResend?: boolean}>({open: false});
 
   const loadQuotes = useCallback(async () => {
     setLoading(true);
@@ -148,7 +151,7 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
     }
   }
 
-  const statuses = ['', 'draft', 'sent', 'approved', 'rejected', 'converted'];
+  const statuses = ['', 'draft', 'sent', 'viewed', 'approved', 'rejected', 'converted'];
 
   return (
     <div className="space-y-4">
@@ -254,11 +257,21 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
                       <td className="p-3 text-muted-foreground">{formatDate(q.validUntil)}</td>
                       <td className="p-3 text-muted-foreground">{formatDate(q.createdAt)}</td>
                       <td className="p-3">
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                          aria-label={`Delete quote Q-${q.quoteNumber}`}
-                          onClick={(e) => { e.stopPropagation(); handleDelete(q.id, q.quoteNumber); }}>
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          {['draft', 'sent', 'viewed'].includes(q.status) && (
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
+                              aria-label={`${q.status === 'draft' ? 'Send' : 'Resend'} quote Q-${q.quoteNumber}`}
+                              title={q.status === 'draft' ? 'Send quote' : 'Resend quote'}
+                              onClick={(e) => { e.stopPropagation(); setSendState({ open: true, id: q.id, quoteNumber: q.quoteNumber, isResend: q.status !== 'draft' }); }}>
+                              <Send className="h-3 w-3" />
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            aria-label={`Delete quote Q-${q.quoteNumber}`}
+                            onClick={(e) => { e.stopPropagation(); handleDelete(q.id, q.quoteNumber); }}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -310,6 +323,17 @@ export function QuotesPage({ onNavigateToCustomer, onSelectQuote }: { onNavigate
           </form>
         </DialogContent>
       </Dialog>
+
+      {sendState.id && (
+        <SendQuoteDialog
+          quoteId={sendState.id}
+          quoteNumber={sendState.quoteNumber ?? 0}
+          isResend={Boolean(sendState.isResend)}
+          open={sendState.open}
+          onOpenChange={(open) => setSendState(s => ({ ...s, open }))}
+          onSent={() => { toast.success(`Quote Q-${sendState.quoteNumber} sent`); loadQuotes(); }}
+        />
+      )}
 
       <ConfirmDialog
         open={confirmState.open}

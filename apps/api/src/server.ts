@@ -41,6 +41,7 @@ import cannedResponsesModule from './modules/canned-responses/index.js';
 import notificationsModule from './modules/notifications/index.js';
 import govContractsModule from './modules/gov-contracts/index.js';
 import complianceModule from './modules/compliance/index.js';
+import agreementsModule from './modules/agreements/index.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -51,6 +52,9 @@ declare module 'fastify' {
 
 export async function buildServer(config: Config): Promise<FastifyInstance> {
   const fastify = Fastify({
+    // Behind the Railway proxy: resolve request.ip from X-Forwarded-For
+    // (needed for e-signature IP capture).
+    trustProxy: true,
     logger: {
       level: config.LOG_LEVEL,
       transport:
@@ -237,7 +241,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   await fastify.register(wsRoutes);
 
   // Load feature modules
-  await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, portalModule, publicApiModule, reportsModule, attachmentsModule, kbModule, cannedResponsesModule, notificationsModule, govContractsModule, complianceModule]);
+  await loadModules(fastify, [customersModule, contactsModule, sitesModule, assetsModule, contractsModule, invoicesModule, quotesModule, serviceCatalogModule, settingsModule, ticketsModule, dispatchModule, portalModule, publicApiModule, reportsModule, attachmentsModule, kbModule, cannedResponsesModule, notificationsModule, govContractsModule, complianceModule, agreementsModule]);
 
   // Start Pax8 auto-sync scheduler
   const { startPax8SyncScheduler } = await import('./services/pax8-sync.js');

@@ -36,3 +36,5 @@ export * from './gov-pricing.js';
 export * from './api-keys.js';
 export * from './compliance.js';
 export * from './device-tokens.js';
+export * from './document-signatures.js';
+export * from './agreements.js';

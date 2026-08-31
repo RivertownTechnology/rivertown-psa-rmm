@@ -188,6 +188,30 @@ export const createQuoteSchema = z.object({
 
 export const updateQuoteSchema = createQuoteSchema.partial().omit({ customerId: true });
 
+export const sendQuoteSchema = z.object({
+  to: z.string().email(),
+});
+
+// Public e-signature (quote approval / MSA signing)
+export const publicSignSchema = z.object({
+  signerName: z.string().min(2).max(200),
+  signerEmail: z.string().email().optional(),
+  agree: z.literal(true),
+});
+
+export const publicDeclineSchema = z.object({
+  reason: z.string().max(2000).optional(),
+});
+
+export const salesEmailConfigSchema = z.object({
+  isEnabled: z.boolean(),
+  apiKey: z.string().optional(),
+  secretKey: z.string().optional(),
+  fromAddress: z.string(),
+  fromName: z.string(),
+  replyTo: z.string().optional(),
+});
+
 // Invoices
 export const createInvoiceSchema = z.object({
   customerId: z.string().uuid(),

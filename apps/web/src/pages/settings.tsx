@@ -24,6 +24,8 @@ import { BillingSettingsTab } from './settings/billing-settings-tab';
 import { AISettingsTab } from './settings/ai-settings-tab';
 import { AuditLogTab } from './settings/audit-log-tab';
 import { BillingEmailCard } from './settings/billing-email-card';
+import { SalesEmailCard } from './settings/sales-email-card';
+import { MsaTemplateCard } from './settings/msa-template-card';
 import { QuickBooksCard } from './settings/quickbooks-card';
 import { TwilioCard } from './settings/twilio-card';
 import { ApplePushCard } from './settings/apple-push-card';
@@ -1463,6 +1465,7 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
               <TabsTrigger value="ai">AI</TabsTrigger>
               <TabsTrigger value="apple-push">Apple Push</TabsTrigger>
               <TabsTrigger value="billing-email">Billing Email</TabsTrigger>
+              <TabsTrigger value="sales-email">Sales Email</TabsTrigger>
               <TabsTrigger value="email">Email & Inbox</TabsTrigger>
               <TabsTrigger value="payments">Payments</TabsTrigger>
               <TabsTrigger value="rmm">RMM</TabsTrigger>
@@ -1488,6 +1491,14 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
             <TabsContent value="billing-email">
               <div className="space-y-6 mt-4 max-w-2xl">
                 <BillingEmailCard />
+              </div>
+            </TabsContent>
+
+            {/* SALES EMAIL SUB-TAB — quotes, agreements & MSAs */}
+            <TabsContent value="sales-email">
+              <div className="space-y-6 mt-4 max-w-2xl">
+                <SalesEmailCard />
+                <MsaTemplateCard />
               </div>
             </TabsContent>
 

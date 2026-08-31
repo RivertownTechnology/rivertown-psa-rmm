@@ -7,12 +7,14 @@ import {
   contracts,
   contractLineItems,
   customers,
+  contacts,
   invoices,
   invoiceLineItems,
   tenants,
   tenantSequences,
+  documentSignatures,
 } from '@rivertown/db';
-import { createQuoteSchema, updateQuoteSchema, paginationSchema } from '@rivertown/shared';
+import { createQuoteSchema, updateQuoteSchema, paginationSchema, sendQuoteSchema, publicSignSchema, publicDeclineSchema } from '@rivertown/shared';
 import { requirePermission } from '../../auth/rbac.js';
 import { recalcInvoiceTotals } from '../invoices/routes.js';
 import { NotFoundError } from '../../common/errors.js';
@@ -204,24 +206,207 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     reply.code(204).send();
   });
 
-  // Send quote
-  fastify.post('/api/v1/quotes/:id/send', { preHandler: [fastify.authenticate, requirePermission('quotes:write')] }, async (request) => {
+  // Send (or resend) quote — awaits the email so failures surface to the UI
+  fastify.post('/api/v1/quotes/:id/send', { preHandler: [fastify.authenticate, requirePermission('quotes:write')] }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const { to } = sendQuoteSchema.parse(request.body);
     const [existing] = await fastify.db.select().from(quotes)
       .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);
     if (!existing) throw new NotFoundError('Quote', id);
-    const [updated] = await fastify.db.update(quotes).set({ status: 'sent', updatedAt: new Date() })
-      .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).returning();
+    if (!['draft', 'sent', 'viewed'].includes(existing.status)) {
+      reply.code(409).send({ error: 'INVALID_STATUS', message: `Cannot send a quote with status "${existing.status}"` });
+      return;
+    }
 
-    // Send email to customer with template + PDF attachment
-    const { sendQuoteEmailWithTemplate } = await import('../../services/document-email.js');
-    sendQuoteEmailWithTemplate(fastify.db, request.tenantId, id).catch(e => console.error('Quote email failed:', e));
+    const isResend = existing.status !== 'draft';
+    const { sendQuoteForSignature } = await import('../../services/quote-signing.js');
+    try {
+      await sendQuoteForSignature(fastify.db, request.tenantId, id, to);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Quote email failed';
+      request.log.error({ err }, `[QUOTES] Send failed for quote ${id}`);
+      reply.code(502).send({ error: 'SEND_FAILED', message });
+      return;
+    }
 
     await logAudit(fastify.db, {
       tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,
-      action: 'quote.sent', entityType: 'quote', entityId: id, ipAddress: request.ip,
+      action: isResend ? 'quote.resent' : 'quote.sent', entityType: 'quote', entityId: id, ipAddress: request.ip,
+      changes: { recipient: { old: null, new: to } },
     });
+
+    const [updated] = await fastify.db.select().from(quotes)
+      .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);
     return updated;
+  });
+
+  // Recipient candidates for the send dialog (quote contact → billing email)
+  fastify.get('/api/v1/quotes/:id/recipients', { preHandler: [fastify.authenticate, requirePermission('quotes:read')] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [quote] = await fastify.db.select().from(quotes)
+      .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);
+    if (!quote) throw new NotFoundError('Quote', id);
+
+    let contactEmail: string | null = null;
+    if (quote.contactId) {
+      const [contact] = await fastify.db.select({ email: contacts.email }).from(contacts)
+        .where(and(eq(contacts.id, quote.contactId), eq(contacts.tenantId, request.tenantId))).limit(1);
+      contactEmail = contact?.email ?? null;
+    }
+    const [customer] = await fastify.db.select({ billingEmail: customers.billingEmail }).from(customers)
+      .where(and(eq(customers.id, quote.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
+
+    return { contactEmail, billingEmail: customer?.billingEmail ?? null };
+  });
+
+  // Latest signature request for the quote (send history + signed metadata)
+  fastify.get('/api/v1/quotes/:id/signature', { preHandler: [fastify.authenticate, requirePermission('quotes:read')] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [sig] = await fastify.db.select().from(documentSignatures)
+      .where(and(
+        eq(documentSignatures.tenantId, request.tenantId),
+        eq(documentSignatures.entityType, 'quote'),
+        eq(documentSignatures.entityId, id),
+      ))
+      .orderBy(desc(documentSignatures.createdAt)).limit(1);
+    return sig ?? null;
+  });
+
+  // ── Public quote signing (no auth; opaque token) ─────────────────
+
+  const publicRateLimit = { rateLimit: { max: 20, timeWindow: '1 minute' } } as any;
+
+  async function loadQuoteSignatureContext(db: any, token: string) {
+    if (!token || token.length < 10) return null;
+    const [sig] = await db.select().from(documentSignatures)
+      .where(and(eq(documentSignatures.token, token), eq(documentSignatures.entityType, 'quote')))
+      .limit(1);
+    if (!sig) return null;
+    const [quote] = await db.select().from(quotes)
+      .where(and(eq(quotes.id, sig.entityId), eq(quotes.tenantId, sig.tenantId))).limit(1);
+    if (!quote) return null;
+    return { sig, quote };
+  }
+
+  fastify.get('/api/public/sign/quote/:token', { config: publicRateLimit }, async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const ctx = await loadQuoteSignatureContext(fastify.db, token);
+    if (!ctx) return reply.code(404).send({ error: 'Not found' });
+    const { sig, quote } = ctx;
+
+    const { generateSignPage } = await import('../../services/template-renderer.js');
+    const { buildQuoteDocumentHtml } = await import('../../services/document-email.js');
+
+    const [tenant] = await fastify.db.select().from(tenants).where(eq(tenants.id, sig.tenantId)).limit(1);
+    const businessName = ((tenant?.settings as Record<string, string>)?.businessName) || tenant?.name || 'Rivertown Technology';
+    const year = new Date().getFullYear();
+    const docLabel = `Quote Q-${year}-${String(quote.quoteNumber).padStart(3, '0')}`;
+
+    let state: 'active' | 'signed' | 'declined' | 'expired' | 'revoked' = 'active';
+    if (sig.status === 'revoked') state = 'revoked';
+    else if (sig.status === 'declined' || quote.status === 'rejected') state = 'declined';
+    else if (sig.status === 'signed' || ['approved', 'converted'].includes(quote.status)) state = 'signed';
+    else if (sig.expiresAt && new Date(sig.expiresAt) < new Date()) state = 'expired';
+
+    // First open flips quote to 'viewed' so staff can see engagement
+    if (state === 'active' && sig.status === 'pending') {
+      const now = new Date();
+      await fastify.db.update(documentSignatures).set({ status: 'viewed', viewedAt: now, updatedAt: now })
+        .where(eq(documentSignatures.id, sig.id));
+      if (quote.status === 'sent') {
+        await fastify.db.update(quotes).set({ status: 'viewed', viewedAt: now, updatedAt: now })
+          .where(eq(quotes.id, quote.id));
+      }
+      await logAudit(fastify.db, {
+        tenantId: sig.tenantId, actorType: 'public_signer', actorId: sig.id,
+        action: 'quote.viewed', entityType: 'quote', entityId: quote.id, ipAddress: request.ip,
+      });
+    }
+
+    let docHtml = '';
+    if (state === 'active' || state === 'signed') {
+      try {
+        docHtml = await buildQuoteDocumentHtml(fastify.db, sig.tenantId, quote.id);
+      } catch (err) {
+        request.log.error({ err }, '[QUOTES] Sign page document render failed');
+        docHtml = '<p style="padding:24px">The quote document could not be rendered. Please contact us.</p>';
+      }
+    }
+
+    const base = `${process.env.API_BASE_URL || 'https://rivertownapi-production.up.railway.app'}/api/public/sign/quote/${token}`;
+    const html = generateSignPage({
+      state, docLabel, docHtml, businessName,
+      signEndpoint: base,
+      declineEndpoint: `${base}/decline`,
+      signedName: sig.signerName ?? undefined,
+      successMessage: 'Your quote has been approved. Keep an eye on your inbox — your service agreement is on its way for signature.',
+    });
+    reply.type('text/html').send(html);
+  });
+
+  fastify.post('/api/public/sign/quote/:token', { config: publicRateLimit }, async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const body = publicSignSchema.parse(request.body);
+    const ctx = await loadQuoteSignatureContext(fastify.db, token);
+    if (!ctx) return reply.code(404).send({ error: 'Not found' });
+    const { sig, quote } = ctx;
+
+    if (!['pending', 'viewed'].includes(sig.status) || !['sent', 'viewed'].includes(quote.status)) {
+      return reply.code(409).send({ error: 'INVALID_STATUS', message: 'This quote can no longer be signed from this link.' });
+    }
+    if (sig.expiresAt && new Date(sig.expiresAt) < new Date()) {
+      return reply.code(410).send({ error: 'EXPIRED', message: 'This link has expired. Please request a new quote.' });
+    }
+
+    const { completeQuoteSignature, fulfillQuoteApproval } = await import('../../services/quote-signing.js');
+    const signer = {
+      signerName: body.signerName,
+      signerEmail: body.signerEmail,
+      ip: request.ip,
+      forwardedFor: (request.headers['x-forwarded-for'] as string) ?? undefined,
+      userAgent: (request.headers['user-agent'] as string) ?? undefined,
+    };
+    await completeQuoteSignature(fastify.db, sig.tenantId, quote.id, sig.id, signer);
+
+    const [freshSig] = await fastify.db.select().from(documentSignatures)
+      .where(eq(documentSignatures.id, sig.id)).limit(1);
+    const { msaSent } = await fulfillQuoteApproval(fastify.db, sig.tenantId, quote, freshSig);
+
+    return { success: true, msaSent };
+  });
+
+  fastify.post('/api/public/sign/quote/:token/decline', { config: publicRateLimit }, async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const body = publicDeclineSchema.parse(request.body ?? {});
+    const ctx = await loadQuoteSignatureContext(fastify.db, token);
+    if (!ctx) return reply.code(404).send({ error: 'Not found' });
+    const { sig, quote } = ctx;
+
+    if (!['pending', 'viewed'].includes(sig.status) || !['sent', 'viewed'].includes(quote.status)) {
+      return reply.code(409).send({ error: 'INVALID_STATUS', message: 'This quote can no longer be declined from this link.' });
+    }
+
+    const { declineQuoteSignature } = await import('../../services/quote-signing.js');
+    await declineQuoteSignature(fastify.db, sig.tenantId, quote.id, sig.id, {
+      reason: body.reason,
+      ip: request.ip,
+      forwardedFor: (request.headers['x-forwarded-for'] as string) ?? undefined,
+      userAgent: (request.headers['user-agent'] as string) ?? undefined,
+    });
+
+    const { notifyTenantStaff } = await import('../../services/notifications.js');
+    try {
+      await notifyTenantStaff(fastify.db, {
+        tenantId: sig.tenantId, type: 'quote_declined',
+        title: `Quote #${quote.quoteNumber} was declined`,
+        body: body.reason || undefined,
+        entityType: 'quote', entityId: quote.id,
+      });
+    } catch (err) {
+      request.log.error({ err }, '[QUOTES] Decline notification failed');
+    }
+
+    return { success: true };
   });
 
   // Approve quote

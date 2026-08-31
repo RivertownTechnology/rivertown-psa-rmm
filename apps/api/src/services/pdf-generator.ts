@@ -3,13 +3,22 @@ import puppeteer from 'puppeteer-core';
 let browserPath: string | undefined;
 
 function findChromium(): string {
-  // Check common paths
+  const win = process.platform === 'win32';
   const paths = [
+    process.env.CHROMIUM_PATH,
+    // Linux (Docker/Railway)
     '/usr/bin/chromium-browser',    // Alpine
     '/usr/bin/chromium',            // Alpine alt
     '/usr/bin/google-chrome',       // Debian
     '/usr/bin/google-chrome-stable',
-    process.env.CHROMIUM_PATH,
+    // Windows dev
+    ...(win ? [
+      `${process.env['PROGRAMFILES']}\\Google\\Chrome\\Application\\chrome.exe`,
+      `${process.env['PROGRAMFILES(X86)']}\\Google\\Chrome\\Application\\chrome.exe`,
+      `${process.env['LOCALAPPDATA']}\\Google\\Chrome\\Application\\chrome.exe`,
+      `${process.env['PROGRAMFILES(X86)']}\\Microsoft\\Edge\\Application\\msedge.exe`,
+      `${process.env['PROGRAMFILES']}\\Microsoft\\Edge\\Application\\msedge.exe`,
+    ] : []),
   ];
   for (const p of paths) {
     if (p) {
@@ -22,21 +31,30 @@ function findChromium(): string {
   throw new Error('Chromium not found. Set CHROMIUM_PATH env var.');
 }
 
+interface PdfOptions {
+  /** Page margins; pass '0' margins for full-bleed documents that carry their own padding. */
+  margin?: { top: string; right: string; bottom: string; left: string };
+}
+
+const DEFAULT_MARGIN = { top: '0.5in', right: '0.5in', bottom: '0.5in', left: '0.5in' };
+
 /**
  * Convert HTML string to PDF buffer using headless Chromium
  */
-export async function htmlToPdf(html: string): Promise<Buffer> {
+export async function htmlToPdf(html: string, opts: PdfOptions = {}): Promise<Buffer> {
   if (!browserPath) browserPath = findChromium();
 
   const browser = await puppeteer.launch({
     executablePath: browserPath,
     headless: true,
     args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--single-process',
+      // --no-sandbox is required in the Alpine container; --single-process
+      // breaks Chrome on Windows, so both are Linux-only.
+      ...(process.platform !== 'win32'
+        ? ['--no-sandbox', '--disable-setuid-sandbox', '--single-process']
+        : []),
     ],
   });
 
@@ -46,7 +64,7 @@ export async function htmlToPdf(html: string): Promise<Buffer> {
     const pdf = await page.pdf({
       format: 'Letter',
       printBackground: true,
-      margin: { top: '0.5in', right: '0.5in', bottom: '0.5in', left: '0.5in' },
+      margin: opts.margin ?? DEFAULT_MARGIN,
     });
     return Buffer.from(pdf);
   } finally {

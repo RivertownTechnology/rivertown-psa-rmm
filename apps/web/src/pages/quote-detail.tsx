@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { Combobox } from '@/components/ui/combobox';
+import { SendQuoteDialog } from '@/components/send-quote-dialog';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,7 @@ interface Quote {
   taxCents: number;
   totalCents: number;
   approvedAt: string | null;
+  declineReason: string | null;
   convertedContractId: string | null;
   convertedInvoiceId: string | null;
   createdAt: string;
@@ -55,6 +57,28 @@ interface CatalogItem {
   itemType: string;
   defaultUnitPriceCents: number;
   defaultUnitCostCents: number | null;
+}
+
+interface SignatureInfo {
+  id: string;
+  status: string;
+  recipientEmail: string;
+  signerName: string | null;
+  signerEmail: string | null;
+  ipAddress: string | null;
+  viewedAt: string | null;
+  signedAt: string | null;
+  declinedAt: string | null;
+  declineReason: string | null;
+  createdAt: string;
+}
+
+interface Agreement {
+  id: string;
+  title: string;
+  status: string;
+  sentAt: string | null;
+  signedAt: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +131,11 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
   const [customerName, setCustomerName] = useState('');
   const [saving, setSaving] = useState(false);
   const [actionLoading, setActionLoading] = useState('');
+  const [showSendDialog, setShowSendDialog] = useState(false);
+  const [signature, setSignature] = useState<SignatureInfo | null>(null);
+  const [agreement, setAgreement] = useState<Agreement | null>(null);
+  const [agreementResendTo, setAgreementResendTo] = useState('');
+  const [agreementMessage, setAgreementMessage] = useState('');
 
   // Add line item form
   const [showAddItem, setShowAddItem] = useState(false);
@@ -149,9 +178,20 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
     setLineItems(items);
   }, [quoteId]);
 
+  const loadSignature = useCallback(async () => {
+    try {
+      const sig = await api<SignatureInfo | null>(`/quotes/${quoteId}/signature`);
+      setSignature(sig);
+    } catch { /* */ }
+    try {
+      const agreements = await api<Agreement[]>(`/agreements?quoteId=${quoteId}`);
+      setAgreement(agreements[0] ?? null);
+    } catch { /* */ }
+  }, [quoteId]);
+
   const reload = useCallback(async () => {
-    await Promise.all([loadQuote(), loadLineItems()]);
-  }, [loadQuote, loadLineItems]);
+    await Promise.all([loadQuote(), loadLineItems(), loadSignature()]);
+  }, [loadQuote, loadLineItems, loadSignature]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -159,11 +199,16 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
   // Actions
   // -------------------------------------------------------------------------
 
-  async function sendQuote() {
-    setActionLoading('send');
+  async function resendAgreement() {
+    if (!agreement || !agreementResendTo) return;
+    setActionLoading('resendAgreement');
+    setAgreementMessage('');
     try {
-      await api(`/quotes/${quoteId}/send`, { method: 'POST' });
-      await reload();
+      await api(`/agreements/${agreement.id}/resend`, { method: 'POST', body: JSON.stringify({ to: agreementResendTo }) });
+      setAgreementMessage('Agreement resent.');
+      await loadSignature();
+    } catch (err: unknown) {
+      setAgreementMessage(err instanceof Error ? err.message : 'Resend failed');
     } finally { setActionLoading(''); }
   }
 
@@ -347,13 +392,17 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
       {/* Action Buttons */}
       <div className="flex items-center gap-2 flex-wrap">
         {isDraft && (
-          <Button size="sm" onClick={sendQuote} disabled={actionLoading === 'send'}>
+          <Button size="sm" onClick={() => setShowSendDialog(true)}>
             <Send className="h-4 w-4 mr-1" />
-            {actionLoading === 'send' ? 'Sending...' : 'Send Quote'}
+            Send Quote
           </Button>
         )}
         {isSent && (
           <>
+            <Button size="sm" variant="outline" onClick={() => setShowSendDialog(true)}>
+              <Send className="h-4 w-4 mr-1" />
+              Resend Quote
+            </Button>
             <Button size="sm" onClick={approveQuote} disabled={actionLoading === 'approve'}
               className="bg-green-600 hover:bg-green-700">
               <CheckCircle className="h-4 w-4 mr-1" />
@@ -573,6 +622,104 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
           )}
         </CardContent>
       </Card>
+
+      {/* E-Signature / Delivery Status */}
+      {(signature || agreement || quote.declineReason) && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">E-Signature &amp; Delivery</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {signature && (
+              <div className="text-sm space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground w-28">Sent to</span>
+                  <span>{signature.recipientEmail}</span>
+                  <Badge variant="outline" className="text-xs">{signature.status}</Badge>
+                </div>
+                {signature.viewedAt && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground w-28">Viewed</span>
+                    <span>{new Date(signature.viewedAt).toLocaleString()}</span>
+                  </div>
+                )}
+                {signature.status === 'signed' && (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground w-28">Signed by</span>
+                      <span className="font-medium">{signature.signerName}</span>
+                      {signature.signerEmail && <span className="text-muted-foreground">({signature.signerEmail})</span>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground w-28">Signed at</span>
+                      <span>{signature.signedAt ? new Date(signature.signedAt).toLocaleString() : ''}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground w-28">IP address</span>
+                      <span className="font-mono text-xs">{signature.ipAddress}</span>
+                    </div>
+                  </>
+                )}
+                {signature.status === 'declined' && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground w-28">Declined</span>
+                    <span>{signature.declinedAt ? new Date(signature.declinedAt).toLocaleString() : ''}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            {quote.declineReason && (
+              <div className="text-sm bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 p-3 rounded-md border border-red-200 dark:border-red-800">
+                <span className="font-medium">Decline reason:</span> {quote.declineReason}
+              </div>
+            )}
+            {agreement && (
+              <div className="border-t pt-3 text-sm space-y-2">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">{agreement.title}</span>
+                  <Badge
+                    variant={agreement.status === 'signed' ? 'default' : agreement.status === 'declined' ? 'destructive' : 'secondary'}
+                    className={agreement.status === 'signed' ? 'bg-green-600 hover:bg-green-600/80' : ''}
+                  >
+                    {agreement.status}
+                  </Badge>
+                  {agreement.signedAt && (
+                    <span className="text-muted-foreground">signed {new Date(agreement.signedAt).toLocaleString()}</span>
+                  )}
+                </div>
+                {agreement.status !== 'signed' && (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="email"
+                      value={agreementResendTo}
+                      onChange={e => setAgreementResendTo(e.target.value)}
+                      placeholder={signature?.signerEmail || signature?.recipientEmail || 'customer@company.com'}
+                      className="w-64 h-8"
+                    />
+                    <Button size="sm" variant="outline" onClick={resendAgreement}
+                      disabled={actionLoading === 'resendAgreement' || !agreementResendTo}>
+                      <Send className="h-3 w-3 mr-1" />
+                      {actionLoading === 'resendAgreement' ? 'Sending…' : 'Resend MSA'}
+                    </Button>
+                    {agreementMessage && <span className="text-xs text-muted-foreground">{agreementMessage}</span>}
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Send / Resend Dialog */}
+      <SendQuoteDialog
+        quoteId={quoteId}
+        quoteNumber={quote.quoteNumber}
+        isResend={!isDraft}
+        open={showSendDialog}
+        onOpenChange={setShowSendDialog}
+        onSent={reload}
+      />
 
       {/* Add Line Item Dialog */}
       <Dialog open={showAddItem} onOpenChange={setShowAddItem}>

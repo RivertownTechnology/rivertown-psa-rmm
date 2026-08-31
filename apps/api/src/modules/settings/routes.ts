@@ -1212,6 +1212,144 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== SALES EMAIL (Mailjet) — quotes, agreements & MSAs =====
+
+  fastify.get(
+    '/api/v1/settings/sales-email',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'sales-email')))
+        .limit(1);
+
+      if (!config) {
+        return {
+          isEnabled: false,
+          smtpHost: 'in-v3.mailjet.com',
+          smtpPort: 587,
+          apiKey: '',
+          secretKey: '',
+          fromAddress: '',
+          fromName: '',
+          replyTo: '',
+        };
+      }
+
+      const creds = readCredentials(config.credentials) as Record<string, unknown>;
+      return {
+        isEnabled: config.isEnabled,
+        smtpHost: creds.smtpHost ?? 'in-v3.mailjet.com',
+        smtpPort: creds.smtpPort ?? 587,
+        apiKey: creds.apiKey ? '••••••••' + String(creds.apiKey).slice(-4) : '',
+        secretKey: creds.secretKey ? '••••••••' : '',
+        fromAddress: creds.fromAddress ?? '',
+        fromName: creds.fromName ?? '',
+        replyTo: creds.replyTo ?? '',
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/sales-email',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const body = request.body as {
+        isEnabled: boolean;
+        smtpHost?: string;
+        smtpPort?: number;
+        apiKey?: string;
+        secretKey?: string;
+        fromAddress: string;
+        fromName: string;
+        replyTo?: string;
+      };
+
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'sales-email')))
+        .limit(1);
+
+      const prevCreds = (existing?.credentials ?? {}) as Record<string, unknown>;
+      const credentials: Record<string, unknown> = {
+        smtpHost: body.smtpHost || prevCreds.smtpHost || 'in-v3.mailjet.com',
+        smtpPort: body.smtpPort ?? prevCreds.smtpPort ?? 587,
+        apiKey: body.apiKey?.startsWith('••') ? prevCreds.apiKey : (body.apiKey || prevCreds.apiKey || ''),
+        secretKey: body.secretKey?.startsWith('••') ? prevCreds.secretKey : (body.secretKey || prevCreds.secretKey || ''),
+        fromAddress: body.fromAddress,
+        fromName: body.fromName,
+        replyTo: body.replyTo || '',
+      };
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, credentials, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'sales-email',
+          isEnabled: body.isEnabled, credentials,
+        });
+      }
+
+      return { success: true };
+    },
+  );
+
+  fastify.post(
+    '/api/v1/settings/sales-email/test',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { sendSalesEmail } = await import('../../services/email.js');
+      const { email } = request.body as { email?: string };
+      const targetEmail = email ?? 'test@test.com';
+
+      const sent = await sendSalesEmail(fastify.db, request.tenantId, {
+        to: targetEmail,
+        subject: 'Rivertown PSA - Sales Email Test',
+        html: '<h2>Sales Email Test</h2><p>Your sales email (Mailjet) configuration is working correctly.</p>',
+      });
+
+      if (!sent) throw new ValidationError('Sales email sending failed. Check your Mailjet configuration.');
+      return { success: true, message: `Test email sent to ${targetEmail}` };
+    },
+  );
+
+  // ===== MSA TEMPLATE =====
+
+  fastify.get(
+    '/api/v1/settings/msa-template',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const [tenant] = await fastify.db.select().from(tenants)
+        .where(eq(tenants.id, request.tenantId)).limit(1);
+      const s = (tenant?.settings ?? {}) as Record<string, string>;
+      const { getDefaultMsaTemplate } = await import('../../services/template-renderer.js');
+      return {
+        msaTemplateHtml: s.msaTemplateHtml || getDefaultMsaTemplate(),
+        isCustomized: Boolean(s.msaTemplateHtml),
+        mergeFields: ['customerName', 'businessName', 'businessAddress', 'businessEmail', 'effectiveDate', 'quoteNumber'],
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/msa-template',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const body = request.body as { msaTemplateHtml?: string };
+      const [tenant] = await fastify.db.select().from(tenants)
+        .where(eq(tenants.id, request.tenantId)).limit(1);
+      const settings = { ...((tenant?.settings ?? {}) as Record<string, unknown>) };
+      if (body.msaTemplateHtml && body.msaTemplateHtml.trim()) {
+        settings.msaTemplateHtml = body.msaTemplateHtml;
+      } else {
+        delete settings.msaTemplateHtml; // empty = reset to default
+      }
+      await fastify.db.update(tenants).set({ settings, updatedAt: new Date() })
+        .where(eq(tenants.id, request.tenantId));
+      return { success: true };
+    },
+  );
+
   // ===== EMAIL-TO-TICKET =====
 
   fastify.post(
