@@ -1,6 +1,6 @@
 import { sanitizeBody } from '../../common/sanitize.js';
 import { FastifyInstance } from 'fastify';
-import { eq, and, count, desc, sql } from 'drizzle-orm';
+import { eq, and, count, desc, sql, inArray } from 'drizzle-orm';
 import {
   quotes,
   quoteLineItems,
@@ -339,6 +339,44 @@ export async function quoteRoutes(fastify: FastifyInstance) {
       ))
       .orderBy(desc(documentSignatures.createdAt)).limit(1);
     return sig ?? null;
+  });
+
+  // Cancel/void the active (pending or viewed) signature request for a quote.
+  // Revokes the outstanding public link and returns the quote to 'draft' so it
+  // can be cleanly re-sent — the escape hatch for a request stuck "pending"
+  // (e.g. the send email failed, or it went to the wrong address).
+  fastify.post('/api/v1/quotes/:id/signature/void', { preHandler: [fastify.authenticate, requirePermission('quotes:write')] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const [quote] = await fastify.db.select().from(quotes)
+      .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);
+    if (!quote) throw new NotFoundError('Quote', id);
+
+    const now = new Date();
+    const result = await fastify.db.update(documentSignatures)
+      .set({ status: 'revoked', updatedAt: now })
+      .where(and(
+        eq(documentSignatures.tenantId, request.tenantId),
+        eq(documentSignatures.entityType, 'quote'),
+        eq(documentSignatures.entityId, id),
+        inArray(documentSignatures.status, ['pending', 'viewed']),
+      )).returning({ id: documentSignatures.id });
+
+    if (result.length === 0) {
+      reply.code(409).send({ error: 'NO_ACTIVE_REQUEST', message: 'There is no pending signature request to cancel.' });
+      return;
+    }
+
+    // Roll a sent/viewed quote back to draft so the staff can re-send cleanly.
+    if (['sent', 'viewed'].includes(quote.status)) {
+      await fastify.db.update(quotes).set({ status: 'draft', updatedAt: now })
+        .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId)));
+    }
+
+    await logAudit(fastify.db, {
+      tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,
+      action: 'quote.signature_voided', entityType: 'quote', entityId: id, ipAddress: request.ip,
+    });
+    return { success: true };
   });
 
   // ── Public quote signing (no auth; opaque token) ─────────────────

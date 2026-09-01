@@ -144,6 +144,7 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
   const [agreement, setAgreement] = useState<Agreement | null>(null);
   const [agreementResendTo, setAgreementResendTo] = useState('');
   const [agreementMessage, setAgreementMessage] = useState('');
+  const [signatureMessage, setSignatureMessage] = useState('');
 
   // Add line item form
   const [showAddItem, setShowAddItem] = useState(false);
@@ -247,6 +248,16 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
     try {
       await api(`/quotes/${quoteId}/reject`, { method: 'POST' });
       await reload();
+    } finally { setActionLoading(''); }
+  }
+
+  async function voidSignature() {
+    setActionLoading('voidSig'); setSignatureMessage('');
+    try {
+      await api(`/quotes/${quoteId}/signature/void`, { method: 'POST' });
+      await reload();
+    } catch (err) {
+      setSignatureMessage(err instanceof Error ? err.message : 'Could not cancel the request');
     } finally { setActionLoading(''); }
   }
 
@@ -740,6 +751,22 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
                   <div className="flex items-center gap-2">
                     <span className="text-muted-foreground w-28">Viewed</span>
                     <span>{new Date(signature.viewedAt).toLocaleString()}</span>
+                  </div>
+                )}
+                {(signature.status === 'pending' || signature.status === 'viewed') && (
+                  <div className="flex items-center gap-2 flex-wrap pt-2">
+                    <Button size="sm" variant="outline" onClick={() => setShowSendDialog(true)}>
+                      <RefreshCw className="h-3 w-3 mr-1" /> Resend
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={voidSignature}
+                      disabled={actionLoading === 'voidSig'}
+                      className="text-red-600 hover:text-red-700 dark:text-red-400">
+                      <XCircle className="h-3 w-3 mr-1" />
+                      {actionLoading === 'voidSig' ? 'Cancelling…' : 'Cancel request'}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {signatureMessage || 'Waiting for the recipient to sign.'}
+                    </span>
                   </div>
                 )}
                 {signature.status === 'signed' && (
