@@ -291,7 +291,7 @@ export async function sendQuoteEmailWithTemplate(
 
 export async function sendAgreementEmail(
   db: Database, tenantId: string, agreementId: string,
-  opts: { to: string; signUrl: string },
+  opts: { to: string; signUrl: string; templateType?: 'msa_sent' | 'msa_renewal' },
 ): Promise<void> {
   const [agreement] = await db.select().from(agreements)
     .where(and(eq(agreements.id, agreementId), eq(agreements.tenantId, tenantId))).limit(1);
@@ -325,8 +325,9 @@ export async function sendAgreementEmail(
 
   // Tenant-customized template first, else the branded built-in default —
   // never a bare-text fallback.
-  const template = await getTemplate(db, tenantId, 'msa_sent')
-    ?? getDefaultTemplates().find(t => t.templateType === 'msa_sent')!;
+  const templateType = opts.templateType ?? 'msa_sent';
+  const template = await getTemplate(db, tenantId, templateType)
+    ?? getDefaultTemplates().find(t => t.templateType === templateType)!;
 
   const subject = renderTemplate(template.subject, vars);
   const html = renderTemplate(template.bodyHtml, vars);

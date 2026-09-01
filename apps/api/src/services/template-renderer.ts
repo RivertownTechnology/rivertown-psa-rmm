@@ -163,6 +163,26 @@ export function getDefaultTemplates(): Array<{
       bodyText: '{{agreementTitle}} {{msaNumber}}\n\nThank you for approving Quote #{{quoteNumber}}. Please review and sign your month-to-month service agreement (effective {{effectiveDate}}):\n{{signAgreementUrl}}\n\nYou will receive a fully signed copy for your records after signing.',
     },
     {
+      templateType: 'msa_renewal',
+      name: 'Agreement Renewal',
+      subject: '{{agreementTitle}} — annual renewal, signature requested',
+      bodyHtml: `${header}
+        <h2 style="color:#111;margin:0 0 8px">{{agreementTitle}} — Annual Renewal</h2>
+        <p>Hi {{customerName}},</p>
+        <p>It's time for the yearly renewal of your service agreement with {{businessName}}. We review and update our agreement each year, so please take a moment to review this year's version and sign. It remains a simple <strong>month-to-month</strong> agreement — no long-term commitment.</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:8px">
+          {{#msaNumber}}<tr><td style="padding:12px 16px;color:#6b7280;width:160px">Agreement No.</td><td style="padding:12px 16px;font-weight:600">{{msaNumber}}</td></tr>{{/msaNumber}}
+          {{#effectiveDate}}<tr><td style="padding:12px 16px;color:#6b7280;border-top:1px solid #e5e7eb">Effective Date</td><td style="padding:12px 16px;border-top:1px solid #e5e7eb">{{effectiveDate}}</td></tr>{{/effectiveDate}}
+          <tr><td style="padding:12px 16px;color:#6b7280;border-top:1px solid #e5e7eb">Term</td><td style="padding:12px 16px;border-top:1px solid #e5e7eb">Month to month · 30 days' notice to cancel</td></tr>
+        </table>
+        <div style="text-align:center;margin:28px 0">
+          <a href="{{signAgreementUrl}}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:14px 40px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">Review &amp; Sign Renewal</a>
+        </div>
+        <p style="margin:16px 0;color:#6b7280;font-size:13px">Signing takes less than a minute — review the agreement, then type your name, email, and phone number. You'll receive a fully signed copy for your records right after. Your current agreement stays in effect until the renewal is signed.</p>
+      ${footer}`,
+      bodyText: '{{agreementTitle}} — Annual Renewal {{msaNumber}}\n\nIt is time for the yearly renewal of your service agreement. Please review and sign this year\'s version (effective {{effectiveDate}}):\n{{signAgreementUrl}}\n\nYou will receive a fully signed copy for your records after signing. Your current agreement stays in effect until the renewal is signed.',
+    },
+    {
       templateType: 'msa_signed',
       name: 'Agreement Signed',
       subject: 'Signed copy of your {{agreementTitle}}',

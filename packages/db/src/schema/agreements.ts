@@ -19,8 +19,17 @@ export const agreements = pgTable(
     // Rendered merge-field snapshot at send time — later template edits never
     // change what a customer signed.
     contentHtml: text('content_html').notNull(),
-    status: text('status').default('draft').notNull(), // draft | sent | viewed | signed | declined
+    status: text('status').default('draft').notNull(), // draft | sent | viewed | signed | declined | superseded
     effectiveDate: date('effective_date'),
+    // Yearly re-sign cycle: set to signedAt + 1 year when the customer signs.
+    expiresAt: date('expires_at'),
+    // Renewal chain — the MSA this one replaces. Old rows are never deleted;
+    // when a renewal is signed the prior signed MSA flips to 'superseded'.
+    previousAgreementId: uuid('previous_agreement_id'),
+    supersededAt: timestamp('superseded_at', { withTimezone: true }),
+    // Stamped when staff were notified that this MSA is due for renewal,
+    // so the reminder sweep fires once per agreement.
+    renewalNoticeAt: timestamp('renewal_notice_at', { withTimezone: true }),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     signedAt: timestamp('signed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

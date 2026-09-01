@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and, desc } from 'drizzle-orm';
-import { agreements, documentSignatures, signatureDocuments, tenants } from '@rivertown/db';
+import { eq, and, desc, lte, isNotNull } from 'drizzle-orm';
+import { z } from 'zod';
+import { agreements, documentSignatures, signatureDocuments, tenants, customers } from '@rivertown/db';
 import { sendQuoteSchema, publicSignSchema, publicDeclineSchema } from '@rivertown/shared';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError } from '../../common/errors.js';
@@ -17,6 +18,55 @@ export async function agreementRoutes(fastify: FastifyInstance) {
     if (params.status) conditions.push(eq(agreements.status, params.status));
     return fastify.db.select().from(agreements)
       .where(and(...conditions)).orderBy(desc(agreements.createdAt)).limit(100);
+  });
+
+  // Signed MSAs coming up for their yearly re-sign (or already past it),
+  // oldest expiry first. 'superseded' rows never appear — only current MSAs.
+  fastify.get('/api/v1/agreements/renewals-due', { preHandler: [fastify.authenticate, requirePermission('quotes:read')] }, async (request) => {
+    const days = Math.min(parseInt((request.query as Record<string, string>).days ?? '60', 10) || 60, 365);
+    const cutoff = new Date(Date.now() + days * 86_400_000).toISOString().split('T')[0];
+    return fastify.db.select({
+      id: agreements.id,
+      customerId: agreements.customerId,
+      customerName: customers.name,
+      title: agreements.title,
+      signedAt: agreements.signedAt,
+      expiresAt: agreements.expiresAt,
+    }).from(agreements)
+      .innerJoin(customers, eq(customers.id, agreements.customerId))
+      .where(and(
+        eq(agreements.tenantId, request.tenantId),
+        eq(agreements.agreementType, 'msa'),
+        eq(agreements.status, 'signed'),
+        isNotNull(agreements.expiresAt),
+        lte(agreements.expiresAt, cutoff),
+      )).orderBy(agreements.expiresAt).limit(200);
+  });
+
+  // Send an MSA outside the quote flow — yearly renewals, or a first MSA for a
+  // customer without one. Renders from the tenant's current template and links
+  // the customer's current signed MSA as the previous version.
+  fastify.post('/api/v1/agreements/send', { preHandler: [fastify.authenticate, requirePermission('quotes:write')] }, async (request, reply) => {
+    const body = z.object({ customerId: z.string().uuid(), to: z.string().email() }).parse(request.body);
+
+    const { sendMsaToCustomer } = await import('../../services/quote-signing.js');
+    let result: { agreementId: string; isRenewal: boolean };
+    try {
+      result = await sendMsaToCustomer(fastify.db, request.tenantId, body.customerId, body.to);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Agreement send failed';
+      request.log.error({ err }, `[AGREEMENTS] MSA send failed for customer ${body.customerId}`);
+      reply.code(502).send({ error: 'SEND_FAILED', message });
+      return;
+    }
+
+    await logAudit(fastify.db, {
+      tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,
+      action: result.isRenewal ? 'agreement.renewal_sent' : 'agreement.sent',
+      entityType: 'agreement', entityId: result.agreementId, ipAddress: request.ip,
+      changes: { recipient: { old: null, new: body.to } },
+    });
+    return { success: true, ...result };
   });
 
   // Get agreement with latest signature

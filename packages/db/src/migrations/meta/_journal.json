@@ -339,6 +339,7 @@
     { "idx": 52, "version": "7", "when": 1788205000000, "tag": "0052_signer_phone", "breakpoints": true },
     { "idx": 53, "version": "7", "when": 1788208000000, "tag": "0053_quote_line_cost", "breakpoints": true },
     { "idx": 54, "version": "7", "when": 1788209000000, "tag": "0054_signature_documents", "breakpoints": true },
-    { "idx": 55, "version": "7", "when": 1788213000000, "tag": "0055_stripe_identity", "breakpoints": true }
+    { "idx": 55, "version": "7", "when": 1788213000000, "tag": "0055_stripe_identity", "breakpoints": true },
+    { "idx": 56, "version": "7", "when": 1788224751202, "tag": "0056_msa_renewal", "breakpoints": true }
   ]
 }

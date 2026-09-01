@@ -32,6 +32,7 @@ interface Contact { id: string; firstName: string; lastName: string; email: stri
 interface Site { id: string; name: string; addressLine1: string | null; city: string | null; state: string | null; postalCode: string | null; }
 interface Asset { id: string; name: string; assetType: string; osName: string | null; osVersion: string | null; status: string; ipAddress: string | null; manufacturer: string | null; model: string | null; }
 interface TicketRow { id: string; ticketNumber: number; subject: string; status: string; priority: string; createdAt: string; }
+interface AgreementRow { id: string; title: string; status: string; sentAt: string | null; signedAt: string | null; expiresAt: string | null; supersededAt: string | null; previousAgreementId: string | null; createdAt: string; }
 
 const priorityColor: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = { low: 'secondary', medium: 'outline', high: 'default', critical: 'destructive' };
 const statusColor: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = { new: 'default', open: 'default', pending: 'outline', waiting_on_customer: 'secondary', resolved: 'secondary', closed: 'secondary' };
@@ -44,6 +45,10 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [customerContracts, setCustomerContracts] = useState<Contract[]>([]);
   const [customerInvoices, setCustomerInvoices] = useState<Invoice[]>([]);
+  const [msas, setMsas] = useState<AgreementRow[]>([]);
+  const [msaSendTo, setMsaSendTo] = useState('');
+  const [msaSending, setMsaSending] = useState(false);
+  const [msaMessage, setMsaMessage] = useState('');
   const [tab, setTab] = useState('overview');
   const [slaPolicies, setSlaPolicies] = useState<Array<{ id: string; name: string }>>([]);
 
@@ -100,8 +105,11 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
       api<{ data: Contract[] }>(`/contracts?customerId=${customerId}&limit=100`).then(d => setCustomerContracts(d.data)).catch(() => {});
     } else if (tab === 'invoices' && customerInvoices.length === 0) {
       api<{ data: Invoice[] }>(`/invoices?customerId=${customerId}&limit=100`).then(d => setCustomerInvoices(d.data)).catch(() => {});
+    } else if (tab === 'agreements' && msas.length === 0) {
+      api<AgreementRow[]>(`/agreements?customerId=${customerId}`).then(setMsas).catch(() => {});
+      setMsaSendTo(prev => prev || customer?.billingEmail || contacts.find(c => c.isPrimary)?.email || contacts[0]?.email || '');
     }
-  }, [tab, customerId, loadedTabs, sites.length, assets.length, tickets.length, customerContracts.length, customerInvoices.length]);
+  }, [tab, customerId, loadedTabs, sites.length, assets.length, tickets.length, customerContracts.length, customerInvoices.length, msas.length, customer, contacts]);
 
   useEffect(() => {
     api<Array<{ id: string; name: string }>>('/settings/sla-policies').then(setSlaPolicies).catch(() => {});
@@ -153,6 +161,34 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
 
   async function deleteSite(id: string) {
     await api(`/sites/${id}`, { method: 'DELETE' }); load();
+  }
+
+  async function sendMsa() {
+    if (!msaSendTo) return;
+    setMsaSending(true); setMsaMessage('');
+    try {
+      const res = await api<{ isRenewal: boolean }>('/agreements/send', {
+        method: 'POST', body: JSON.stringify({ customerId, to: msaSendTo }),
+      });
+      setMsaMessage(res.isRenewal ? `Renewal MSA sent to ${msaSendTo}.` : `MSA sent to ${msaSendTo}.`);
+      api<AgreementRow[]>(`/agreements?customerId=${customerId}`).then(setMsas).catch(() => {});
+    } catch (e: unknown) {
+      setMsaMessage(e instanceof Error ? e.message : 'Send failed');
+    } finally { setMsaSending(false); }
+  }
+
+  async function openAgreementPdf(id: string) {
+    const { token } = await api<{ token: string }>(`/agreements/${id}/preview-token`, { method: 'POST' });
+    window.open(`/api/v1/agreements/${id}/pdf?token=${token}`, '_blank');
+  }
+
+  function msaStatusBadge(a: AgreementRow) {
+    const renewalDue = a.status === 'signed' && a.expiresAt && new Date(a.expiresAt) <= new Date(Date.now() + 30 * 86_400_000);
+    if (a.status === 'signed' && renewalDue) return <Badge variant="destructive">renewal due</Badge>;
+    if (a.status === 'signed') return <Badge className="bg-green-600 hover:bg-green-600/80">current</Badge>;
+    if (a.status === 'superseded') return <Badge variant="outline">previous</Badge>;
+    if (a.status === 'declined') return <Badge variant="destructive">declined</Badge>;
+    return <Badge variant="secondary">{a.status}</Badge>;
   }
 
   function openEditCustomer() {
@@ -343,6 +379,7 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
           <TabsTrigger value="devices">Devices ({assets.length})</TabsTrigger>
           <TabsTrigger value="tickets">Tickets ({tickets.length})</TabsTrigger>
           <TabsTrigger value="contracts">Contracts ({customerContracts.length})</TabsTrigger>
+          <TabsTrigger value="agreements">MSA</TabsTrigger>
           <TabsTrigger value="invoices">Invoices ({customerInvoices.length})</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
         </TabsList>
@@ -617,6 +654,59 @@ export function CustomerDetailPage({ customerId, onBack }: { customerId: string;
                       </tr>
                     ))}
                     {customerContracts.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No contracts</td></tr>}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* MSA / AGREEMENTS */}
+        <TabsContent value="agreements">
+          <div className="mt-4 space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Master Services Agreements</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Input placeholder="recipient@company.com" type="email" className="h-8 w-72"
+                    value={msaSendTo} onChange={e => setMsaSendTo(e.target.value)} />
+                  <Button size="sm" onClick={sendMsa} disabled={msaSending || !msaSendTo}>
+                    <Mail className="h-4 w-4 mr-1" />
+                    {msaSending ? 'Sending…' : msas.some(a => a.status === 'signed') ? 'Send Renewal' : 'Send MSA'}
+                  </Button>
+                  {msaMessage && <span className="text-xs text-muted-foreground">{msaMessage}</span>}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Renewals render from the current MSA template in Settings. The customer's current agreement stays in
+                  effect until the new one is signed, then it moves to history automatically.
+                </p>
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b bg-muted/50">
+                    <th className="text-left p-3 font-medium">Agreement</th>
+                    <th className="text-left p-3 font-medium">Status</th>
+                    <th className="text-left p-3 font-medium">Sent</th>
+                    <th className="text-left p-3 font-medium">Signed</th>
+                    <th className="text-left p-3 font-medium">Renewal Due</th>
+                    <th className="text-right p-3 font-medium"></th>
+                  </tr></thead>
+                  <tbody>
+                    {msas.map(a => (
+                      <tr key={a.id} className="border-b hover:bg-muted/30">
+                        <td className="p-3 font-medium">{a.title}{a.previousAgreementId && <span className="ml-2 text-xs text-muted-foreground">(renewal)</span>}</td>
+                        <td className="p-3">{msaStatusBadge(a)}</td>
+                        <td className="p-3 text-muted-foreground">{a.sentAt ? new Date(a.sentAt).toLocaleDateString() : '-'}</td>
+                        <td className="p-3 text-muted-foreground">{a.signedAt ? new Date(a.signedAt).toLocaleDateString() : '-'}</td>
+                        <td className="p-3 text-muted-foreground">{a.status === 'signed' && a.expiresAt ? a.expiresAt : '-'}</td>
+                        <td className="p-3 text-right">
+                          <Button size="sm" variant="outline" onClick={() => openAgreementPdf(a.id)}>
+                            <FileText className="h-4 w-4 mr-1" />PDF
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                    {msas.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No agreements yet — send one above.</td></tr>}
                   </tbody>
                 </table>
               </CardContent>

@@ -6,7 +6,7 @@
  * the legal record (signer name, IP, user agent, timestamps).
  */
 import { randomBytes } from 'crypto';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, ne, desc, inArray } from 'drizzle-orm';
 import {
   quotes, customers, tenants, documentSignatures, agreements, attachments,
 } from '@rivertown/db';
@@ -228,28 +228,7 @@ export async function createAndSendMsa(
   db: Database, tenantId: string, quote: { id: string; quoteNumber: number; customerId: string },
   recipientEmail: string,
 ): Promise<string> {
-  const [customer] = await db.select().from(customers)
-    .where(and(eq(customers.id, quote.customerId), eq(customers.tenantId, tenantId))).limit(1);
-  if (!customer) throw new Error('Customer not found');
-
-  const s = await getBusinessSettings(db, tenantId);
-  const template = s.msaTemplateHtml || getDefaultMsaTemplate();
-  const effectiveDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  const customerAddress = [
-    customer.address,
-    [customer.city, customer.state].filter(Boolean).join(', '),
-    customer.zip,
-  ].filter(Boolean).join(', ') || 'the address on file';
-
-  const contentHtml = renderTemplate(template, {
-    customerName: escapeHtml(customer.name),
-    customerAddress: escapeHtml(customerAddress),
-    businessName: escapeHtml(s.businessName || s.tenantName || ''),
-    businessAddress: escapeHtml(s.businessAddress || ''),
-    businessEmail: escapeHtml(s.businessEmail || ''),
-    effectiveDate: escapeHtml(effectiveDate),
-    quoteNumber: escapeHtml(`#${quote.quoteNumber}`),
-  });
+  const contentHtml = await renderMsaContent(db, tenantId, quote.customerId, `#${quote.quoteNumber}`);
 
   const [agreement] = await db.insert(agreements).values({
     tenantId,
@@ -268,6 +247,108 @@ export async function createAndSendMsa(
 
   await sendAgreementEmail(db, tenantId, agreement.id, { to: recipientEmail, signUrl });
   return agreement.id;
+}
+
+async function renderMsaContent(
+  db: Database, tenantId: string, customerId: string, quoteNumberText: string,
+): Promise<string> {
+  const [customer] = await db.select().from(customers)
+    .where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId))).limit(1);
+  if (!customer) throw new Error('Customer not found');
+
+  const s = await getBusinessSettings(db, tenantId);
+  const template = s.msaTemplateHtml || getDefaultMsaTemplate();
+  const effectiveDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const customerAddress = [
+    customer.address,
+    [customer.city, customer.state].filter(Boolean).join(', '),
+    customer.zip,
+  ].filter(Boolean).join(', ') || 'the address on file';
+
+  return renderTemplate(template, {
+    customerName: escapeHtml(customer.name),
+    customerAddress: escapeHtml(customerAddress),
+    businessName: escapeHtml(s.businessName || s.tenantName || ''),
+    businessAddress: escapeHtml(s.businessAddress || ''),
+    businessEmail: escapeHtml(s.businessEmail || ''),
+    effectiveDate: escapeHtml(effectiveDate),
+    quoteNumber: escapeHtml(quoteNumberText),
+  });
+}
+
+/**
+ * Sends the customer a fresh MSA rendered from the tenant's *current* template,
+ * outside the quote flow — used for yearly renewals (and first-time sends for
+ * customers who never signed via a quote). If the customer has a current signed
+ * MSA it becomes this one's previousAgreementId, and it flips to 'superseded'
+ * automatically when the new copy is signed.
+ */
+export async function sendMsaToCustomer(
+  db: Database, tenantId: string, customerId: string, recipientEmail: string,
+): Promise<{ agreementId: string; isRenewal: boolean }> {
+  const [current] = await db.select().from(agreements)
+    .where(and(
+      eq(agreements.tenantId, tenantId),
+      eq(agreements.customerId, customerId),
+      eq(agreements.agreementType, 'msa'),
+      eq(agreements.status, 'signed'),
+    )).orderBy(desc(agreements.signedAt)).limit(1);
+
+  // Carry the original quote linkage through renewals so MSA numbering
+  // and the "covers Quote #N" context stay stable across years.
+  let quoteNumberText = '';
+  if (current?.quoteId) {
+    const [quote] = await db.select({ quoteNumber: quotes.quoteNumber }).from(quotes)
+      .where(eq(quotes.id, current.quoteId)).limit(1);
+    if (quote) quoteNumberText = `#${quote.quoteNumber}`;
+  }
+
+  const contentHtml = await renderMsaContent(db, tenantId, customerId, quoteNumberText);
+
+  // A fresh send replaces any outstanding unsigned MSA: retire the row and
+  // revoke its emailed signing links so only the newest copy is signable.
+  const stale = await db.select({ id: agreements.id }).from(agreements)
+    .where(and(
+      eq(agreements.tenantId, tenantId),
+      eq(agreements.customerId, customerId),
+      eq(agreements.agreementType, 'msa'),
+      inArray(agreements.status, ['sent', 'viewed']),
+    ));
+  if (stale.length > 0) {
+    const staleIds = stale.map((r: { id: string }) => r.id);
+    const now = new Date();
+    await db.update(agreements).set({ status: 'superseded', supersededAt: now, updatedAt: now })
+      .where(inArray(agreements.id, staleIds));
+    await db.update(documentSignatures).set({ status: 'revoked', updatedAt: now })
+      .where(and(
+        eq(documentSignatures.tenantId, tenantId),
+        eq(documentSignatures.entityType, 'msa'),
+        inArray(documentSignatures.entityId, staleIds),
+        inArray(documentSignatures.status, ['pending', 'viewed']),
+      ));
+  }
+
+  const [agreement] = await db.insert(agreements).values({
+    tenantId,
+    customerId,
+    quoteId: current?.quoteId ?? null,
+    previousAgreementId: current?.id ?? null,
+    agreementType: 'msa',
+    title: 'Master Services Agreement',
+    contentHtml,
+    status: 'sent',
+    effectiveDate: new Date().toISOString().split('T')[0],
+    sentAt: new Date(),
+  }).returning();
+
+  const { token } = await createSignatureRequest(db, tenantId, 'msa', agreement.id, recipientEmail);
+  const signUrl = `${API_BASE_URL()}/api/public/sign/agreement/${token}`;
+
+  const isRenewal = Boolean(current);
+  await sendAgreementEmail(db, tenantId, agreement.id, {
+    to: recipientEmail, signUrl, templateType: isRenewal ? 'msa_renewal' : 'msa_sent',
+  });
+  return { agreementId: agreement.id, isRenewal };
 }
 
 /** Re-sends an existing agreement with a fresh signing link. */
@@ -341,11 +422,29 @@ export async function completeMsaSignature(
       updatedAt: now,
     }).where(eq(documentSignatures.id, signatureId));
 
+    // Signed MSAs run on a yearly cycle — due for re-sign one year out
+    const expires = new Date(now);
+    expires.setFullYear(expires.getFullYear() + 1);
     await tx.update(agreements).set({
       status: 'signed',
       signedAt: now,
+      expiresAt: expires.toISOString().split('T')[0],
       updatedAt: now,
     }).where(and(eq(agreements.id, agreement.id), eq(agreements.tenantId, tenantId)));
+
+    // This signature becomes the customer's current MSA; any previously
+    // signed MSA is kept as history but marked superseded.
+    await tx.update(agreements).set({
+      status: 'superseded',
+      supersededAt: now,
+      updatedAt: now,
+    }).where(and(
+      eq(agreements.tenantId, tenantId),
+      eq(agreements.customerId, agreement.customerId),
+      eq(agreements.agreementType, 'msa'),
+      eq(agreements.status, 'signed'),
+      ne(agreements.id, agreement.id),
+    ));
   });
 
   await logAudit(db, {

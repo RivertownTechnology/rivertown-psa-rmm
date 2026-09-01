@@ -289,6 +289,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   const { startInvoiceAutoSendScheduler } = await import('./services/invoice-auto-send.js');
   startInvoiceAutoSendScheduler(db);
 
+  // Start MSA yearly-renewal reminder sweep
+  const { startMsaRenewalReminderScheduler } = await import('./services/msa-renewal-reminders.js');
+  startMsaRenewalReminderScheduler(db);
+
   // Start push notification worker (delivers queued APNs jobs to iOS devices)
   const { startPushWorker } = await import('./workers/push-worker.js');
   startPushWorker(db, config.REDIS_URL);
