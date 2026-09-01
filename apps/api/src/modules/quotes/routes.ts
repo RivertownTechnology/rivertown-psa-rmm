@@ -552,6 +552,48 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     return updated;
   });
 
+  // Revert a quote back to draft so it can be edited (change order) and re-sent.
+  // Works from sent/viewed/approved/rejected — but not once converted to a
+  // contract/invoice. Revokes any outstanding signing link and clears approval.
+  fastify.post('/api/v1/quotes/:id/revert-to-draft', { preHandler: [fastify.authenticate, requirePermission('quotes:write')] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const [existing] = await fastify.db.select().from(quotes)
+      .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);
+    if (!existing) throw new NotFoundError('Quote', id);
+    if (existing.status === 'draft') {
+      reply.code(409).send({ error: 'INVALID_STATUS', message: 'This quote is already a draft.' });
+      return;
+    }
+    if (existing.status === 'converted') {
+      reply.code(409).send({ error: 'INVALID_STATUS', message: 'This quote has already been converted and cannot be reverted.' });
+      return;
+    }
+
+    const now = new Date();
+    await fastify.db.update(quotes).set({
+      status: 'draft', approvedAt: null, approvedBy: null, declineReason: null, updatedAt: now,
+    }).where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId)));
+
+    // Kill any live signing link so the old link can't be used after edits.
+    await fastify.db.update(documentSignatures)
+      .set({ status: 'revoked', updatedAt: now })
+      .where(and(
+        eq(documentSignatures.tenantId, request.tenantId),
+        eq(documentSignatures.entityType, 'quote'),
+        eq(documentSignatures.entityId, id),
+        inArray(documentSignatures.status, ['pending', 'viewed']),
+      ));
+
+    await logAudit(fastify.db, {
+      tenantId: request.tenantId, actorType: 'user', actorId: request.user.sub,
+      action: 'quote.reverted_to_draft', entityType: 'quote', entityId: id, ipAddress: request.ip,
+      changes: { status: { old: existing.status, new: 'draft' } },
+    });
+    const [updated] = await fastify.db.select().from(quotes)
+      .where(and(eq(quotes.id, id), eq(quotes.tenantId, request.tenantId))).limit(1);
+    return updated;
+  });
+
   // Convert quote to contract or invoice
   fastify.post('/api/v1/quotes/:id/convert', { preHandler: [fastify.authenticate, requirePermission('quotes:write')] }, async (request, reply) => {
     const { id } = request.params as { id: string };

@@ -721,9 +721,26 @@ export async function portalRoutes(fastify: FastifyInstance) {
       reply.code(409).send({ error: 'INVALID_STATUS', message: `Cannot approve a quote with status "${existing.status}"` });
       return;
     }
-    const [updated] = await fastify.db.update(quotes).set({ status: 'approved', approvedAt: new Date(), approvedBy: user.sub, updatedAt: new Date() })
+    const now = new Date();
+    const [updated] = await fastify.db.update(quotes).set({ status: 'approved', approvedAt: now, approvedBy: user.sub, updatedAt: now })
       .where(and(eq(quotes.id, id), eq(quotes.tenantId, user.tid), eq(quotes.customerId, user.cid))).returning();
-    return updated;
+
+    // Advance the flow exactly like the emailed sign-link does: record an
+    // approval PDF and auto-send the MSA. Best-effort — the approval already
+    // stands even if fulfillment fails (staff are notified inside).
+    let msaSent = false;
+    try {
+      const [contact] = await fastify.db.select().from(contacts).where(eq(contacts.id, user.sub)).limit(1);
+      const approverName = contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'Portal user';
+      const { fulfillQuoteApproval } = await import('../../services/quote-signing.js');
+      ({ msaSent } = await fulfillQuoteApproval(fastify.db, user.tid, existing, {
+        id: updated.id, recipientEmail: contact?.email ?? '', signerName: approverName,
+        signerEmail: contact?.email ?? null, ipAddress: request.ip, signedAt: now,
+      }));
+    } catch (err) {
+      request.log.error({ err }, `[PORTAL] Quote ${id} approval fulfillment failed`);
+    }
+    return { ...updated, msaSent };
   });
 
   fastify.post('/api/v1/portal/quotes/:id/reject', async (request, reply) => {

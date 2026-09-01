@@ -261,6 +261,14 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
     } finally { setActionLoading(''); }
   }
 
+  async function revertToDraft() {
+    setActionLoading('revert');
+    try {
+      await api(`/quotes/${quoteId}/revert-to-draft`, { method: 'POST' });
+      await reload();
+    } finally { setActionLoading(''); }
+  }
+
   async function convertQuote() {
     setActionLoading('convert');
     try {
@@ -487,9 +495,21 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
           </>
         )}
         {isApproved && (
-          <Button size="sm" onClick={() => setShowConvert(true)}>
-            <RefreshCw className="h-4 w-4 mr-1" />
-            Convert Quote
+          <>
+            <Button size="sm" onClick={() => setShowConvert(true)}>
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Convert Quote
+            </Button>
+            <Button size="sm" variant="outline" onClick={revertToDraft} disabled={actionLoading === 'revert'}>
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              {actionLoading === 'revert' ? 'Reverting…' : 'Revert to Draft'}
+            </Button>
+          </>
+        )}
+        {quote.status === 'rejected' && (
+          <Button size="sm" variant="outline" onClick={revertToDraft} disabled={actionLoading === 'revert'}>
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            {actionLoading === 'revert' ? 'Reverting…' : 'Revert to Draft'}
           </Button>
         )}
         {isConverted && quote.convertedContractId && (
