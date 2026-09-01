@@ -44,9 +44,16 @@ export async function api<T = unknown>(
   options: RequestInit = {},
 ): Promise<T> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
+
+  // Only declare a JSON body when there actually is one. A bodyless POST that
+  // still sends `Content-Type: application/json` makes Fastify reject the empty
+  // body (FST_ERR_CTP_EMPTY_JSON_BODY) before the route runs — which is why
+  // bodyless POSTs like quote approve and PDF preview-token were failing.
+  if (options.body != null && headers['Content-Type'] === undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`;

@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { randomUUID } from 'crypto';
-import { eq, and, desc, sql, count } from 'drizzle-orm';
+import { eq, and, ne, desc, sql, count } from 'drizzle-orm';
 import { compare, hash } from 'bcryptjs';
 import { contacts, tickets, ticketComments, quotes, invoices, assets, agreements, payments, ticketCategories, ticketSubcategories } from '@rivertown/db';
 import { ValidationError, NotFoundError, ForbiddenError } from '../../common/errors.js';
@@ -609,8 +609,9 @@ export async function portalRoutes(fastify: FastifyInstance) {
   fastify.get('/api/v1/portal/invoices', async (request) => {
     const user = getPortalUser(request);
     requirePerm(user, 'billing');
+    // Drafts are internal — never shown to the customer.
     return fastify.db.select(portalInvoiceCols).from(invoices)
-      .where(and(eq(invoices.tenantId, user.tid), eq(invoices.customerId, user.cid)))
+      .where(and(eq(invoices.tenantId, user.tid), eq(invoices.customerId, user.cid), ne(invoices.status, 'draft')))
       .orderBy(desc(invoices.createdAt)).limit(50);
   });
 
@@ -619,7 +620,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const user = getPortalUser(request);
     requirePerm(user, 'billing');
     const [invoice] = await fastify.db.select(portalInvoiceCols).from(invoices)
-      .where(and(eq(invoices.id, id), eq(invoices.tenantId, user.tid), eq(invoices.customerId, user.cid)))
+      .where(and(eq(invoices.id, id), eq(invoices.tenantId, user.tid), eq(invoices.customerId, user.cid), ne(invoices.status, 'draft')))
       .limit(1);
     if (!invoice) throw new NotFoundError('Invoice', id);
     return invoice;
@@ -631,7 +632,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const user = getPortalUser(request);
     requirePerm(user, 'billing');
     const [invoice] = await fastify.db.select({ id: invoices.id }).from(invoices)
-      .where(and(eq(invoices.id, id), eq(invoices.tenantId, user.tid), eq(invoices.customerId, user.cid)))
+      .where(and(eq(invoices.id, id), eq(invoices.tenantId, user.tid), eq(invoices.customerId, user.cid), ne(invoices.status, 'draft')))
       .limit(1);
     if (!invoice) throw new NotFoundError('Invoice', id);
     return fastify.db.select({
@@ -687,8 +688,9 @@ export async function portalRoutes(fastify: FastifyInstance) {
   fastify.get('/api/v1/portal/quotes', async (request) => {
     const user = getPortalUser(request);
     requirePerm(user, 'billing');
+    // Drafts are internal — never shown to the customer.
     return fastify.db.select().from(quotes)
-      .where(and(eq(quotes.tenantId, user.tid), eq(quotes.customerId, user.cid)))
+      .where(and(eq(quotes.tenantId, user.tid), eq(quotes.customerId, user.cid), ne(quotes.status, 'draft')))
       .orderBy(desc(quotes.createdAt)).limit(50);
   });
 
@@ -697,10 +699,10 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const user = getPortalUser(request);
     requirePerm(user, 'billing');
-    const [quote] = await fastify.db.select({ id: quotes.id }).from(quotes)
+    const [quote] = await fastify.db.select({ id: quotes.id, status: quotes.status }).from(quotes)
       .where(and(eq(quotes.id, id), eq(quotes.tenantId, user.tid), eq(quotes.customerId, user.cid)))
       .limit(1);
-    if (!quote) throw new NotFoundError('Quote', id);
+    if (!quote || quote.status === 'draft') throw new NotFoundError('Quote', id);
     const token = fastify.jwt.sign(
       { sub: user.sub, tid: user.tid, role: 'portal_user', type: 'preview' as const, resource: `quote:${id}` },
       { expiresIn: '60s' },
