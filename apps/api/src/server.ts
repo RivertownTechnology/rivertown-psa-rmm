@@ -216,6 +216,16 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
       return;
     }
 
+    // Fastify framework errors with a 4xx status (empty/invalid JSON body,
+    // payload too large, unsupported media type) — not server faults
+    if (typeof error.statusCode === 'number' && error.statusCode >= 400 && error.statusCode < 500) {
+      reply.code(error.statusCode).send({
+        error: (error as Error & { code?: string }).code || 'BAD_REQUEST',
+        message: error.message,
+      });
+      return;
+    }
+
     request.log.error(error);
     reply.code(500).send({
       error: 'INTERNAL_ERROR',

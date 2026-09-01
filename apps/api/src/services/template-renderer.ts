@@ -788,7 +788,7 @@ export function generateSignPage(data: {
       if (vBtn) {
         vBtn.addEventListener('click', function() {
           vBtn.disabled = true; vBtn.textContent = 'Starting…';
-          fetch(verifyStartEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+          fetch(verifyStartEndpoint, { method: 'POST' })
             .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
             .then(function(res) {
               if (res.ok && res.body && res.body.url) { window.location.href = res.body.url; }
