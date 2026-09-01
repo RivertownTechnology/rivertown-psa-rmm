@@ -770,7 +770,7 @@ export function generateSignPage(data: {
     var verifyStartEndpoint = ${JSON.stringify(d.idVerify?.startEndpoint ?? '')};
     var verifyStatusEndpoint = ${JSON.stringify(d.idVerify?.statusEndpoint ?? '')};
     var verifyPollTimer = null;
-    function verifyDone(s) { return s === 'processing' || s === 'verified'; }
+    function verifyDone(s) { return s === 'verified'; }
     function renderVerifyStatus() {
       var el = document.getElementById('verifyStatus');
       var btn = document.getElementById('verifyBtn');
@@ -780,8 +780,8 @@ export function generateSignPage(data: {
         el.style.color = '#16a34a';
         if (btn) btn.style.display = 'none';
       } else if (verifyStatus === 'processing') {
-        el.textContent = '✓ Documents submitted — verification is processing. You can sign now.';
-        el.style.color = '#16a34a';
+        el.textContent = '⏳ Documents submitted — verifying your identity. The Sign button unlocks automatically once this finishes (usually under a minute).';
+        el.style.color = '#b45309';
         if (btn) btn.style.display = 'none';
       } else if (verifyStatus === 'requires_input') {
         el.textContent = 'Verification needs another attempt — please try again.';

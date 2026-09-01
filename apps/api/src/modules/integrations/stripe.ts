@@ -189,6 +189,14 @@ export async function stripeRoutes(fastify: FastifyInstance) {
         return;
       }
 
+      // The event's tenant is the one whose webhook secret verified the
+      // signature — never let metadata point the write at a different tenant.
+      if (tenantId !== verified.tenantId) {
+        console.error(`[STRIPE] metadata tenant ${tenantId} != verified tenant ${verified.tenantId} — rejecting`);
+        reply.code(200).send({ received: true });
+        return;
+      }
+
       const amountCents = session.amount_total || 0;
 
       console.log(`[STRIPE] Payment received: Invoice #${invoiceNumber}, $${(amountCents / 100).toFixed(2)}`);
@@ -198,12 +206,25 @@ export async function stripeRoutes(fastify: FastifyInstance) {
         .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId))).limit(1);
 
       if (invoice) {
+        // Idempotency: Stripe redelivers events on any timeout/retry. Key on the
+        // payment intent (unique per real payment; distinct across partial
+        // payments) so a duplicate delivery doesn't double-record or over-credit.
+        const intentId = (session.payment_intent as string) || session.id;
+        const [already] = await fastify.db.select({ id: payments.id }).from(payments)
+          .where(and(eq(payments.tenantId, tenantId), eq(payments.stripePaymentIntentId, intentId)))
+          .limit(1);
+        if (already) {
+          console.log(`[STRIPE] Duplicate webhook for payment ${intentId} — skipping`);
+          reply.code(200).send({ received: true });
+          return;
+        }
+
         const [payment] = await fastify.db.insert(payments).values({
           tenantId,
           invoiceId,
           amountCents,
           paymentMethod: 'stripe',
-          stripePaymentIntentId: session.payment_intent as string || session.id,
+          stripePaymentIntentId: intentId,
           paidAt: new Date(),
         }).returning();
 
@@ -236,14 +257,16 @@ export async function stripeRoutes(fastify: FastifyInstance) {
       const session = event.data.object as Stripe.Identity.VerificationSession;
       const signatureId = session.metadata?.signatureId;
       const agreementId = session.metadata?.agreementId;
-      const sigTenantId = session.metadata?.tenantId;
+      const sigTenantId = verified.tenantId;
 
       if (signatureId) {
         const { documentSignatures } = await import('@rivertown/db');
+        // Scope the update to the signature-verified tenant so a crafted
+        // metadata.signatureId can't touch another tenant's row.
         await fastify.db.update(documentSignatures).set({
           verificationStatus: session.status,
           updatedAt: new Date(),
-        }).where(eq(documentSignatures.id, signatureId));
+        }).where(and(eq(documentSignatures.id, signatureId), eq(documentSignatures.tenantId, sigTenantId)));
         console.log(`[STRIPE] Identity verification ${session.status} for signature ${signatureId}`);
 
         if (session.status === 'verified' && sigTenantId && agreementId) {

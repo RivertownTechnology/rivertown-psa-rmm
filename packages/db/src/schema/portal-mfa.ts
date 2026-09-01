@@ -14,6 +14,9 @@ export const portalMfaCodes = pgTable(
     contactId: uuid('contact_id').notNull().references(() => contacts.id),
     codeHash: text('code_hash').notNull(),
     purpose: text('purpose').notNull(), // 'login' | 'setup'
+    // Candidate phone for a 'setup' code — copied to contacts.portalMfaPhone
+    // only after the code is verified, so setup never redirects the live phone.
+    phone: text('phone'),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     attempts: integer('attempts').default(0).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

@@ -100,8 +100,11 @@ export async function agreementRoutes(fastify: FastifyInstance) {
     if (!token) { reply.code(401).send({ error: 'Token required' }); return; }
     let viewerSub = '';
     try {
-      const payload = fastify.jwt.verify<{ sub: string; tid: string; type: string; resource?: string }>(token);
+      const payload = fastify.jwt.verify<{ sub: string; tid: string; type: string; resource?: string; role?: string }>(token);
       if (payload.type !== 'preview' || payload.resource !== `agreement:${id}`) { reply.code(401).send({ error: 'Invalid token' }); return; }
+      // Signer photo IDs are staff-only — portal-minted preview tokens can
+      // open the agreement PDF but never the stored ID document.
+      if (payload.role === 'portal_user') { reply.code(403).send({ error: 'Forbidden' }); return; }
       (request as any).tenantId = payload.tid;
       viewerSub = payload.sub;
     } catch { reply.code(401).send({ error: 'Invalid or expired token' }); return; }
@@ -176,7 +179,7 @@ export async function agreementRoutes(fastify: FastifyInstance) {
   // Agreement PDF (regenerated on demand; includes both signature blocks —
   // client typed signature + auto-applied provider countersignature — when signed)
   fastify.get('/api/v1/agreements/:id/pdf', {
-    config: { public: true } as any,
+    config: { public: true, rateLimit: { max: 30, timeWindow: '1 minute' } } as any,
   }, async (request, reply) => {
     const token = (request.query as Record<string, string>).token;
     const { id } = request.params as { id: string };
@@ -204,7 +207,7 @@ export async function agreementRoutes(fastify: FastifyInstance) {
     if (sig) {
       const [idDoc] = await fastify.db.select({ id: signatureDocuments.id }).from(signatureDocuments)
         .where(eq(signatureDocuments.signatureId, sig.id)).limit(1);
-      const viaStripe = Boolean(sig.verificationSessionId) && ['processing', 'verified'].includes(sig.verificationStatus ?? '');
+      const viaStripe = Boolean(sig.verificationSessionId) && sig.verificationStatus === 'verified';
       sigBlock = {
         ...signatureBlockFromRow(sig),
         idOnFile: Boolean(idDoc) || viaStripe,
@@ -445,6 +448,15 @@ export async function agreementRoutes(fastify: FastifyInstance) {
     if (fileSize > 8 * 1024 * 1024) {
       return reply.code(400).send({ error: 'TOO_LARGE', message: 'Image is too large — please try again.' });
     }
+    // Verify the actual bytes match the declared type — don't trust the
+    // client-supplied MIME. The blob is later re-served to staff.
+    const head = Buffer.from(dataBase64.slice(0, 32), 'base64');
+    const looksJpeg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+    const looksPng = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
+    const looksWebp = head.length >= 12 && head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WEBP';
+    if (!looksJpeg && !looksPng && !looksWebp) {
+      return reply.code(400).send({ error: 'INVALID_DATA', message: 'That file is not a valid JPEG, PNG, or WebP image.' });
+    }
 
     // One active ID per signature request: replace any prior upload
     await fastify.db.delete(signatureDocuments).where(eq(signatureDocuments.signatureId, sig.id));
@@ -480,13 +492,16 @@ export async function agreementRoutes(fastify: FastifyInstance) {
       return reply.code(410).send({ error: 'EXPIRED', message: 'This link has expired. Please request a new one.' });
     }
 
-    // Identity must be established before the agreement can be signed:
-    // Stripe Identity (submitted or verified) when configured, else a photo ID.
+    // Identity must be CONFIRMED before the agreement can be signed: Stripe
+    // Identity must reach 'verified' (not merely 'processing'/submitted) when
+    // configured, else a photo ID. 'processing' means the docs were submitted
+    // but Stripe hasn't confirmed the ID — the signing page polls and enables
+    // the button once it flips to 'verified'.
     const { getStripeFromDb } = await import('../integrations/stripe.js');
     const stripeConfigured = Boolean(await getStripeFromDb(fastify.db, sig.tenantId));
     if (stripeConfigured) {
-      if (!['processing', 'verified'].includes(sig.verificationStatus ?? '')) {
-        return reply.code(400).send({ error: 'ID_REQUIRED', message: 'Please complete identity verification before signing.' });
+      if (sig.verificationStatus !== 'verified') {
+        return reply.code(400).send({ error: 'ID_REQUIRED', message: 'Please complete identity verification before signing. If you just submitted your ID, give it a moment to finish verifying.' });
       }
     } else {
       const [idDoc] = await fastify.db.select({ id: signatureDocuments.id }).from(signatureDocuments)

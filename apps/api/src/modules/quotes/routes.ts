@@ -296,7 +296,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
   // certificate when the quote was e-signed). Uses the short-lived preview
   // token so the browser can open it directly.
   fastify.get('/api/v1/quotes/:id/signed-pdf', {
-    config: { public: true } as any,
+    config: { public: true, rateLimit: { max: 30, timeWindow: '1 minute' } } as any,
   }, async (request, reply) => {
     const token = (request.query as Record<string, string>).token;
     const { id } = request.params as { id: string };
@@ -656,7 +656,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
 
   // Printable HTML quote — uses short-lived preview token
   fastify.get('/api/v1/quotes/:id/html', {
-    config: { public: true } as any,
+    config: { public: true, rateLimit: { max: 30, timeWindow: '1 minute' } } as any,
   }, async (request, reply) => {
     const token = (request.query as Record<string, string>).token;
     if (!token) { reply.code(401).send({ error: 'Token required' }); return; }

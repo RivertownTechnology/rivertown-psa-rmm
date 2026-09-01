@@ -10,6 +10,7 @@ import { Shield, Fingerprint, MessageSquare, LogOut, Check } from 'lucide-react'
 export function MfaSetupRequired({ onDone, onLogout }: { onDone: () => void; onLogout: () => void }) {
   const [choice, setChoice] = useState<'passkey' | 'sms' | null>(null);
   const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
   const [step, setStep] = useState<'choose' | 'phone' | 'verify'>('choose');
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -33,7 +34,7 @@ export function MfaSetupRequired({ onDone, onLogout }: { onDone: () => void; onL
     setLoading(true); setError('');
     try {
       const res = await api<{ phoneHint: string }>('/portal/me/mfa/sms/setup', {
-        method: 'POST', body: JSON.stringify({ phone }),
+        method: 'POST', body: JSON.stringify({ phone, password }),
       });
       setPhoneHint(res.phoneHint);
       setStep('verify');
@@ -117,7 +118,17 @@ export function MfaSetupRequired({ onDone, onLogout }: { onDone: () => void; onL
                 className="h-11"
               />
               <p className="text-xs text-muted-foreground">We'll send a 6-digit verification code to confirm this number.</p>
-              <Button onClick={startSmsSetup} className="w-full h-11" disabled={loading || phone.length < 10}>
+              <Label>Confirm your password</Label>
+              <Input
+                type="password"
+                autoComplete="current-password"
+                placeholder="Your account password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="h-11"
+              />
+              <p className="text-xs text-muted-foreground">For your security, confirm your password to set the verification number.</p>
+              <Button onClick={startSmsSetup} className="w-full h-11" disabled={loading || phone.length < 10 || !password}>
                 {loading ? 'Sending...' : 'Send Code'}
               </Button>
               <Button variant="ghost" className="w-full" onClick={() => { setChoice(null); setStep('choose'); }}>Back</Button>

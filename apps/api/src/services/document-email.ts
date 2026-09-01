@@ -8,7 +8,7 @@ import {
   customers, contacts, tenants, emailTemplates, payments, integrationConfigs,
 } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
-import { sendEmail, sendBillingEmail, sendSalesEmail } from './email.js';
+import { sendEmail, sendDocumentEmail, getMailjetChannelSender } from './email.js';
 import { renderTemplate, generateInvoiceHtml, generateQuoteHtml, getDefaultTemplates } from './template-renderer.js';
 import type { QuoteSignatureBlock } from './template-renderer.js';
 import { htmlToPdf } from './pdf-generator.js';
@@ -152,13 +152,15 @@ export async function sendInvoiceEmailWithTemplate(
     html = `<p>Please find attached Invoice #${invoice.invoiceNumber} for $${formatCents(invoice.totalCents)}, due ${invoice.dueDate}.</p>`;
   }
 
-  return sendBillingEmail(db, tenantId, { to: customer.billingEmail, subject, html });
+  return sendDocumentEmail(db, tenantId, 'invoices', { to: customer.billingEmail, subject, html });
 }
 
 // --- Quote Email ---
 
-/** Fetches the from-address of the sales email channel (for display in the PDF). */
+/** Fetches the from-address of the quotes channel (for display in the PDF). */
 async function getSalesFromAddress(db: Database, tenantId: string): Promise<string> {
+  const unified = await getMailjetChannelSender(db, tenantId, 'quotes');
+  if (unified) return unified.fromAddress;
   const [config] = await db.select().from(integrationConfigs)
     .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'sales-email')))
     .limit(1);
@@ -280,11 +282,11 @@ export async function sendQuoteEmailWithTemplate(
     throw new Error(`Quote PDF generation failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  const sent = await sendSalesEmail(db, tenantId, {
+  const sent = await sendDocumentEmail(db, tenantId, 'quotes', {
     to: opts.to, subject, html,
     attachments: [{ filename: `Quote-${quote.quoteNumber}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
   });
-  if (!sent) throw new Error('Email provider rejected the message — check the Sales Email settings.');
+  if (!sent) throw new Error('Email provider rejected the message — check the Email settings.');
 }
 
 // --- Agreement (MSA) Emails ---
@@ -332,8 +334,8 @@ export async function sendAgreementEmail(
   const subject = renderTemplate(template.subject, vars);
   const html = renderTemplate(template.bodyHtml, vars);
 
-  const sent = await sendSalesEmail(db, tenantId, { to: opts.to, subject, html });
-  if (!sent) throw new Error('Email provider rejected the agreement email — check the Sales Email settings.');
+  const sent = await sendDocumentEmail(db, tenantId, 'agreements', { to: opts.to, subject, html });
+  if (!sent) throw new Error('Email provider rejected the agreement email — check the Email settings.');
 }
 
 export async function sendSignedAgreementCopy(
@@ -357,11 +359,11 @@ export async function sendSignedAgreementCopy(
   const subject = renderTemplate(template.subject, vars);
   const html = renderTemplate(template.bodyHtml, vars);
 
-  const sent = await sendSalesEmail(db, tenantId, {
+  const sent = await sendDocumentEmail(db, tenantId, 'agreements', {
     to, subject, html,
     attachments: [{ filename: `${agreement.title.replace(/[^\w -]/g, '')}-Signed.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
   });
-  if (!sent) throw new Error('Email provider rejected the signed-copy email — check the Sales Email settings.');
+  if (!sent) throw new Error('Email provider rejected the signed-copy email — check the Email settings.');
 }
 
 // --- Payment Receipt Email ---
@@ -409,5 +411,5 @@ export async function sendPaymentReceiptEmail(
     html = `<p>Thank you! Payment of $${formatCents(paymentAmountCents)} received for Invoice #${invoice.invoiceNumber}.</p>`;
   }
 
-  return sendBillingEmail(db, tenantId, { to: customer.billingEmail, subject, html });
+  return sendDocumentEmail(db, tenantId, 'receipts', { to: customer.billingEmail, subject, html });
 }

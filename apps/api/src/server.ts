@@ -182,10 +182,37 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     if (request.url.startsWith('/api/public/')) return;
     if (request.url.startsWith('/api/ncentral/')) return; // N-central PSA integration (Basic Auth)
     if (request.url.startsWith('/api/v1/csat/')) return; // CSAT rating pages are public (customer clicks from email)
-    if (request.url.startsWith('/api/v1/invoices/') && request.url.includes('/view')) return; // Public invoice view
-    if (request.url.startsWith('/api/v1/invoices/') && request.url.includes('/html')) return; // Public invoice HTML
-    if (request.url.startsWith('/api/v1/quotes/') && request.url.includes('/html')) return; // Public quote HTML
+    // NOTE: the public invoice/quote view/html/pdf/pay routes each declare
+    // `config: { public: true }` and are skipped by the first check above — do
+    // NOT re-add substring URL checks here; matching request.url (which includes
+    // the query string) with includes() is a bypass footgun (e.g. ?x=/view).
     await fastify.authenticate(request, reply);
+    // Portal (customer) tokens authenticate as `type: 'access'` but carry role
+    // 'portal_user' and only ever legitimately touch /api/v1/portal/*. Confine
+    // them there so a customer token cannot reach staff routes that happen to
+    // rely on `authenticate` alone (no requirePermission).
+    const authed = request.user as { role?: string; sub?: string } | undefined;
+    if (authed?.role === 'portal_user') {
+      const path = request.url.split('?')[0];
+      if (!path.startsWith('/api/v1/portal/')) {
+        return reply.code(403).send({ error: 'FORBIDDEN', message: 'This resource is not available to portal users.' });
+      }
+      // Revocation and permission changes take effect immediately: re-check the
+      // contact each request rather than trusting the (up to 4h) JWT. A revoked
+      // contact is rejected; role/perms are re-derived from the live row.
+      const { contacts } = await import('@rivertown/db');
+      const { eq } = await import('drizzle-orm');
+      const [contact] = await fastify.db.select({
+        portalEnabled: contacts.portalEnabled,
+        portalRole: contacts.portalRole,
+        portalPermissions: contacts.portalPermissions,
+      }).from(contacts).where(eq(contacts.id, authed.sub as string)).limit(1);
+      if (!contact || !contact.portalEnabled) {
+        return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'Your portal access has changed. Please sign in again.' });
+      }
+      (request.user as { portalRole?: string }).portalRole = contact.portalRole ?? 'user';
+      (request.user as { perms?: string[] }).perms = (contact.portalPermissions as string[]) ?? ['tickets'];
+    }
   });
 
   // Error handler

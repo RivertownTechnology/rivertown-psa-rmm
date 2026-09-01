@@ -25,7 +25,7 @@ import {
   LogOut, Ticket, FileText, Receipt, Monitor, Plus, User,
   MessageSquare, ChevronLeft, Send, Users, Shield, ShieldCheck, Check, X,
   Settings as SettingsIcon, KeyRound, Fingerprint, Trash2, CreditCard, AlertCircle,
-  Inbox, Wallet,
+  Inbox, Wallet, ScrollText,
 } from 'lucide-react';
 
 // ===== Types =====
@@ -49,8 +49,13 @@ interface PortalUserData {
 }
 interface Category { id: string; name: string; subcategories: Array<{ id: string; name: string }> }
 interface Stats { tickets: { open: number; total: number }; invoices: { outstanding: number; outstandingCents: number } }
+interface AgreementData {
+  id: string; title: string; status: string; sentAt: string | null; signedAt: string | null;
+  expiresAt: string | null; previousAgreementId: string | null; createdAt: string;
+}
+interface PaymentData { id: string; amountCents: number; paymentMethod: string | null; paidAt: string; }
 
-type TabId = 'tickets' | 'invoices' | 'quotes' | 'assets' | 'admin' | 'settings';
+type TabId = 'tickets' | 'invoices' | 'quotes' | 'agreements' | 'assets' | 'admin' | 'settings';
 
 // ===== Helpers =====
 
@@ -115,6 +120,7 @@ export function Dashboard({ userName, portalRole, portalPermissions, onLogout }:
     { id: 'tickets', label: 'Tickets', icon: Ticket, visible: hasTickets },
     { id: 'invoices', label: 'Invoices', icon: Receipt, visible: hasBilling },
     { id: 'quotes', label: 'Quotes', icon: FileText, visible: hasBilling },
+    { id: 'agreements', label: 'Agreements', icon: ScrollText, visible: hasBilling },
     { id: 'assets', label: 'Assets', icon: Monitor, visible: true },
     { id: 'admin', label: 'Users', icon: Users, visible: isAdmin },
     { id: 'settings', label: 'Settings', icon: SettingsIcon, visible: true },
@@ -189,6 +195,7 @@ export function Dashboard({ userName, portalRole, portalPermissions, onLogout }:
         {activeTab === 'tickets' && hasTickets && <TicketsTab compose={composeTicket} onComposeConsumed={() => setComposeTicket(false)} />}
         {activeTab === 'invoices' && hasBilling && <InvoicesTab />}
         {activeTab === 'quotes' && hasBilling && <QuotesTab />}
+        {activeTab === 'agreements' && hasBilling && <AgreementsTab />}
         {activeTab === 'assets' && <AssetsTab />}
         {activeTab === 'admin' && isAdmin && <AdminTab />}
         {activeTab === 'settings' && <SettingsTab isAdmin={isAdmin} />}
@@ -613,6 +620,7 @@ function InvoicesTab() {
 
 function InvoiceDetail({ invoiceId, onBack }: { invoiceId: string; onBack: () => void }) {
   const [invoice, setInvoice] = useState<InvoiceData | null>(null);
+  const [invoicePayments, setInvoicePayments] = useState<PaymentData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -622,6 +630,9 @@ function InvoiceDetail({ invoiceId, onBack }: { invoiceId: string; onBack: () =>
       .then(setInvoice)
       .catch(() => setError(true))
       .finally(() => setLoading(false));
+    api<PaymentData[]>(`/portal/invoices/${invoiceId}/payments`)
+      .then(setInvoicePayments)
+      .catch(() => {});
   }, [invoiceId]);
 
   useEffect(() => { load(); }, [load]);
@@ -690,12 +701,99 @@ function InvoiceDetail({ invoiceId, onBack }: { invoiceId: string; onBack: () =>
             <div className="flex justify-between py-2"><dt className="text-muted-foreground">Amount Paid</dt><dd className="tabular-nums">{formatCents(invoice.amountPaidCents)}</dd></div>
           </dl>
 
+          {invoicePayments.length > 0 && (
+            <div>
+              <h4 className="mb-2 text-sm font-medium">Payments</h4>
+              <div className="space-y-1">
+                {invoicePayments.map(p => (
+                  <div key={p.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <CreditCard className="h-4 w-4" />
+                      {fmtDate(p.paidAt)}{p.paymentMethod ? ` · ${formatStatus(p.paymentMethod)}` : ''}
+                    </span>
+                    <span className="font-medium tabular-nums text-emerald-600 dark:text-emerald-400">{formatCents(p.amountCents)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <p className="text-xs text-muted-foreground">
             To pay this invoice or ask a billing question, reply to your invoice email or contact your account manager.
           </p>
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ===== AGREEMENTS TAB =====
+
+function agreementBadge(a: AgreementData) {
+  if (a.status === 'signed') return <Badge className="bg-emerald-600 text-white hover:bg-emerald-600/80">Active</Badge>;
+  if (a.status === 'superseded') return <Badge variant="outline">Previous version</Badge>;
+  if (a.status === 'declined') return <Badge variant="destructive">Declined</Badge>;
+  return <Badge variant="secondary">Awaiting signature</Badge>;
+}
+
+function AgreementsTab() {
+  const [agreements, setAgreements] = useState<AgreementData[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [opening, setOpening] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<AgreementData[]>('/portal/agreements').then(d => { setAgreements(d); setLoaded(true); }).catch(() => setLoaded(true));
+  }, []);
+
+  async function openPdf(id: string) {
+    setOpening(id);
+    try {
+      const { token } = await api<{ token: string }>(`/portal/agreements/${id}/preview-token`, { method: 'POST' });
+      window.open(`/api/v1/agreements/${id}/pdf?token=${token}`, '_blank');
+    } finally { setOpening(null); }
+  }
+
+  if (!loaded) return (
+    <Card>
+      <CardHeader><CardTitle>Agreements</CardTitle></CardHeader>
+      <CardContent><SkeletonTable rows={3} columns={4} /></CardContent>
+    </Card>
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Agreements</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Your service agreements — the active version, anything awaiting signature, and prior years for your records.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {agreements.length === 0 ? (
+          <EmptyState icon={ScrollText} title="No agreements" description="Your signed service agreements will appear here." />
+        ) : (
+          <div className="space-y-2">
+            {agreements.map(a => (
+              <div key={a.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{a.title}</span>
+                    {agreementBadge(a)}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {a.signedAt ? `Signed ${fmtDate(a.signedAt)}` : a.sentAt ? `Sent ${fmtDate(a.sentAt)}` : fmtDate(a.createdAt)}
+                    {a.status === 'signed' && a.expiresAt ? ` · Renews ${fmtDate(a.expiresAt)}` : ''}
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" disabled={opening === a.id} onClick={() => openPdf(a.id)}>
+                  <FileText className="mr-1 h-4 w-4" />{opening === a.id ? 'Opening…' : 'View PDF'}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -729,6 +827,11 @@ function QuotesTab() {
     }
   }
 
+  async function openQuotePdf(id: string) {
+    const { token } = await api<{ token: string }>(`/portal/quotes/${id}/preview-token`, { method: 'POST' });
+    window.open(`/api/v1/quotes/${id}/signed-pdf?token=${token}`, '_blank');
+  }
+
   if (!loaded) return (
     <Card>
       <CardHeader><CardTitle>Quotes</CardTitle></CardHeader>
@@ -759,12 +862,17 @@ function QuotesTab() {
                     {formatCents(q.totalCents)}
                   </div>
                 </div>
-                {q.status === 'sent' && (
-                  <div className="mt-3 flex justify-end gap-2">
-                    <Button size="sm" variant="outline" onClick={() => { setError(''); setPending({ quote: q, action: 'reject' }); }}><X className="h-4 w-4 mr-1" />Decline</Button>
-                    <Button size="sm" onClick={() => { setError(''); setPending({ quote: q, action: 'approve' }); }}><Check className="h-4 w-4 mr-1" />Approve</Button>
-                  </div>
-                )}
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button size="sm" variant="outline" onClick={() => openQuotePdf(q.id)}>
+                    <FileText className="h-4 w-4 mr-1" />View PDF
+                  </Button>
+                  {q.status === 'sent' && (
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => { setError(''); setPending({ quote: q, action: 'reject' }); }}><X className="h-4 w-4 mr-1" />Decline</Button>
+                      <Button size="sm" onClick={() => { setError(''); setPending({ quote: q, action: 'approve' }); }}><Check className="h-4 w-4 mr-1" />Approve</Button>
+                    </>
+                  )}
+                </div>
               </div>
             ))}
           </div>

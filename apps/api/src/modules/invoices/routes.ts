@@ -591,7 +591,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   // Printable HTML invoice (for PDF export)
   // Uses short-lived preview token in query param
   fastify.get('/api/v1/invoices/:id/html', {
-    config: { public: true } as any,
+    config: { public: true, rateLimit: { max: 30, timeWindow: '1 minute' } } as any,
   }, async (request, reply) => {
     const token = (request.query as Record<string, string>).token;
     if (!token) { reply.code(401).send({ error: 'Token required' }); return; }
@@ -662,7 +662,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   // ===== PUBLIC INVOICE VIEW (30-day token, no login) =====
 
   fastify.get('/api/v1/invoices/:id/view', {
-    config: { public: true } as any,
+    config: { public: true, rateLimit: { max: 30, timeWindow: '1 minute' } } as any,
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const token = (request.query as Record<string, string>).token;
@@ -753,7 +753,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   // ===== PUBLIC PAY INVOICE (creates Stripe checkout on-demand) =====
 
   fastify.post('/api/v1/invoices/:id/pay', {
-    config: { public: true } as any,
+    config: { public: true, rateLimit: { max: 10, timeWindow: '1 minute' } } as any,
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const token = (request.query as Record<string, string>).token;
@@ -841,7 +841,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
   // Also support GET for the pay endpoint (for the link in the view page)
   fastify.get('/api/v1/invoices/:id/pay', {
-    config: { public: true } as any,
+    config: { public: true, rateLimit: { max: 10, timeWindow: '1 minute' } } as any,
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const token = (request.query as Record<string, string>).token;

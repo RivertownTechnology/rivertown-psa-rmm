@@ -331,15 +331,82 @@
       "tag": "0046_proposal_versioning",
       "breakpoints": true
     },
-    { "idx": 47, "version": "7", "when": 1745195600000, "tag": "0047_customer_email_domains", "breakpoints": true },
-    { "idx": 48, "version": "7", "when": 1745195700000, "tag": "0048_lowercase_contact_emails", "breakpoints": true },
-    { "idx": 49, "version": "7", "when": 1745195800000, "tag": "0049_compliance_control_example", "breakpoints": true },
-    { "idx": 50, "version": "7", "when": 1745195900000, "tag": "0050_device_tokens", "breakpoints": true },
-    { "idx": 51, "version": "7", "when": 1788204068610, "tag": "0051_quote_esignature", "breakpoints": true },
-    { "idx": 52, "version": "7", "when": 1788205000000, "tag": "0052_signer_phone", "breakpoints": true },
-    { "idx": 53, "version": "7", "when": 1788208000000, "tag": "0053_quote_line_cost", "breakpoints": true },
-    { "idx": 54, "version": "7", "when": 1788209000000, "tag": "0054_signature_documents", "breakpoints": true },
-    { "idx": 55, "version": "7", "when": 1788213000000, "tag": "0055_stripe_identity", "breakpoints": true },
-    { "idx": 56, "version": "7", "when": 1788224751202, "tag": "0056_msa_renewal", "breakpoints": true }
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1745195600000,
+      "tag": "0047_customer_email_domains",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1745195700000,
+      "tag": "0048_lowercase_contact_emails",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1745195800000,
+      "tag": "0049_compliance_control_example",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1745195900000,
+      "tag": "0050_device_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1788204068610,
+      "tag": "0051_quote_esignature",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1788205000000,
+      "tag": "0052_signer_phone",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1788208000000,
+      "tag": "0053_quote_line_cost",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1788209000000,
+      "tag": "0054_signature_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1788213000000,
+      "tag": "0055_stripe_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1788224751202,
+      "tag": "0056_msa_renewal",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1788268700763,
+      "tag": "0057_portal_mfa_pending_phone",
+      "breakpoints": true
+    }
   ]
 }

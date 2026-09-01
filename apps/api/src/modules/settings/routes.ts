@@ -184,13 +184,16 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'email')))
         .limit(1);
 
+      const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
+      const prevCreds = readCredentials(existing?.credentials) as Record<string, unknown>;
+
       // Don't overwrite password with masked value
       let smtpPassword = body.smtpPassword;
       if (smtpPassword === '••••••••' && existing) {
-        smtpPassword = (existing.credentials as Record<string, unknown>).smtpPassword as string;
+        smtpPassword = prevCreds.smtpPassword as string;
       }
 
-      const credentials = {
+      const credentials = writeCredentials({
         smtpHost: body.smtpHost,
         smtpPort: body.smtpPort,
         smtpUser: body.smtpUser,
@@ -199,7 +202,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         fromName: body.fromName,
         useTls: body.useTls,
         provider: body.provider,
-      };
+      });
 
       if (existing) {
         await fastify.db.update(integrationConfigs).set({
@@ -1167,8 +1170,9 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'billing-email')))
         .limit(1);
 
-      const prevCreds = (existing?.credentials ?? {}) as Record<string, unknown>;
-      const credentials: Record<string, unknown> = {
+      const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
+      const prevCreds = readCredentials(existing?.credentials) as Record<string, unknown>;
+      const credentials = writeCredentials({
         smtpHost: body.smtpHost || prevCreds.smtpHost || 'in-v3.mailjet.com',
         smtpPort: body.smtpPort ?? prevCreds.smtpPort ?? 587,
         apiKey: body.apiKey?.startsWith('••') ? prevCreds.apiKey : (body.apiKey || prevCreds.apiKey || ''),
@@ -1176,7 +1180,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         fromAddress: body.fromAddress,
         fromName: body.fromName,
         replyTo: body.replyTo || '',
-      };
+      });
 
       if (existing) {
         await fastify.db.update(integrationConfigs).set({
@@ -1294,8 +1298,9 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'sales-email')))
         .limit(1);
 
-      const prevCreds = (existing?.credentials ?? {}) as Record<string, unknown>;
-      const credentials: Record<string, unknown> = {
+      const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
+      const prevCreds = readCredentials(existing?.credentials) as Record<string, unknown>;
+      const credentials = writeCredentials({
         smtpHost: body.smtpHost || prevCreds.smtpHost || 'in-v3.mailjet.com',
         smtpPort: body.smtpPort ?? prevCreds.smtpPort ?? 587,
         apiKey: body.apiKey?.startsWith('••') ? prevCreds.apiKey : (body.apiKey || prevCreds.apiKey || ''),
@@ -1303,7 +1308,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         fromAddress: body.fromAddress,
         fromName: body.fromName,
         replyTo: body.replyTo || '',
-      };
+      });
 
       if (existing) {
         await fastify.db.update(integrationConfigs).set({
@@ -1336,6 +1341,112 @@ export async function settingsRoutes(fastify: FastifyInstance) {
 
       if (!sent) throw new ValidationError('Sales email sending failed. Check your Mailjet configuration.');
       return { success: true, message: `Test email sent to ${targetEmail}` };
+    },
+  );
+
+  // ===== UNIFIED MAILJET (one API credential, per-document-type senders) =====
+  // Supersedes the separate Billing/Sales Email configs: when enabled it takes
+  // precedence for quotes/agreements/invoices/receipts; the old configs remain
+  // as fallback for anything without a sender here.
+
+  const MAIL_CHANNELS = ['default', 'quotes', 'agreements', 'invoices', 'receipts'] as const;
+  type SenderInput = { fromAddress?: string; fromName?: string; replyTo?: string };
+
+  fastify.get(
+    '/api/v1/settings/mailjet',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'mailjet')))
+        .limit(1);
+
+      const creds = readCredentials(config?.credentials) as Record<string, unknown>;
+      const senders = (creds.senders ?? {}) as Record<string, SenderInput>;
+      const out: Record<string, SenderInput> = {};
+      for (const ch of MAIL_CHANNELS) {
+        out[ch] = {
+          fromAddress: senders[ch]?.fromAddress ?? '',
+          fromName: senders[ch]?.fromName ?? '',
+          replyTo: senders[ch]?.replyTo ?? '',
+        };
+      }
+      return {
+        isEnabled: config?.isEnabled ?? false,
+        apiKey: creds.apiKey ? '••••••••' + String(creds.apiKey).slice(-4) : '',
+        secretKey: creds.secretKey ? '••••••••' : '',
+        senders: out,
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/mailjet',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const body = request.body as {
+        isEnabled: boolean; apiKey?: string; secretKey?: string;
+        senders?: Record<string, SenderInput>;
+      };
+
+      const { writeCredentials } = await import('../../common/credentials.js');
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'mailjet')))
+        .limit(1);
+
+      const prevCreds = readCredentials(existing?.credentials) as Record<string, unknown>;
+      const senders: Record<string, SenderInput> = {};
+      for (const ch of MAIL_CHANNELS) {
+        const s = body.senders?.[ch];
+        if (s?.fromAddress?.trim()) {
+          senders[ch] = {
+            fromAddress: s.fromAddress.trim(),
+            fromName: s.fromName?.trim() || '',
+            replyTo: s.replyTo?.trim() || '',
+          };
+        }
+      }
+
+      // Encrypt at rest when ENCRYPTION_KEY is set; a masked '••' placeholder
+      // from the GET response preserves the stored secret instead of clobbering it.
+      const credentials = writeCredentials({
+        apiKey: body.apiKey?.startsWith('••') ? prevCreds.apiKey : (body.apiKey || prevCreds.apiKey || ''),
+        secretKey: body.secretKey?.startsWith('••') ? prevCreds.secretKey : (body.secretKey || prevCreds.secretKey || ''),
+        senders,
+      });
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, credentials, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'mailjet',
+          isEnabled: body.isEnabled, credentials,
+        });
+      }
+
+      return { success: true };
+    },
+  );
+
+  fastify.post(
+    '/api/v1/settings/mailjet/test',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { sendDocumentEmail } = await import('../../services/email.js');
+      const { email, channel } = request.body as { email?: string; channel?: string };
+      const targetEmail = email ?? 'test@test.com';
+      const ch = (['quotes', 'agreements', 'invoices', 'receipts'].includes(channel ?? '') ? channel : 'invoices') as
+        'quotes' | 'agreements' | 'invoices' | 'receipts';
+
+      const sent = await sendDocumentEmail(fastify.db, request.tenantId, ch, {
+        to: targetEmail,
+        subject: `Rivertown PSA - Email Test (${ch})`,
+        html: `<h2>Email Test</h2><p>Your Mailjet configuration is working. This message used the <strong>${ch}</strong> sender.</p>`,
+      });
+
+      if (!sent) throw new ValidationError('Email sending failed. Check your Mailjet configuration and sender addresses.');
+      return { success: true, message: `Test email sent to ${targetEmail} using the ${ch} sender` };
     },
   );
 

@@ -2,8 +2,8 @@ import { FastifyInstance } from 'fastify';
 import { randomUUID } from 'crypto';
 import { eq, and, desc, sql, count } from 'drizzle-orm';
 import { compare, hash } from 'bcryptjs';
-import { contacts, tickets, ticketComments, quotes, invoices, assets } from '@rivertown/db';
-import { ValidationError, NotFoundError } from '../../common/errors.js';
+import { contacts, tickets, ticketComments, quotes, invoices, assets, agreements, payments, ticketCategories, ticketSubcategories } from '@rivertown/db';
+import { ValidationError, NotFoundError, ForbiddenError } from '../../common/errors.js';
 import { getNextTicketNumber } from '../../common/ticket-number.js';
 
 type PortalUser = { sub: string; tid: string; cid: string; role: string; portalRole: string; perms: string[] };
@@ -16,7 +16,7 @@ function requirePerm(user: PortalUser, perm: string) {
   if (user.portalRole === 'admin') return; // admins have all permissions
   const perms = user.perms ?? [];
   if (!perms.includes(perm)) {
-    throw new ValidationError(`You don't have ${perm} access. Contact your portal administrator.`);
+    throw new ForbiddenError(`You don't have ${perm} access. Contact your portal administrator.`);
   }
 }
 
@@ -184,7 +184,16 @@ export async function portalRoutes(fastify: FastifyInstance) {
   // Set up SMS MFA — step 1: save phone + send verification code
   fastify.post('/api/v1/portal/me/mfa/sms/setup', async (request) => {
     const user = request.user as any;
-    const { phone } = request.body as { phone: string };
+    const { phone, password } = request.body as { phone: string; password?: string };
+
+    // Require the current password — a session token alone must not be able to
+    // point the MFA phone at a new number.
+    const [contact] = await fastify.db.select().from(contacts)
+      .where(and(eq(contacts.id, user.sub), eq(contacts.tenantId, user.tid))).limit(1);
+    if (!contact?.portalPasswordHash) throw new ValidationError('Account error');
+    if (!password || !(await compare(password, contact.portalPasswordHash))) {
+      throw new ValidationError('Enter your current password to change SMS verification.');
+    }
 
     // Normalize to E.164 (basic)
     const digits = phone.replace(/\D/g, '');
@@ -196,16 +205,13 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const code = generateSmsCode();
     const codeHash = await hashPw(code, 10);
 
+    // Hold the candidate phone on the setup code — the live portalMfaPhone is
+    // NOT touched until /verify confirms a code sent to this new number.
     const { portalMfaCodes } = await import('@rivertown/db');
     await fastify.db.insert(portalMfaCodes).values({
-      tenantId: user.tid, contactId: user.sub, codeHash,
+      tenantId: user.tid, contactId: user.sub, codeHash, phone: e164,
       purpose: 'setup', expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
-
-    // Store phone temporarily (not yet enabled)
-    await fastify.db.update(contacts).set({
-      portalMfaPhone: e164, updatedAt: new Date(),
-    }).where(and(eq(contacts.id, user.sub), eq(contacts.tenantId, user.tid)));
 
     const result = await sendSms({ to: e164, message: `Your Rivertown Technology setup code is ${code}. Expires in 10 minutes.` }, fastify.db, user.tid);
     if (!result.success) throw new ValidationError(result.error || 'Failed to send SMS');
@@ -230,12 +236,15 @@ export async function portalRoutes(fastify: FastifyInstance) {
       .orderBy(descOrder(portalMfaCodes.createdAt)).limit(1);
 
     if (!codeRow || codeRow.expiresAt < new Date()) throw new ValidationError('Code expired. Request a new one.');
+    if (!codeRow.phone) throw new ValidationError('Setup expired. Please start again.');
     const valid = await compare(code, codeRow.codeHash);
     if (!valid) throw new ValidationError('Invalid code');
 
     await fastify.db.delete(portalMfaCodes).where(eq(portalMfaCodes.id, codeRow.id));
 
+    // Only now, after verifying a code sent to the new number, commit it.
     await fastify.db.update(contacts).set({
+      portalMfaPhone: codeRow.phone,
       portalMfaEnabled: true,
       portalMfaMethod: 'sms',
       portalMfaVerifiedAt: new Date(),
@@ -390,7 +399,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
   fastify.get('/api/v1/portal/billing', async (request) => {
     const { customers } = await import('@rivertown/db');
     const user = request.user as any;
-    if (user.portalRole !== 'admin') throw new ValidationError('Admin access required');
+    if (user.portalRole !== 'admin') throw new ForbiddenError('Admin access required');
 
     const [customer] = await fastify.db.select({
       name: customers.name,
@@ -413,7 +422,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
   fastify.patch('/api/v1/portal/billing', async (request) => {
     const { customers } = await import('@rivertown/db');
     const user = request.user as any;
-    if (user.portalRole !== 'admin') throw new ValidationError('Admin access required');
+    if (user.portalRole !== 'admin') throw new ForbiddenError('Admin access required');
 
     const body = request.body as {
       billingEmail?: string; ccBillingEmail?: string; phone?: string;
@@ -446,24 +455,39 @@ export async function portalRoutes(fastify: FastifyInstance) {
     }).from(tickets)
       .where(and(eq(tickets.tenantId, user.tid), eq(tickets.customerId, user.cid)));
 
-    const [invoiceStats] = await fastify.db.select({
-      outstanding: count(sql`CASE WHEN ${invoices.status} IN ('sent', 'overdue') THEN 1 END`),
-      outstandingCents: sql<number>`COALESCE(SUM(CASE WHEN ${invoices.status} IN ('sent', 'overdue') THEN ${invoices.totalCents} - ${invoices.amountPaidCents} - ${invoices.creditsAppliedCents} ELSE 0 END), 0)`,
-    }).from(invoices)
-      .where(and(eq(invoices.tenantId, user.tid), eq(invoices.customerId, user.cid)));
-
-    return {
+    const result: Record<string, unknown> = {
       tickets: { open: Number(ticketStats?.open ?? 0), total: Number(ticketStats?.total ?? 0) },
-      invoices: { outstanding: Number(invoiceStats?.outstanding ?? 0), outstandingCents: Number(invoiceStats?.outstandingCents ?? 0) },
     };
+
+    // Outstanding-balance figures are billing data — only for billing users.
+    const hasBilling = user.portalRole === 'admin' || (user.perms ?? []).includes('billing');
+    if (hasBilling) {
+      const [invoiceStats] = await fastify.db.select({
+        outstanding: count(sql`CASE WHEN ${invoices.status} IN ('sent', 'overdue') THEN 1 END`),
+        outstandingCents: sql<number>`COALESCE(SUM(CASE WHEN ${invoices.status} IN ('sent', 'overdue') THEN ${invoices.totalCents} - ${invoices.amountPaidCents} - ${invoices.creditsAppliedCents} ELSE 0 END), 0)`,
+      }).from(invoices)
+        .where(and(eq(invoices.tenantId, user.tid), eq(invoices.customerId, user.cid)));
+      result.invoices = { outstanding: Number(invoiceStats?.outstanding ?? 0), outstandingCents: Number(invoiceStats?.outstandingCents ?? 0) };
+    }
+
+    return result;
   });
 
   // ===== TICKETS =====
 
+  // Customer-safe ticket columns — omits internal routing/SLA fields
+  // (assignedTo, queueId, slaPolicyId, slaBreached, slaResponseMet, etc.).
+  const portalTicketCols = {
+    id: tickets.id, ticketNumber: tickets.ticketNumber, subject: tickets.subject,
+    description: tickets.description, status: tickets.status, priority: tickets.priority,
+    categoryId: tickets.categoryId, subcategoryId: tickets.subcategoryId,
+    createdAt: tickets.createdAt, updatedAt: tickets.updatedAt,
+  };
+
   fastify.get('/api/v1/portal/tickets', async (request) => {
     const user = getPortalUser(request);
     requirePerm(user, 'tickets');
-    return fastify.db.select().from(tickets)
+    return fastify.db.select(portalTicketCols).from(tickets)
       .where(and(eq(tickets.tenantId, user.tid), eq(tickets.customerId, user.cid)))
       .orderBy(desc(tickets.createdAt)).limit(50);
   });
@@ -485,8 +509,19 @@ export async function portalRoutes(fastify: FastifyInstance) {
       contactId: user.sub, subject: subject.trim(), description: description?.trim(),
       status: 'new', priority: 'medium', ticketType: 'service_request', source: 'portal',
     };
-    if (categoryId) values.categoryId = categoryId;
-    if (subcategoryId) values.subcategoryId = subcategoryId;
+    // Only accept category/subcategory ids that belong to this tenant, so a
+    // portal user can't attach another tenant's category reference.
+    if (categoryId) {
+      const [cat] = await fastify.db.select({ id: ticketCategories.id }).from(ticketCategories)
+        .where(and(eq(ticketCategories.id, categoryId), eq(ticketCategories.tenantId, user.tid))).limit(1);
+      if (cat) values.categoryId = categoryId;
+    }
+    if (subcategoryId) {
+      const [sub] = await fastify.db.select({ id: ticketSubcategories.id, categoryId: ticketSubcategories.categoryId })
+        .from(ticketSubcategories)
+        .where(and(eq(ticketSubcategories.id, subcategoryId), eq(ticketSubcategories.tenantId, user.tid))).limit(1);
+      if (sub && (!values.categoryId || sub.categoryId === values.categoryId)) values.subcategoryId = subcategoryId;
+    }
 
     const [ticket] = await fastify.db.insert(tickets).values(values as any).returning();
 
@@ -509,7 +544,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const user = getPortalUser(request);
     requirePerm(user, 'tickets');
-    const [ticket] = await fastify.db.select().from(tickets)
+    const [ticket] = await fastify.db.select(portalTicketCols).from(tickets)
       .where(and(eq(tickets.id, id), eq(tickets.tenantId, user.tid), eq(tickets.customerId, user.cid)))
       .limit(1);
     if (!ticket) throw new NotFoundError('Ticket', id);
@@ -561,10 +596,20 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
   // ===== INVOICES =====
 
+  // Customer-safe invoice columns — omits internal fields (notes, qboInvoiceId,
+  // stripeInvoiceId).
+  const portalInvoiceCols = {
+    id: invoices.id, invoiceNumber: invoices.invoiceNumber, status: invoices.status,
+    issueDate: invoices.issueDate, dueDate: invoices.dueDate,
+    subtotalCents: invoices.subtotalCents, taxCents: invoices.taxCents,
+    totalCents: invoices.totalCents, amountPaidCents: invoices.amountPaidCents,
+    creditsAppliedCents: invoices.creditsAppliedCents, createdAt: invoices.createdAt,
+  };
+
   fastify.get('/api/v1/portal/invoices', async (request) => {
     const user = getPortalUser(request);
     requirePerm(user, 'billing');
-    return fastify.db.select().from(invoices)
+    return fastify.db.select(portalInvoiceCols).from(invoices)
       .where(and(eq(invoices.tenantId, user.tid), eq(invoices.customerId, user.cid)))
       .orderBy(desc(invoices.createdAt)).limit(50);
   });
@@ -573,11 +618,68 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const user = getPortalUser(request);
     requirePerm(user, 'billing');
-    const [invoice] = await fastify.db.select().from(invoices)
+    const [invoice] = await fastify.db.select(portalInvoiceCols).from(invoices)
       .where(and(eq(invoices.id, id), eq(invoices.tenantId, user.tid), eq(invoices.customerId, user.cid)))
       .limit(1);
     if (!invoice) throw new NotFoundError('Invoice', id);
     return invoice;
+  });
+
+  // Payment history for one invoice — the customer's receipts
+  fastify.get('/api/v1/portal/invoices/:id/payments', async (request) => {
+    const { id } = request.params as { id: string };
+    const user = getPortalUser(request);
+    requirePerm(user, 'billing');
+    const [invoice] = await fastify.db.select({ id: invoices.id }).from(invoices)
+      .where(and(eq(invoices.id, id), eq(invoices.tenantId, user.tid), eq(invoices.customerId, user.cid)))
+      .limit(1);
+    if (!invoice) throw new NotFoundError('Invoice', id);
+    return fastify.db.select({
+      id: payments.id,
+      amountCents: payments.amountCents,
+      paymentMethod: payments.paymentMethod,
+      paidAt: payments.paidAt,
+    }).from(payments)
+      .where(and(eq(payments.invoiceId, id), eq(payments.tenantId, user.tid)))
+      .orderBy(desc(payments.paidAt));
+  });
+
+  // ===== AGREEMENTS (MSAs — current, previous versions, and any awaiting signature) =====
+
+  fastify.get('/api/v1/portal/agreements', async (request) => {
+    const user = getPortalUser(request);
+    requirePerm(user, 'billing');
+    const rows = await fastify.db.select({
+      id: agreements.id,
+      title: agreements.title,
+      status: agreements.status,
+      sentAt: agreements.sentAt,
+      signedAt: agreements.signedAt,
+      expiresAt: agreements.expiresAt,
+      previousAgreementId: agreements.previousAgreementId,
+      createdAt: agreements.createdAt,
+    }).from(agreements)
+      .where(and(eq(agreements.tenantId, user.tid), eq(agreements.customerId, user.cid)))
+      .orderBy(desc(agreements.createdAt)).limit(50);
+    // Drafts are internal until sent
+    return rows.filter((r: { status: string }) => r.status !== 'draft');
+  });
+
+  // Mints the same short-lived preview token the staff app uses, after an
+  // ownership check — the existing public agreement PDF route accepts it.
+  fastify.post('/api/v1/portal/agreements/:id/preview-token', async (request) => {
+    const { id } = request.params as { id: string };
+    const user = getPortalUser(request);
+    requirePerm(user, 'billing');
+    const [agreement] = await fastify.db.select({ id: agreements.id, status: agreements.status }).from(agreements)
+      .where(and(eq(agreements.id, id), eq(agreements.tenantId, user.tid), eq(agreements.customerId, user.cid)))
+      .limit(1);
+    if (!agreement || agreement.status === 'draft') throw new NotFoundError('Agreement', id);
+    const token = fastify.jwt.sign(
+      { sub: user.sub, tid: user.tid, role: 'portal_user', type: 'preview' as const, resource: `agreement:${id}` },
+      { expiresIn: '60s' },
+    );
+    return { token };
   });
 
   // ===== QUOTES =====
@@ -588,6 +690,22 @@ export async function portalRoutes(fastify: FastifyInstance) {
     return fastify.db.select().from(quotes)
       .where(and(eq(quotes.tenantId, user.tid), eq(quotes.customerId, user.cid)))
       .orderBy(desc(quotes.createdAt)).limit(50);
+  });
+
+  // Preview token for the quote PDF (includes the signature block once signed)
+  fastify.post('/api/v1/portal/quotes/:id/preview-token', async (request) => {
+    const { id } = request.params as { id: string };
+    const user = getPortalUser(request);
+    requirePerm(user, 'billing');
+    const [quote] = await fastify.db.select({ id: quotes.id }).from(quotes)
+      .where(and(eq(quotes.id, id), eq(quotes.tenantId, user.tid), eq(quotes.customerId, user.cid)))
+      .limit(1);
+    if (!quote) throw new NotFoundError('Quote', id);
+    const token = fastify.jwt.sign(
+      { sub: user.sub, tid: user.tid, role: 'portal_user', type: 'preview' as const, resource: `quote:${id}` },
+      { expiresIn: '60s' },
+    );
+    return { token };
   });
 
   fastify.post('/api/v1/portal/quotes/:id/approve', async (request, reply) => {
@@ -627,7 +745,15 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
   fastify.get('/api/v1/portal/assets', async (request) => {
     const user = getPortalUser(request);
-    return fastify.db.select().from(assets)
+    // Customer-safe columns only — never expose internal RMM fields
+    // (ipAddress, macAddress, notes, externalRmmId, screenconnectSessionId).
+    return fastify.db.select({
+      id: assets.id,
+      name: assets.name,
+      type: assets.assetType,
+      serialNumber: assets.serialNumber,
+      status: assets.status,
+    }).from(assets)
       .where(and(eq(assets.tenantId, user.tid), eq(assets.customerId, user.cid)))
       .orderBy(assets.name).limit(100);
   });
@@ -654,7 +780,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
   // List portal users for this company
   fastify.get('/api/v1/portal/users', async (request) => {
     const user = getPortalUser(request);
-    if (user.portalRole !== 'admin') throw new ValidationError('Only portal admins can manage users');
+    if (user.portalRole !== 'admin') throw new ForbiddenError('Only portal admins can manage users');
 
     const portalUsers = await fastify.db.select({
       id: contacts.id,
@@ -674,7 +800,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
   // Invite / enable portal access for another contact (portal admin)
   fastify.post('/api/v1/portal/users/:contactId/enable', async (request) => {
     const user = getPortalUser(request);
-    if (user.portalRole !== 'admin') throw new ValidationError('Only portal admins can manage users');
+    if (user.portalRole !== 'admin') throw new ForbiddenError('Only portal admins can manage users');
 
     const { contactId } = request.params as { contactId: string };
     const { password, permissions } = request.body as { password: string; permissions?: string[] };
@@ -704,7 +830,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
   // Update permissions for a portal user (portal admin)
   fastify.patch('/api/v1/portal/users/:contactId', async (request) => {
     const user = getPortalUser(request);
-    if (user.portalRole !== 'admin') throw new ValidationError('Only portal admins can manage users');
+    if (user.portalRole !== 'admin') throw new ForbiddenError('Only portal admins can manage users');
 
     const { contactId } = request.params as { contactId: string };
     const { permissions } = request.body as { permissions: string[] };
@@ -730,7 +856,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
   // Revoke portal access (portal admin)
   fastify.post('/api/v1/portal/users/:contactId/revoke', async (request) => {
     const user = getPortalUser(request);
-    if (user.portalRole !== 'admin') throw new ValidationError('Only portal admins can manage users');
+    if (user.portalRole !== 'admin') throw new ForbiddenError('Only portal admins can manage users');
 
     const { contactId } = request.params as { contactId: string };
     if (contactId === user.sub) throw new ValidationError('Cannot revoke your own access');

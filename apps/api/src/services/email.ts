@@ -128,21 +128,29 @@ export async function getEmailTransporter(db: Database, tenantId: string): Promi
   });
 }
 
+// Header values must not contain CR/LF — an embedded newline would let a
+// crafted recipient/subject/name inject arbitrary headers (e.g. a blind Bcc)
+// into the raw RFC-2822 message the Gmail API sends verbatim.
+function hdr(value: string): string {
+  if (/[\r\n]/.test(value)) throw new Error('Invalid email header value');
+  return value;
+}
+
 function buildRfc2822Message(options: EmailOptions & { fromAddress: string; fromName: string }): string {
   const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const lines: string[] = [];
 
-  lines.push(`From: "${options.fromName}" <${options.fromAddress}>`);
-  lines.push(`To: ${options.to}`);
-  lines.push(`Subject: ${options.subject}`);
+  lines.push(`From: "${hdr(options.fromName)}" <${hdr(options.fromAddress)}>`);
+  lines.push(`To: ${hdr(options.to)}`);
+  lines.push(`Subject: ${hdr(options.subject)}`);
   lines.push('MIME-Version: 1.0');
 
   if (options.replyTo) {
-    lines.push(`Reply-To: ${options.replyTo}`);
+    lines.push(`Reply-To: ${hdr(options.replyTo)}`);
   }
-  if (options.messageId) lines.push(`Message-ID: ${options.messageId}`);
-  if (options.inReplyTo) lines.push(`In-Reply-To: ${options.inReplyTo}`);
-  if (options.references) lines.push(`References: ${options.references}`);
+  if (options.messageId) lines.push(`Message-ID: ${hdr(options.messageId)}`);
+  if (options.inReplyTo) lines.push(`In-Reply-To: ${hdr(options.inReplyTo)}`);
+  if (options.references) lines.push(`References: ${hdr(options.references)}`);
 
   if (options.attachments?.length) {
     lines.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
@@ -254,6 +262,68 @@ export async function sendEmail(db: Database, tenantId: string, options: EmailOp
     console.error(`[EMAIL-SEND] Failed to=${options.to}:`, err);
     return false;
   }
+}
+
+// ===== Unified Mailjet config (one credential, per-document-type senders) =====
+
+/** Document email channels — each can have its own from-address. */
+export type MailChannel = 'quotes' | 'agreements' | 'invoices' | 'receipts';
+
+export interface ChannelSender { fromAddress: string; fromName: string; replyTo?: string }
+
+/**
+ * Resolves the sender for a channel from the unified `mailjet` config:
+ * one API key/secret for the whole account, with per-channel from-addresses
+ * under `credentials.senders` and a `default` used for any channel without
+ * its own. Returns null when the unified config can't serve the channel —
+ * callers then fall back to the legacy sales-email/billing-email configs.
+ */
+export async function getMailjetChannelSender(
+  db: Database, tenantId: string, channel: MailChannel,
+): Promise<(ChannelSender & { apiKey: string; secretKey: string }) | null> {
+  const [config] = await db.select().from(integrationConfigs)
+    .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'mailjet')))
+    .limit(1);
+  if (!config?.isEnabled) return null;
+
+  const creds = readCredentials(config.credentials) as Record<string, unknown>;
+  const apiKey = creds.apiKey as string;
+  const secretKey = creds.secretKey as string;
+  if (!apiKey || !secretKey) return null;
+
+  const senders = (creds.senders ?? {}) as Record<string, Partial<ChannelSender>>;
+  const sender = senders[channel]?.fromAddress ? senders[channel] : senders.default;
+  if (!sender?.fromAddress) return null;
+
+  return {
+    apiKey, secretKey,
+    fromAddress: sender.fromAddress,
+    fromName: sender.fromName || '',
+    replyTo: sender.replyTo || undefined,
+  };
+}
+
+/**
+ * Sends a document email on its channel. Prefers the unified Mailjet config;
+ * falls back to the legacy per-channel configs (sales-email for quotes and
+ * agreements, billing-email for invoices and receipts), which themselves fall
+ * back to the general email settings.
+ */
+export async function sendDocumentEmail(
+  db: Database, tenantId: string, channel: MailChannel, options: EmailOptions,
+): Promise<boolean> {
+  const mj = await getMailjetChannelSender(db, tenantId, channel);
+  if (mj) {
+    console.log(`[MAILJET:${channel}] Sending to=${options.to} subject="${options.subject}" from=${mj.fromAddress}`);
+    return sendViaMailjet(
+      { apiKey: mj.apiKey, secretKey: mj.secretKey, fromAddress: mj.fromAddress, fromName: mj.fromName, replyTo: options.replyTo || mj.replyTo },
+      options,
+      `MAILJET:${channel}`,
+    );
+  }
+  return channel === 'quotes' || channel === 'agreements'
+    ? sendSalesEmail(db, tenantId, options)
+    : sendBillingEmail(db, tenantId, options);
 }
 
 /**
