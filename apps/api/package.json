@@ -32,6 +32,7 @@
     "fastify-plugin": "^5.0.0",
     "imapflow": "^1.2.18",
     "ioredis": "^5.6.0",
+    "jose": "^6.2.10",
     "mailparser": "^3.9.6",
     "nodemailer": "^8.0.4",
     "otpauth": "^9.5.0",

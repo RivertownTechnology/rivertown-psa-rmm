@@ -27,11 +27,17 @@ export const users = pgTable(
     // SSO
     ssoProvider: text('sso_provider'),
     ssoSubjectId: text('sso_subject_id'),
+    ssoTenantId: text('sso_tenant_id'),
 
     timezone: text('user_timezone'),
     googleCalendarConnected: boolean('google_calendar_connected').default(false),
     googleCalendarToken: text('google_calendar_token'),
     googleCalendarRefreshToken: text('google_calendar_refresh_token'),
+
+    // Microsoft 365 (Outlook) Calendar — per-user delegated Graph sync
+    msCalendarConnected: boolean('ms_calendar_connected').default(false).notNull(),
+    msCalendarToken: text('ms_calendar_token'),
+    msCalendarRefreshToken: text('ms_calendar_refresh_token'),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

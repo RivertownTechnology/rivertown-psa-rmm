@@ -27,6 +27,36 @@ interface EmailOptions {
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GMAIL_API_URL = 'https://gmail.googleapis.com/gmail/v1';
 
+/**
+ * Resolve the app-only Microsoft Graph credentials + send-from mailbox for a
+ * tenant. Reads the `microsoft-email` config row (source of truth) and falls
+ * back to MS_* env vars for tenantId/clientId/clientSecret — mirroring the
+ * Google env fallback. Returns null when Graph email is not configured.
+ */
+export async function getMicrosoftEmailAppConfig(db: Database, tenantId: string): Promise<{
+  tenantId: string; clientId: string; clientSecret: string;
+  fromMailbox: string; fromAddress: string; fromName: string; mailboxes: string[];
+} | null> {
+  const [config] = await db.select().from(integrationConfigs)
+    .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'microsoft-email')))
+    .limit(1);
+  if (!config?.isEnabled) return null;
+
+  const creds = readCredentials(config.credentials) as Record<string, unknown>;
+  const msTenantId = (creds.tenantId as string) || process.env.MS_TENANT_ID || '';
+  const clientId = (creds.clientId as string) || process.env.MS_CLIENT_ID || '';
+  const clientSecret = (creds.clientSecret as string) || process.env.MS_CLIENT_SECRET || '';
+  const mailboxes = Array.isArray(creds.mailboxes) ? (creds.mailboxes as string[]).filter(Boolean) : [];
+  const fromAddress = (creds.fromAddress as string) || mailboxes[0] || '';
+  const fromName = (creds.fromName as string) || '';
+
+  if (!msTenantId || !clientId || !clientSecret) return null;
+  const fromMailbox = fromAddress || mailboxes[0] || '';
+  if (!fromMailbox) return null;
+
+  return { tenantId: msTenantId, clientId, clientSecret, fromMailbox, fromAddress: fromMailbox, fromName, mailboxes };
+}
+
 async function getFreshGmailToken(db: Database, tenantId: string): Promise<{ accessToken: string; fromAddress: string; fromName: string } | null> {
   const [gmailConfig] = await db.select().from(integrationConfigs)
     .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'google-email')))
@@ -230,6 +260,20 @@ export async function sendEmail(db: Database, tenantId: string, options: EmailOp
       if (!gmail) { console.error('[EMAIL-SEND] No Gmail token available'); return false; }
       const sent = await sendViaGmailApi(gmail.accessToken, { ...options, fromAddress: gmail.fromAddress, fromName: gmail.fromName });
       if (sent) console.log(`[EMAIL-SEND] Sent successfully to=${options.to} via Gmail API`);
+      return sent;
+    }
+
+    // Microsoft Graph (app-only)
+    if (provider === 'microsoft-email') {
+      const msConfig = await getMicrosoftEmailAppConfig(db, tenantId);
+      if (!msConfig) { console.error('[EMAIL-SEND] Microsoft email not configured'); return false; }
+      const { sendGraphMail } = await import('./microsoft-graph-mail.js');
+      const sent = await sendGraphMail(
+        { tenantId: msConfig.tenantId, clientId: msConfig.clientId, clientSecret: msConfig.clientSecret },
+        msConfig.fromMailbox,
+        options,
+      );
+      if (sent) console.log(`[EMAIL-SEND] Sent successfully to=${options.to} via Microsoft Graph`);
       return sent;
     }
 

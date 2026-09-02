@@ -1,12 +1,41 @@
 import { FastifyInstance } from 'fastify';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 import { eq, and, ne, desc, sql, count } from 'drizzle-orm';
 import { compare, hash } from 'bcryptjs';
 import { contacts, tickets, ticketComments, quotes, invoices, assets, agreements, payments, ticketCategories, ticketSubcategories } from '@rivertown/db';
 import { ValidationError, NotFoundError, ForbiddenError } from '../../common/errors.js';
 import { getNextTicketNumber } from '../../common/ticket-number.js';
+import { oauthStates, cleanExpired } from '../../auth/oauth-shared.js';
+import {
+  getPortalMicrosoftConfig,
+  isPortalMicrosoftConfigured,
+  buildAuthorizeUrl,
+  exchangeCodeForTokens,
+  validateMultiTenantIdToken,
+} from '../../auth/microsoft-oauth.js';
 
 type PortalUser = { sub: string; tid: string; cid: string; role: string; portalRole: string; perms: string[] };
+
+// Delegated, all user-consentable scopes — no admin-consent-required permission,
+// so most customer tenants need zero setup.
+const MS_PORTAL_SCOPES = ['openid', 'email', 'profile', 'User.Read'];
+
+// One-time codes bridging the SSO callback → the portal SPA exchange POST. We
+// store the ALREADY-SIGNED portal tokens (portal JWTs carry different claims
+// than staff tokens, so the provider-neutral staff exchange can't re-derive
+// them). Short 60s TTL; single use.
+interface PortalSsoExchangeEntry {
+  expiresAt: number;
+  payload: {
+    accessToken: string;
+    refreshToken: string;
+    user: { id: string; name: string; email: string };
+    customerId: string;
+    portalRole: string;
+    portalPermissions: string[];
+  };
+}
+const portalSsoExchangeCodes = new Map<string, PortalSsoExchangeEntry>();
 
 function getPortalUser(request: { user: unknown }): PortalUser {
   return request.user as PortalUser;
@@ -112,6 +141,139 @@ export async function portalRoutes(fastify: FastifyInstance) {
       loginsWithoutMfa,
       hasSecondFactor,
     };
+  });
+
+  // ===== SIGN IN WITH MICROSOFT (multi-tenant portal SSO — App B) =====
+  //
+  // Customers sign in with their own Microsoft 365 work/school accounts. This is
+  // a SEPARATE Entra app from staff SSO (multi-tenant, /organizations authority).
+  // All three routes are public — they run BEFORE any portal token exists, so the
+  // global onRequest portal-token confinement never applies to the handshake.
+  // Federated login is treated as a satisfied second factor: no SMS challenge,
+  // no mustSetupMfa gate.
+
+  // Step 1: redirect to the customer's Entra consent screen (with CSRF state).
+  fastify.get('/api/v1/portal/auth/microsoft', { config: { public: true } as any }, async (_request, reply) => {
+    const cfg = getPortalMicrosoftConfig();
+    if (!isPortalMicrosoftConfigured(cfg)) {
+      return reply.code(503).send({ error: 'Microsoft SSO is not configured' });
+    }
+
+    const state = randomBytes(32).toString('hex');
+    oauthStates.set(state, { expiresAt: Date.now() + 10 * 60 * 1000 });
+    cleanExpired(oauthStates);
+
+    const url = buildAuthorizeUrl({
+      state,
+      redirectUri: cfg.redirectUri,
+      clientId: cfg.clientId,
+      tenant: 'organizations', // multi-tenant: any work/school org
+      scopes: MS_PORTAL_SCOPES,
+      prompt: 'select_account',
+    });
+
+    return reply.redirect(url);
+  });
+
+  // Step 2: handle the Entra callback — validate, match a portal contact, mint a
+  // one-time code, and redirect to the portal SPA (tokens never touch the URL).
+  fastify.get('/api/v1/portal/auth/microsoft/callback', { config: { public: true } as any }, async (request, reply) => {
+    const cfg = getPortalMicrosoftConfig();
+    const { code, error, state } = request.query as { code?: string; error?: string; state?: string };
+
+    const stateEntry = state ? oauthStates.get(state) : undefined;
+    if (state) oauthStates.delete(state);
+
+    const errorRedirect = (errorCode: string) =>
+      reply.redirect(`${cfg.portalUrl}/login?error=${errorCode}`);
+
+    if (error || !code) return errorRedirect('microsoft_denied');
+    if (!state || !stateEntry) return errorRedirect('invalid_state');
+    if (stateEntry.expiresAt < Date.now()) return errorRedirect('expired_state');
+    if (!isPortalMicrosoftConfigured(cfg)) {
+      return reply.code(503).send({ error: 'Microsoft SSO is not configured' });
+    }
+
+    try {
+      // Exchange the code at the multi-tenant token endpoint with App B creds.
+      const tokens = await exchangeCodeForTokens({
+        code,
+        redirectUri: cfg.redirectUri,
+        clientId: cfg.clientId,
+        clientSecret: cfg.clientSecret,
+        tenant: 'organizations',
+        scopes: MS_PORTAL_SCOPES,
+      });
+
+      if (!tokens.id_token) {
+        fastify.log.error('Portal Microsoft SSO: token exchange returned no id_token');
+        return errorRedirect('token_failed');
+      }
+
+      // Multi-tenant validation: signature + audience + exp, and issuer==own tid.
+      const identity = await validateMultiTenantIdToken(tokens.id_token, { clientId: cfg.clientId });
+
+      const emailLower = (identity.email || identity.preferredUsername || '').toLowerCase();
+      if (!emailLower) return errorRedirect('no_portal_access');
+
+      // Match a portal-enabled contact in our single tenant by email.
+      const [contact] = await fastify.db.select().from(contacts)
+        .where(eq(contacts.email, emailLower)).limit(1);
+
+      if (!contact || !contact.portalEnabled) {
+        fastify.log.warn('Portal Microsoft SSO: no portal-enabled contact for email');
+        return errorRedirect('no_portal_access');
+      }
+
+      const portalRole = (contact.portalRole as string) ?? 'user';
+      const portalPerms = (contact.portalPermissions as string[]) ?? ['tickets'];
+
+      // Mint portal JWTs exactly like the password-login success path. SSO is the
+      // strong factor, so we skip the SMS challenge and the mustSetupMfa gate.
+      const accessToken = fastify.jwt.sign(
+        { jti: randomUUID(), sub: contact.id, tid: contact.tenantId, cid: contact.customerId, role: 'portal_user', portalRole, perms: portalPerms, type: 'access' as const },
+        { expiresIn: '4h' },
+      );
+      const refreshToken = fastify.jwt.sign(
+        { jti: randomUUID(), sub: contact.id, tid: contact.tenantId, cid: contact.customerId, role: 'portal_user', portalRole, perms: portalPerms, type: 'refresh' as const },
+        { expiresIn: '7d' },
+      );
+
+      const exchangeCode = randomBytes(32).toString('hex');
+      portalSsoExchangeCodes.set(exchangeCode, {
+        expiresAt: Date.now() + 60 * 1000, // 1 minute TTL
+        payload: {
+          accessToken,
+          refreshToken,
+          user: { id: contact.id, name: `${contact.firstName} ${contact.lastName}`, email: contact.email },
+          customerId: contact.customerId,
+          portalRole,
+          portalPermissions: portalPerms,
+        },
+      });
+      cleanExpired(portalSsoExchangeCodes);
+
+      return reply.redirect(`${cfg.portalUrl}/auth/callback?code=${exchangeCode}`);
+    } catch (err) {
+      fastify.log.error(err, 'Portal Microsoft SSO error');
+      return errorRedirect('server_error');
+    }
+  });
+
+  // Step 3: the portal SPA swaps the one-time code for the real portal tokens
+  // (same shape the password login returns).
+  fastify.post('/api/v1/portal/auth/microsoft/exchange', { config: { public: true } as any }, async (request, reply) => {
+    const { code } = (request.body ?? {}) as { code?: string };
+    if (!code) return reply.code(400).send({ error: 'Exchange code required' });
+
+    const entry = portalSsoExchangeCodes.get(code);
+    portalSsoExchangeCodes.delete(code);
+
+    if (!entry || entry.expiresAt < Date.now()) {
+      return reply.code(401).send({ error: 'Invalid or expired exchange code' });
+    }
+
+    return entry.payload;
   });
 
   // ===== PORTAL SMS MFA =====

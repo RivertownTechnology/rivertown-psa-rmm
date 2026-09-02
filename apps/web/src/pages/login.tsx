@@ -145,6 +145,18 @@ export function LoginPage() {
             </svg>
             Sign in with Google
           </a>
+          <a
+            href={`${(import.meta as any).env?.VITE_API_URL || ''}/api/v1/auth/microsoft`}
+            className="mt-3 inline-flex items-center justify-center gap-3 w-full rounded-md bg-white border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
+          >
+            <svg className="h-5 w-5" viewBox="0 0 24 24">
+              <path d="M11.4 11.4H2V2h9.4v9.4z" fill="#F25022"/>
+              <path d="M22 11.4h-9.4V2H22v9.4z" fill="#7FBA00"/>
+              <path d="M11.4 22H2v-9.4h9.4V22z" fill="#00A4EF"/>
+              <path d="M22 22h-9.4v-9.4H22V22z" fill="#FFB900"/>
+            </svg>
+            Sign in with Microsoft
+          </a>
         </CardContent>
       </Card>
     </div>

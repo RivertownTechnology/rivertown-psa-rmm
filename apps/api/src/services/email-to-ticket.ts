@@ -26,8 +26,77 @@ export async function processInboundEmails(db: Database, tenantId: string): Prom
     return processViaGmail(db, tenantId);
   }
 
+  // Microsoft Graph (app-only)
+  if (creds.provider === 'microsoft-email') {
+    console.log('[EMAIL] Using Microsoft Graph path');
+    return processViaGraph(db, tenantId);
+  }
+
   if (!creds.smtpHost || !creds.smtpUser) return { processed: 0, tickets: 0, comments: 0, blocked: 0 };
   return processViaImap(db, tenantId, creds);
+}
+
+// --- Microsoft Graph (app-only) path ---
+async function processViaGraph(db: Database, tenantId: string): Promise<{ processed: number; tickets: number; comments: number; blocked: number }> {
+  const { getMicrosoftEmailAppConfig } = await import('./email.js');
+  const { listUnreadInboxMessages, markGraphMessageRead, mapGraphMessage } = await import('./microsoft-graph-mail.js');
+
+  const msConfig = await getMicrosoftEmailAppConfig(db, tenantId);
+  if (!msConfig) {
+    console.error('[EMAIL] Microsoft email not configured');
+    return { processed: 0, tickets: 0, comments: 0, blocked: 0 };
+  }
+
+  const appCreds = { tenantId: msConfig.tenantId, clientId: msConfig.clientId, clientSecret: msConfig.clientSecret };
+  // Poll every configured mailbox; fall back to the primary from-address.
+  const mailboxes = msConfig.mailboxes.length ? msConfig.mailboxes : [msConfig.fromMailbox];
+
+  let processed = 0, ticketsCreated = 0, commentsCreated = 0, blockedCount = 0;
+
+  for (const mailbox of mailboxes) {
+    if (!mailbox) continue;
+    try {
+      const messages = await listUnreadInboxMessages(appCreds, mailbox);
+      console.log(`[EMAIL] Found ${messages.length} unread messages for ${mailbox} (Graph)`);
+
+      for (const raw of messages) {
+        const msg = mapGraphMessage(raw);
+        if (!msg.fromAddress) continue;
+
+        // Dedupe via the existing emailMessages.messageId mechanism
+        const [existing] = await db.select().from(emailMessages)
+          .where(and(eq(emailMessages.tenantId, tenantId), eq(emailMessages.messageId, msg.messageId)))
+          .limit(1);
+        if (existing) {
+          await markGraphMessageRead(appCreds, mailbox, msg.graphId);
+          continue;
+        }
+
+        const result = await processEmail(db, tenantId, {
+          messageId: msg.messageId,
+          fromAddress: msg.fromAddress,
+          fromName: msg.fromName || undefined,
+          toAddress: msg.toAddress || mailbox,
+          subject: msg.subject,
+          bodyText: msg.bodyText,
+          bodyHtml: msg.bodyHtml,
+        });
+
+        if (result.blocked) { blockedCount++; }
+        else {
+          if (result.ticket) ticketsCreated++;
+          if (result.comment) commentsCreated++;
+        }
+
+        await markGraphMessageRead(appCreds, mailbox, msg.graphId);
+        processed++;
+      }
+    } catch (err) {
+      console.error(`[EMAIL] Microsoft Graph processing failed for ${mailbox}:`, err);
+    }
+  }
+
+  return { processed, tickets: ticketsCreated, comments: commentsCreated, blocked: blockedCount };
 }
 
 // --- Gmail API path ---

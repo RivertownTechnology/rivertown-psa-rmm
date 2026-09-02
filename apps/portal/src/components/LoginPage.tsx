@@ -10,13 +10,33 @@ import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string) => Promise<void>;
+  /** Pre-filled error, e.g. from a failed Microsoft SSO redirect. */
+  initialError?: string;
 }
 
-export function LoginPage({ onLogin }: LoginPageProps) {
+/** Microsoft four-square logo (brand mark), inline so we don't add an icon dep. */
+function MicrosoftLogo({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 21 21" aria-hidden="true" focusable="false">
+      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+    </svg>
+  );
+}
+
+export function LoginPage({ onLogin, initialError }: LoginPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initialError ?? '');
   const [loading, setLoading] = useState(false);
+
+  function handleMicrosoftSignIn() {
+    // Full-page navigation to the API's SSO entry point. Vite proxies /api to the
+    // API in dev/preview; same-origin proxy in production.
+    window.location.href = '/api/v1/portal/auth/microsoft';
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -174,13 +194,24 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             type="button"
             variant="outline"
             className="w-full h-11 text-base gap-2"
+            onClick={handleMicrosoftSignIn}
+            disabled={loading}
+          >
+            <MicrosoftLogo className="h-5 w-5" />
+            Sign in with Microsoft
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full h-11 text-base gap-2 mt-3"
             onClick={handlePasskeySignIn}
             disabled={loading}
           >
             <Fingerprint className="h-5 w-5" />
             Sign in with Passkey
           </Button>
-          <p className="text-xs text-center text-muted-foreground mt-2">Your device will prompt you to use your fingerprint, face, or security key.</p>
+          <p className="text-xs text-center text-muted-foreground mt-2">Use your Microsoft 365 work account, or your device's fingerprint, face, or security key.</p>
 
           <div className="mt-8 pt-6 border-t text-center text-sm text-muted-foreground space-y-2">
             <p>Don't have an account? Contact your account manager at Rivertown Technology to get portal access.</p>

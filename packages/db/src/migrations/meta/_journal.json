@@ -407,6 +407,20 @@
       "when": 1788268700763,
       "tag": "0057_portal_mfa_pending_phone",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1788307155760,
+      "tag": "0058_user_sso_tenant_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1788307936232,
+      "tag": "0059_ms_calendar_sync",
+      "breakpoints": true
     }
   ]
 }

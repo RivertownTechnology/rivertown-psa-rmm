@@ -242,6 +242,164 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ===== MICROSOFT 365 EMAIL (Graph, app-only) =====
+
+  fastify.get(
+    '/api/v1/settings/microsoft-email',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const [config] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'microsoft-email')))
+        .limit(1);
+
+      const envTenant = process.env.MS_TENANT_ID || '';
+      const envClientId = process.env.MS_CLIENT_ID || '';
+      const envSecret = process.env.MS_CLIENT_SECRET || '';
+
+      if (!config) {
+        return {
+          isEnabled: false,
+          tenantId: envTenant,
+          clientId: envClientId,
+          clientSecret: envSecret ? '••••' : '',
+          mailboxes: [],
+          fromAddress: '',
+          fromName: '',
+          envFallback: { tenantId: !!envTenant, clientId: !!envClientId, clientSecret: !!envSecret },
+        };
+      }
+
+      const creds = readCredentials(config.credentials) as Record<string, unknown>;
+      const mailboxes = Array.isArray(creds.mailboxes) ? (creds.mailboxes as string[]) : [];
+      const hasSecret = !!(creds.clientSecret || envSecret);
+      return {
+        isEnabled: config.isEnabled,
+        tenantId: (creds.tenantId as string) || envTenant,
+        clientId: (creds.clientId as string) || envClientId,
+        clientSecret: hasSecret ? '••••' : '',
+        mailboxes,
+        fromAddress: (creds.fromAddress as string) || '',
+        fromName: (creds.fromName as string) || '',
+        envFallback: { tenantId: !!envTenant, clientId: !!envClientId, clientSecret: !!envSecret },
+      };
+    },
+  );
+
+  fastify.put(
+    '/api/v1/settings/microsoft-email',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { readCredentials, writeCredentials } = await import('../../common/credentials.js');
+      const body = request.body as {
+        isEnabled: boolean;
+        tenantId?: string;
+        clientId?: string;
+        clientSecret?: string;
+        mailboxes?: string[] | string;
+        fromAddress?: string;
+        fromName?: string;
+      };
+
+      const [existing] = await fastify.db.select().from(integrationConfigs)
+        .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'microsoft-email')))
+        .limit(1);
+
+      const prevCreds = readCredentials(existing?.credentials) as Record<string, unknown>;
+
+      // Normalize mailboxes (accept newline-delimited string or array)
+      const rawMailboxes = Array.isArray(body.mailboxes)
+        ? body.mailboxes
+        : String(body.mailboxes ?? '').split(/[\n,]+/);
+      const mailboxes = rawMailboxes.map(m => m.trim().toLowerCase()).filter(Boolean);
+
+      // Preserve the masked secret — never overwrite with dots
+      const clientSecret = (body.clientSecret && body.clientSecret.startsWith('••'))
+        ? (prevCreds.clientSecret as string) || ''
+        : (body.clientSecret ?? (prevCreds.clientSecret as string) ?? '');
+
+      const fromAddress = (body.fromAddress || mailboxes[0] || '').trim().toLowerCase();
+
+      const credentials = writeCredentials({
+        tenantId: (body.tenantId ?? (prevCreds.tenantId as string) ?? '').trim(),
+        clientId: (body.clientId ?? (prevCreds.clientId as string) ?? '').trim(),
+        clientSecret,
+        mailboxes,
+        fromAddress,
+        fromName: body.fromName ?? (prevCreds.fromName as string) ?? '',
+      });
+
+      if (existing) {
+        await fastify.db.update(integrationConfigs).set({
+          isEnabled: body.isEnabled, credentials, updatedAt: new Date(),
+        }).where(eq(integrationConfigs.id, existing.id));
+      } else {
+        await fastify.db.insert(integrationConfigs).values({
+          tenantId: request.tenantId, provider: 'microsoft-email',
+          isEnabled: body.isEnabled, credentials,
+        });
+      }
+
+      // When the user enables Microsoft email, take over the general `email`
+      // selector row so all outbound/inbound flow routes to Graph. Never clobber
+      // a Google setup on disable — only take it over on explicit enable.
+      if (body.isEnabled) {
+        const [emailConfig] = await fastify.db.select().from(integrationConfigs)
+          .where(and(eq(integrationConfigs.tenantId, request.tenantId), eq(integrationConfigs.provider, 'email')))
+          .limit(1);
+
+        const prevEmailCreds = readCredentials(emailConfig?.credentials) as Record<string, unknown>;
+        const emailCreds = writeCredentials({
+          ...prevEmailCreds,
+          provider: 'microsoft-email',
+          fromAddress,
+          fromName: body.fromName ?? (prevCreds.fromName as string) ?? '',
+        });
+
+        if (emailConfig) {
+          await fastify.db.update(integrationConfigs).set({
+            isEnabled: true, credentials: emailCreds, updatedAt: new Date(),
+          }).where(eq(integrationConfigs.id, emailConfig.id));
+        } else {
+          await fastify.db.insert(integrationConfigs).values({
+            tenantId: request.tenantId, provider: 'email',
+            isEnabled: true, credentials: emailCreds,
+          });
+        }
+      }
+
+      return { success: true };
+    },
+  );
+
+  fastify.post(
+    '/api/v1/settings/microsoft-email/test',
+    { preHandler: [fastify.authenticate, requirePermission('*')] },
+    async (request) => {
+      const { getMicrosoftEmailAppConfig } = await import('../../services/email.js');
+      const { email } = request.body as { email?: string };
+      const targetEmail = email ?? (request.user as any).email ?? 'test@test.com';
+
+      const msConfig = await getMicrosoftEmailAppConfig(fastify.db, request.tenantId);
+      if (!msConfig) {
+        throw new ValidationError('Microsoft email is not configured — save credentials (tenant ID, client ID, secret, and at least one mailbox) and enable it first.');
+      }
+
+      const { sendGraphMail } = await import('../../services/microsoft-graph-mail.js');
+      const sent = await sendGraphMail(
+        { tenantId: msConfig.tenantId, clientId: msConfig.clientId, clientSecret: msConfig.clientSecret },
+        msConfig.fromMailbox,
+        {
+          to: targetEmail,
+          subject: 'Rivertown PSA - Microsoft 365 Email Test',
+          html: '<h2>Microsoft 365 Email Test</h2><p>Your Microsoft Graph (app-only) email configuration is working correctly.</p>',
+        },
+      );
+
+      if (!sent) throw new ValidationError('Microsoft email sending failed. Check your tenant/client credentials, mailbox address, and that Mail.Send application permission is admin-consented in Azure.');
+      return { success: true, message: `Test email sent to ${targetEmail} from ${msConfig.fromMailbox}` };
+    },
+  );
+
   // ===== AI ASSISTANT =====
 
   fastify.get(

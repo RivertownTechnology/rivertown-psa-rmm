@@ -10,9 +10,11 @@ import { tenantContextPlugin } from './common/tenant-context.js';
 import { authRoutes } from './auth/routes.js';
 import { mfaRoutes } from './auth/mfa.js';
 import { googleAuthRoutes } from './auth/google.js';
+import { microsoftAuthRoutes } from './auth/microsoft.js';
 import { wsRoutes } from './ws/route.js';
 import { googleEmailRoutes } from './modules/integrations/google-email.js';
 import { googleCalendarRoutes } from './modules/integrations/google-calendar.js';
+import { microsoftCalendarRoutes } from './modules/integrations/microsoft-calendar.js';
 import { stripeRoutes } from './modules/integrations/stripe.js';
 import { pax8Routes } from './modules/integrations/pax8.js';
 import { quickbooksRoutes } from './modules/integrations/quickbooks.js';
@@ -179,6 +181,8 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
     // Skip public paths
     if (request.url === '/health') return;
     if (request.url.startsWith('/api/v1/auth/google')) return;
+    if (request.url.startsWith('/api/v1/auth/microsoft')) return;
+    if (request.url.startsWith('/api/v1/auth/exchange')) return;
     if (request.url.startsWith('/api/public/')) return;
     if (request.url.startsWith('/api/ncentral/')) return; // N-central PSA integration (Basic Auth)
     if (request.url.startsWith('/api/v1/csat/')) return; // CSAT rating pages are public (customer clicks from email)
@@ -269,8 +273,10 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   await fastify.register(authRoutes);
   await fastify.register(mfaRoutes);
   await fastify.register(googleAuthRoutes);
+  await fastify.register(microsoftAuthRoutes);
   await fastify.register(googleEmailRoutes);
   await fastify.register(googleCalendarRoutes);
+  await fastify.register(microsoftCalendarRoutes);
   await fastify.register(stripeRoutes);
   await fastify.register(pax8Routes);
   await fastify.register(quickbooksRoutes);

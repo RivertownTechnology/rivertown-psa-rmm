@@ -11,6 +11,25 @@ interface PortalMe {
   portalRole: string; portalPermissions: string[];
 }
 
+/** Map an SSO error code (from the callback redirect) to a friendly message. */
+function ssoErrorMessage(code: string | null): string {
+  switch (code) {
+    case 'no_portal_access':
+      return "That Microsoft account doesn't have portal access. Contact your account manager at Rivertown Technology.";
+    case 'microsoft_denied':
+      return 'Microsoft sign-in was cancelled.';
+    case 'invalid_state':
+    case 'expired_state':
+      return 'Your sign-in session expired. Please try again.';
+    case 'token_failed':
+    case 'server_error':
+    case 'sso_failed':
+      return 'Microsoft sign-in failed. Please try again.';
+    default:
+      return code ? 'Sign-in failed. Please try again.' : '';
+  }
+}
+
 export function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => !!getAccessToken());
   const [userName, setUserName] = useState<string>('');
@@ -25,6 +44,46 @@ export function App() {
 
   // Forced MFA setup
   const [mustSetupMfa, setMustSetupMfa] = useState(false);
+
+  // Microsoft SSO: we land back on /auth/callback?code=... after Entra consent.
+  const [ssoProcessing, setSsoProcessing] = useState(() => window.location.pathname === '/auth/callback');
+  // Error surfaced from an SSO redirect (/login?error=...), shown on LoginPage.
+  const [ssoError, setSsoError] = useState<string>(() =>
+    window.location.pathname === '/auth/callback' ? '' : ssoErrorMessage(new URLSearchParams(window.location.search).get('error')),
+  );
+
+  // Handle the Microsoft SSO exchange-code handshake on /auth/callback.
+  useEffect(() => {
+    if (window.location.pathname !== '/auth/callback') return;
+    const code = new URLSearchParams(window.location.search).get('code');
+    if (!code) {
+      window.history.replaceState({}, '', '/');
+      setSsoProcessing(false);
+      return;
+    }
+    (async () => {
+      try {
+        const res = await fetch('/api/v1/portal/auth/microsoft/exchange', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+        if (!res.ok) throw new Error('exchange failed');
+        const data = await res.json();
+        setTokens(data.accessToken, data.refreshToken);
+        setUserName(data.user?.name ?? data.user?.email ?? '');
+        setPortalRole(data.portalRole ?? 'user');
+        setPortalPermissions(data.portalPermissions ?? ['tickets']);
+        window.history.replaceState({}, '', '/');
+        setIsAuthenticated(true);
+      } catch {
+        window.history.replaceState({}, '', '/login');
+        setSsoError(ssoErrorMessage('sso_failed'));
+      } finally {
+        setSsoProcessing(false);
+      }
+    })();
+  }, []);
 
   // Restore user state on mount/refresh if we have a valid token
   useEffect(() => {
@@ -119,11 +178,19 @@ export function App() {
     setMustSetupMfa(false);
   }, []);
 
+  if (ssoProcessing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-muted-foreground">Signing you in...</div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     if (mfaChallenge) {
       return <MfaChallenge phoneHint={mfaChallenge.phoneHint} onVerify={handleMfaVerified} onCancel={() => setMfaChallenge(null)} onResend={handleMfaResend} />;
     }
-    return <LoginPage onLogin={handleLogin} />;
+    return <LoginPage onLogin={handleLogin} initialError={ssoError} />;
   }
 
   if (loadingUser) {

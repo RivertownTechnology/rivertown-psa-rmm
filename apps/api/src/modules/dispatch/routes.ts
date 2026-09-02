@@ -103,10 +103,16 @@ export async function dispatchRoutes(fastify: FastifyInstance) {
       updatedAt: new Date(),
     }).where(eq(tickets.id, ticketId));
 
-    // Try to sync to Google Calendar
+    // Try to sync to Google Calendar (best-effort, independent of Microsoft)
     try {
       const { syncEventToGoogleCalendar } = await import('./calendar-sync.js');
       await syncEventToGoogleCalendar(fastify.db, request.tenantId, userId, event);
+    } catch { /* calendar sync is best-effort */ }
+
+    // Try to sync to Microsoft 365 Calendar (best-effort, independent of Google)
+    try {
+      const { syncEventToMicrosoftCalendar } = await import('./calendar-sync.js');
+      await syncEventToMicrosoftCalendar(fastify.db, request.tenantId, userId, event);
     } catch { /* calendar sync is best-effort */ }
 
     reply.code(201);

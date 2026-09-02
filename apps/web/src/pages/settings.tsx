@@ -26,6 +26,7 @@ import { AuditLogTab } from './settings/audit-log-tab';
 import { BillingEmailCard } from './settings/billing-email-card';
 import { SalesEmailCard } from './settings/sales-email-card';
 import { MailjetCard } from './settings/mailjet-card';
+import { MicrosoftEmailCard } from './settings/microsoft-email-card';
 import { MsaTemplateCard } from './settings/msa-template-card';
 import { QuickBooksCard } from './settings/quickbooks-card';
 import { TwilioCard } from './settings/twilio-card';
@@ -153,6 +154,10 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
   const [calConnected, setCalConnected] = useState(false);
   const [calConnecting, setCalConnecting] = useState(false);
 
+  // Microsoft 365 Calendar (per-user)
+  const [msCalConnected, setMsCalConnected] = useState(false);
+  const [msCalConnecting, setMsCalConnecting] = useState(false);
+
   // Stripe
   const [stripeForm, setStripeForm] = useState({ secretKey: '', webhookSecret: '', publishableKey: '', isEnabled: false });
   const [stripeLoaded, setStripeLoaded] = useState(false);
@@ -256,8 +261,9 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
   useEffect(() => {
     api<{ timezone: string }>('/settings/timezone').then(d => setTimezone(d.timezone)).catch(() => {});
     api<{ connected: boolean }>('/integrations/google-calendar/status').then(d => setCalConnected(d.connected)).catch(() => {});
+    api<{ connected: boolean }>('/integrations/microsoft-calendar/status').then(d => setMsCalConnected(d.connected)).catch(() => {});
 
-    // Handle calendar OAuth callback
+    // Handle Google calendar OAuth callback
     if (window.location.pathname === '/settings/calendar/callback') {
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code');
@@ -269,6 +275,21 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
         }).then(() => {
           setCalConnected(true);
         }).catch(() => {}).finally(() => setCalConnecting(false));
+      }
+    }
+
+    // Handle Microsoft 365 calendar OAuth callback
+    if (window.location.pathname === '/settings/microsoft-calendar/callback') {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      if (code) {
+        setMsCalConnecting(true);
+        window.history.replaceState(null, '', '/settings');
+        api<{ success: boolean }>('/integrations/microsoft-calendar/callback', {
+          method: 'POST', body: JSON.stringify({ code }),
+        }).then(() => {
+          setMsCalConnected(true);
+        }).catch(() => {}).finally(() => setMsCalConnecting(false));
       }
     }
   }, []);
@@ -604,6 +625,9 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
               </CardContent>
             </Card>
 
+            {/* Microsoft 365 Email — app-only Graph */}
+            <MicrosoftEmailCard />
+
             {/* Email-to-Ticket */}
             <Card>
               <CardHeader>
@@ -886,6 +910,47 @@ export function SettingsPage({ initialTab, hideTabsList }: { initialTab?: string
                     } catch { setCalConnecting(false); }
                   }}>
                     Connect My Google Calendar
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Microsoft 365 Calendar Sync */}
+            <Card className={msCalConnected ? 'border-green-300 dark:border-green-800' : ''}>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <svg viewBox="0 0 24 24" className="h-5 w-5"><path fill="#F25022" d="M2 2h9.5v9.5H2z"/><path fill="#7FBA00" d="M12.5 2H22v9.5h-9.5z"/><path fill="#00A4EF" d="M2 12.5h9.5V22H2z"/><path fill="#FFB900" d="M12.5 12.5H22V22h-9.5z"/></svg>
+                  Microsoft 365 Calendar
+                </CardTitle>
+                <CardDescription>
+                  {msCalConnected
+                    ? 'Your dispatch schedule syncs to your Microsoft 365 (Outlook) Calendar'
+                    : 'Connect to sync scheduled tickets to your Microsoft 365 (Outlook) Calendar'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {msCalConnecting ? (
+                  <div className="flex items-center gap-3 py-2">
+                    <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    <span className="text-sm text-muted-foreground">Connecting...</span>
+                  </div>
+                ) : msCalConnected ? (
+                  <div className="flex items-center justify-between">
+                    <Badge variant="default" className="bg-green-600">Connected</Badge>
+                    <Button variant="ghost" size="sm" className="text-destructive" onClick={async () => {
+                      await api('/integrations/microsoft-calendar/disconnect', { method: 'POST', body: JSON.stringify({}) });
+                      setMsCalConnected(false);
+                    }}>Disconnect</Button>
+                  </div>
+                ) : (
+                  <Button onClick={async () => {
+                    setMsCalConnecting(true);
+                    try {
+                      const res = await api<{ authUrl: string }>('/integrations/microsoft-calendar/authorize');
+                      window.location.href = res.authUrl;
+                    } catch { setMsCalConnecting(false); }
+                  }}>
+                    Connect My Microsoft 365 Calendar
                   </Button>
                 )}
               </CardContent>

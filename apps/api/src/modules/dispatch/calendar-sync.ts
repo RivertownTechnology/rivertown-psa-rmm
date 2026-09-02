@@ -92,3 +92,105 @@ export async function deleteGoogleCalendarEvent(db: Database, tenantId: string, 
     headers: { Authorization: `Bearer ${token}` },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Microsoft 365 (Outlook) Calendar — per-user delegated Graph sync.
+// Mirrors the Google functions above; kept fully independent so a failure in
+// one provider never blocks the other.
+// ---------------------------------------------------------------------------
+
+const MS_GRAPH_API = 'https://graph.microsoft.com/v1.0';
+const MS_LOGIN_HOST = 'https://login.microsoftonline.com';
+const MS_CALENDAR_SCOPES = 'openid offline_access https://graph.microsoft.com/Calendars.ReadWrite';
+
+async function getFreshMicrosoftCalendarToken(db: Database, tenantId: string, userId: string): Promise<string | null> {
+  const [user] = await db.select({
+    msCalendarConnected: users.msCalendarConnected,
+    msCalendarToken: users.msCalendarToken,
+    msCalendarRefreshToken: users.msCalendarRefreshToken,
+  }).from(users).where(and(eq(users.id, userId), eq(users.tenantId, tenantId))).limit(1);
+
+  if (!user?.msCalendarConnected || !user.msCalendarToken) return null;
+
+  // Microsoft access tokens are short-lived; always attempt a refresh when we
+  // hold a refresh token so long-running syncs don't fail on an expired token.
+  if (user.msCalendarRefreshToken) {
+    const clientId = process.env.MS_CLIENT_ID || '';
+    const clientSecret = process.env.MS_CLIENT_SECRET || '';
+    const entraTenant = process.env.MS_TENANT_ID || '';
+    if (clientId && clientSecret && entraTenant) {
+      try {
+        const res = await fetch(`${MS_LOGIN_HOST}/${encodeURIComponent(entraTenant)}/oauth2/v2.0/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: clientId, client_secret: clientSecret,
+            refresh_token: user.msCalendarRefreshToken,
+            grant_type: 'refresh_token',
+            scope: MS_CALENDAR_SCOPES,
+          }),
+        });
+        if (res.ok) {
+          const tokens = await res.json() as { access_token: string; refresh_token?: string; expires_in: number };
+          await db.update(users).set({
+            msCalendarToken: tokens.access_token,
+            // Entra rotates refresh tokens — persist the new one when returned.
+            ...(tokens.refresh_token ? { msCalendarRefreshToken: tokens.refresh_token } : {}),
+            updatedAt: new Date(),
+          }).where(and(eq(users.id, userId), eq(users.tenantId, tenantId)));
+          return tokens.access_token;
+        }
+      } catch (err) {
+        console.error(`[CALENDAR] Microsoft token refresh failed for user ${userId}:`, err);
+      }
+    }
+  }
+
+  return user.msCalendarToken;
+}
+
+export async function syncEventToMicrosoftCalendar(
+  db: Database, tenantId: string, userId: string,
+  event: { id: string; title: string; description: string | null; startAt: Date; endAt: Date; msEventId: string | null },
+) {
+  const token = await getFreshMicrosoftCalendarToken(db, tenantId, userId);
+  if (!token) return;
+
+  const graphEvent = {
+    subject: event.title,
+    body: { contentType: 'HTML', content: event.description ?? '' },
+    start: { dateTime: event.startAt.toISOString(), timeZone: 'UTC' },
+    end: { dateTime: event.endAt.toISOString(), timeZone: 'UTC' },
+  };
+
+  if (event.msEventId) {
+    // Update existing event
+    await fetch(`${MS_GRAPH_API}/me/events/${event.msEventId}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(graphEvent),
+    });
+  } else {
+    // Create new event
+    const res = await fetch(`${MS_GRAPH_API}/me/events`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(graphEvent),
+    });
+    if (res.ok) {
+      const created = await res.json() as { id: string };
+      await db.update(calendarEvents).set({ msEventId: created.id, syncedAt: new Date() })
+        .where(eq(calendarEvents.id, event.id));
+    }
+  }
+}
+
+export async function deleteMicrosoftCalendarEvent(db: Database, tenantId: string, userId: string, msEventId: string) {
+  const token = await getFreshMicrosoftCalendarToken(db, tenantId, userId);
+  if (!token) return;
+
+  await fetch(`${MS_GRAPH_API}/me/events/${msEventId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}

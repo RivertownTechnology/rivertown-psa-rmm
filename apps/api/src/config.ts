@@ -22,6 +22,24 @@ const envSchema = z.object({
   // Google Email OAuth (uses same Google OAuth app as SSO)
   GOOGLE_EMAIL_REDIRECT_URI: z.string().optional(),
 
+  // Microsoft Entra ID SSO (staff "Sign in with Microsoft"). Single-tenant app.
+  MS_CLIENT_ID: z.string().optional(),
+  MS_CLIENT_SECRET: z.string().optional(),
+  MS_TENANT_ID: z.string().optional(),
+  MS_REDIRECT_URI: z.string().optional(),
+  // Per-user Microsoft 365 Calendar OAuth redirect (frontend callback path).
+  // Reuses the same Entra app as SSO; distinct redirect for calendar consent.
+  MS_CALENDAR_REDIRECT_URI: z.string().optional(),
+
+  // Customer-portal "Sign in with Microsoft" (App B) — a SEPARATE, MULTI-TENANT
+  // Entra app so customers sign in with their own Microsoft 365 tenants.
+  // Distinct credentials from App A (staff, above). Authority = /organizations.
+  MS_PORTAL_CLIENT_ID: z.string().optional(),
+  MS_PORTAL_CLIENT_SECRET: z.string().optional(),
+  MS_PORTAL_REDIRECT_URI: z.string().optional(),
+  // Customer portal SPA base URL — where the SSO exchange code is delivered.
+  PORTAL_URL: z.string().optional(),
+
   // Stripe
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),

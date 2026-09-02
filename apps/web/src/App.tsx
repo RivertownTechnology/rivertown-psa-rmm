@@ -85,7 +85,9 @@ function AppRouter() {
     );
   }
 
-  // Handle Google SSO callback — exchange code for tokens
+  // Handle SSO callback (Google / Microsoft) — exchange code for tokens.
+  // Uses the provider-neutral exchange endpoint; a one-time code from either
+  // provider redeems here.
   if (pathname === '/auth/callback') {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
@@ -93,7 +95,7 @@ function AppRouter() {
       const API_BASE = (import.meta as any).env?.VITE_API_URL
         ? `${(import.meta as any).env.VITE_API_URL}/api/v1`
         : '/api/v1';
-      fetch(`${API_BASE}/auth/google/exchange`, {
+      fetch(`${API_BASE}/auth/exchange`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code }),
@@ -207,6 +209,10 @@ function AppRouter() {
     content = <SettingsPage initialTab="email" />;
   } else if (pathname === '/settings/calendar/callback') {
     // Google Calendar OAuth callback
+    title = 'Settings'; currentNav = '/settings';
+    content = <SettingsPage initialTab="general" />;
+  } else if (pathname === '/settings/microsoft-calendar/callback') {
+    // Microsoft 365 Calendar OAuth callback
     title = 'Settings'; currentNav = '/settings';
     content = <SettingsPage initialTab="general" />;
   } else if (pathname === '/settings/security') {

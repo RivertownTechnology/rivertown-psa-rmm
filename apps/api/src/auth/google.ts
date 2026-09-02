@@ -15,20 +15,11 @@ import { randomBytes, randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { users } from '@rivertown/db';
 import { logAudit } from '../common/audit.js';
+import { oauthStates, exchangeCodes, cleanExpired, registerAuthExchangeRoutes } from './oauth-shared.js';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v2/userinfo';
-
-// In-memory stores with TTLs
-interface OAuthStateEntry {
-  expiresAt: number;
-  // Present when this state originated from the mobile-app flow — tells the
-  // callback where to deliver tokens instead of the web exchange-code flow.
-  mobile?: { redirectUri: string; clientState: string };
-}
-const oauthStates = new Map<string, OAuthStateEntry>();
-const exchangeCodes = new Map<string, { userId: string; tenantId: string; role: string; displayName: string; email: string; mfaEnabled: boolean; expiresAt: number }>();
 
 // Custom-scheme redirect URIs the mobile Google SSO flow is allowed to hand
 // tokens back to. Prevents an attacker from supplying an arbitrary
@@ -42,13 +33,6 @@ function getGoogleConfig() {
     redirectUri: process.env.GOOGLE_REDIRECT_URI || '',
     frontendUrl: process.env.FRONTEND_URL || 'https://psa.rivertowntechnology.com',
   };
-}
-
-function cleanExpired<T extends { expiresAt: number }>(map: Map<string, T>) {
-  const now = Date.now();
-  for (const [key, val] of map) {
-    if (val.expiresAt < now) map.delete(key);
-  }
 }
 
 export async function googleAuthRoutes(fastify: FastifyInstance) {
@@ -252,41 +236,8 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
     },
   );
 
-  // Step 3: Exchange code for JWT tokens (called by frontend)
-  fastify.post(
-    '/api/v1/auth/google/exchange',
-    { config: { public: true } as any },
-    async (request) => {
-      const { code } = request.body as { code?: string };
-      if (!code) throw new Error('Exchange code required');
-
-      const entry = exchangeCodes.get(code);
-      exchangeCodes.delete(code);
-
-      if (!entry || entry.expiresAt < Date.now()) {
-        throw new Error('Invalid or expired exchange code');
-      }
-
-      const accessToken = fastify.jwt.sign(
-        { jti: randomUUID(), sub: entry.userId, tid: entry.tenantId, role: entry.role, type: 'access' as const },
-        { expiresIn: fastify.config.JWT_EXPIRES_IN || '15m' },
-      );
-
-      const refreshToken = fastify.jwt.sign(
-        { jti: randomUUID(), sub: entry.userId, tid: entry.tenantId, role: entry.role, type: 'refresh' as const },
-        { expiresIn: fastify.config.REFRESH_TOKEN_EXPIRES_IN || '7d' },
-      );
-
-      return {
-        accessToken,
-        refreshToken,
-        user: {
-          displayName: entry.displayName,
-          email: entry.email,
-          role: entry.role,
-          mfaEnabled: entry.mfaEnabled,
-        },
-      };
-    },
-  );
+  // Step 3: Exchange code for JWT tokens (called by frontend).
+  // Registers the provider-neutral POST /api/v1/auth/exchange plus the legacy
+  // POST /api/v1/auth/google/exchange alias (shared handler, shared code map).
+  registerAuthExchangeRoutes(fastify);
 }
