@@ -39,6 +39,96 @@ async function verifyWebhookForTenant(
   return null;
 }
 
+/**
+ * Settle a paid Stripe Checkout Session against its invoice: record the payment,
+ * advance the invoice, send the receipt, sync to QBO.
+ *
+ * Idempotent on the payment intent, so it is safe to call from BOTH the webhook
+ * and the post-checkout redirect. Whichever arrives first does the work; the
+ * other is a no-op. That matters because the webhook may be unconfigured or
+ * delayed, and a customer who has actually paid must never see "Pay Now".
+ *
+ * Returns true when this call is the one that recorded the payment.
+ */
+export async function settleCheckoutSession(
+  db: any,
+  jwtSign: ((payload: any, opts: any) => string) | undefined,
+  session: Stripe.Checkout.Session,
+  expectedTenantId: string,
+): Promise<boolean> {
+  const { tenantId, invoiceId, invoiceNumber } = session.metadata || {};
+
+  if (!tenantId || !invoiceId) {
+    console.error('[STRIPE] Missing metadata on checkout session');
+    return false;
+  }
+
+  // The trusted tenant is the one that verified the webhook signature (or that
+  // owns the view token) — never let session metadata redirect the write.
+  if (tenantId !== expectedTenantId) {
+    console.error(`[STRIPE] metadata tenant ${tenantId} != expected tenant ${expectedTenantId} — rejecting`);
+    return false;
+  }
+
+  // Only settle sessions Stripe considers actually paid.
+  if (session.payment_status !== 'paid') {
+    console.log(`[STRIPE] Session ${session.id} payment_status=${session.payment_status} — not settling`);
+    return false;
+  }
+
+  const amountCents = session.amount_total || 0;
+
+  const [invoice] = await db.select().from(invoices)
+    .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId))).limit(1);
+  if (!invoice) return false;
+
+  // Idempotency: Stripe redelivers events on any timeout/retry, and the redirect
+  // path can race the webhook. Key on the payment intent (unique per real
+  // payment) so neither double-records or over-credits.
+  const intentId = (session.payment_intent as string) || session.id;
+  const [already] = await db.select({ id: payments.id }).from(payments)
+    .where(and(eq(payments.tenantId, tenantId), eq(payments.stripePaymentIntentId, intentId)))
+    .limit(1);
+  if (already) {
+    console.log(`[STRIPE] Payment ${intentId} already recorded — skipping`);
+    return false;
+  }
+
+  console.log(`[STRIPE] Payment received: Invoice #${invoiceNumber}, $${(amountCents / 100).toFixed(2)}`);
+
+  const [payment] = await db.insert(payments).values({
+    tenantId,
+    invoiceId,
+    amountCents,
+    paymentMethod: 'stripe',
+    stripePaymentIntentId: intentId,
+    paidAt: new Date(),
+  }).returning();
+
+  // Credits already applied count toward settling the invoice, same as the
+  // balance math on the public view page.
+  const newPaid = invoice.amountPaidCents + amountCents;
+  const settled = newPaid + (invoice.creditsAppliedCents ?? 0) >= invoice.totalCents;
+
+  await db.update(invoices).set({
+    amountPaidCents: newPaid,
+    status: settled ? 'paid' : invoice.status,
+    updatedAt: new Date(),
+  }).where(eq(invoices.id, invoiceId));
+
+  const { sendPaymentReceiptEmail } = await import('../../services/document-email.js');
+  sendPaymentReceiptEmail(db, tenantId, invoiceId, amountCents, jwtSign)
+    .then((sent: boolean) => console.log(`[STRIPE] Receipt email for invoice ${invoiceId}: ${sent ? 'sent' : 'NOT sent'}`))
+    .catch((e: unknown) => console.error('[STRIPE] Receipt email failed:', e));
+
+  import('../../services/qbo-sync.js').then(({ syncPaymentToQBO }) => {
+    syncPaymentToQBO(db, tenantId, payment.id)
+      .catch((e: any) => console.error('[QBO] Stripe payment sync failed:', e));
+  });
+
+  return true;
+}
+
 export async function stripeRoutes(fastify: FastifyInstance) {
   // Save Stripe settings
   fastify.get('/api/v1/settings/stripe', {
@@ -193,73 +283,7 @@ export async function stripeRoutes(fastify: FastifyInstance) {
 
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
-      const { tenantId, invoiceId, invoiceNumber } = session.metadata || {};
-
-      if (!tenantId || !invoiceId) {
-        console.error('[STRIPE] Missing metadata on checkout session');
-        reply.code(200).send({ received: true });
-        return;
-      }
-
-      // The event's tenant is the one whose webhook secret verified the
-      // signature — never let metadata point the write at a different tenant.
-      if (tenantId !== verified.tenantId) {
-        console.error(`[STRIPE] metadata tenant ${tenantId} != verified tenant ${verified.tenantId} — rejecting`);
-        reply.code(200).send({ received: true });
-        return;
-      }
-
-      const amountCents = session.amount_total || 0;
-
-      console.log(`[STRIPE] Payment received: Invoice #${invoiceNumber}, $${(amountCents / 100).toFixed(2)}`);
-
-      // Record payment
-      const [invoice] = await fastify.db.select().from(invoices)
-        .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId))).limit(1);
-
-      if (invoice) {
-        // Idempotency: Stripe redelivers events on any timeout/retry. Key on the
-        // payment intent (unique per real payment; distinct across partial
-        // payments) so a duplicate delivery doesn't double-record or over-credit.
-        const intentId = (session.payment_intent as string) || session.id;
-        const [already] = await fastify.db.select({ id: payments.id }).from(payments)
-          .where(and(eq(payments.tenantId, tenantId), eq(payments.stripePaymentIntentId, intentId)))
-          .limit(1);
-        if (already) {
-          console.log(`[STRIPE] Duplicate webhook for payment ${intentId} — skipping`);
-          reply.code(200).send({ received: true });
-          return;
-        }
-
-        const [payment] = await fastify.db.insert(payments).values({
-          tenantId,
-          invoiceId,
-          amountCents,
-          paymentMethod: 'stripe',
-          stripePaymentIntentId: intentId,
-          paidAt: new Date(),
-        }).returning();
-
-        const newPaid = invoice.amountPaidCents + amountCents;
-        const newStatus = newPaid >= invoice.totalCents ? 'paid' : invoice.status;
-
-        await fastify.db.update(invoices).set({
-          amountPaidCents: newPaid,
-          status: newStatus,
-          updatedAt: new Date(),
-        }).where(eq(invoices.id, invoiceId));
-
-        // Send payment receipt email
-        const { sendPaymentReceiptEmail } = await import('../../services/document-email.js');
-        sendPaymentReceiptEmail(fastify.db, tenantId, invoiceId, amountCents, fastify.jwt.sign.bind(fastify.jwt))
-          .catch(e => console.error('[STRIPE] Receipt email failed:', e));
-
-        // Sync payment to QuickBooks (fire and forget)
-        import('../../services/qbo-sync.js').then(({ syncPaymentToQBO }) => {
-          syncPaymentToQBO(fastify.db, tenantId, payment.id)
-            .catch((e: any) => console.error('[QBO] Stripe payment sync failed:', e));
-        });
-      }
+      await settleCheckoutSession(fastify.db, fastify.jwt.sign.bind(fastify.jwt), session, verified.tenantId);
     }
 
     // Identity verification results (MSA e-signing ID checks)

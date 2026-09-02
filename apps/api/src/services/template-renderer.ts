@@ -280,6 +280,7 @@ export function generateInvoiceHtml(data: {
   lineItems: Array<{ description: string; quantity: string; unitPrice: string; total: string }>;
   subtotal: string; tax: string; total: string; paid: string; balance: string;
   style: string; footer: string; paymentTerms: string;
+  isPaid?: boolean;
 }): string {
   const d = data;
   const isModern = d.style === 'modern';
@@ -289,11 +290,18 @@ export function generateInvoiceHtml(data: {
 
   const rows = d.lineItems.map(li => `
     <tr>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">${escapeHtml(li.description)}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;word-wrap:break-word;overflow-wrap:break-word">${escapeHtml(li.description)}</td>
       <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${escapeHtml(li.quantity)}</td>
       <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${escapeHtml(li.unitPrice)}</td>
       <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:600">${escapeHtml(li.total)}</td>
     </tr>`).join('');
+
+  const paidStamp = d.isPaid ? `
+  <div style="position:absolute;top:96px;left:0;right:0;text-align:center;pointer-events:none;z-index:5">
+    <div style="display:inline-block;border:6px solid #16a34a;color:#16a34a;border-radius:14px;padding:8px 32px;font-size:48px;font-weight:800;letter-spacing:8px;line-height:1.1;opacity:0.3;transform:rotate(-8deg)">
+      &#10003; PAID
+    </div>
+  </div>` : '';
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Invoice #${d.invoiceNumber}</title>
@@ -301,10 +309,10 @@ export function generateInvoiceHtml(data: {
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:system-ui,-apple-system,sans-serif; color:#374151; font-size:14px; }
   @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
-  .page { max-width:800px; margin:0 auto; padding:40px; }
+  .page { max-width:800px; margin:0 auto; padding:40px; position:relative; }
   table { width:100%; border-collapse:collapse; }
 </style></head>
-<body><div class="page">
+<body><div class="page">${paidStamp}
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px;padding:24px;background:#ffffff;border:1px solid #e5e7eb;border-top:4px solid ${primaryColor};border-radius:8px">
     <div>
       ${d.businessLogo ? `<img src="${d.businessLogo}" style="max-height:60px;margin-bottom:8px"><br>` : ''}
@@ -328,11 +336,12 @@ export function generateInvoiceHtml(data: {
     <div style="text-align:right">
       <div style="margin-bottom:8px"><span style="color:#9ca3af">Issue Date:</span> <strong>${d.issueDate}</strong></div>
       <div style="margin-bottom:8px"><span style="color:#9ca3af">Due Date:</span> <strong>${d.dueDate}</strong></div>
-      <div style="font-size:20px;font-weight:700;color:${primaryColor}">$${d.balance} due</div>
+      <div style="font-size:20px;font-weight:700;color:${d.isPaid ? '#16a34a' : primaryColor}">${d.isPaid ? '&#10003; Paid in Full' : `$${d.balance} due`}</div>
     </div>
   </div>
 
-  <table style="margin-bottom:24px">
+  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;table-layout:fixed">
+    <colgroup><col><col style="width:70px"><col style="width:110px"><col style="width:120px"></colgroup>
     <thead><tr style="background:#f9fafb">
       <th style="padding:10px 12px;text-align:left;border-bottom:2px solid ${primaryColor};font-size:12px;text-transform:uppercase;letter-spacing:0.5px">Description</th>
       <th style="padding:10px 12px;text-align:right;border-bottom:2px solid ${primaryColor};font-size:12px;text-transform:uppercase;letter-spacing:0.5px">Qty</th>
@@ -343,12 +352,12 @@ export function generateInvoiceHtml(data: {
   </table>
 
   <div style="display:flex;justify-content:flex-end;margin-bottom:32px">
-    <div style="width:250px">
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e5e7eb"><span style="color:#6b7280">Subtotal</span><span>$${d.subtotal}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e5e7eb"><span style="color:#6b7280">Tax</span><span>$${d.tax}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:2px solid ${primaryColor};font-size:16px;font-weight:700"><span>Total</span><span>$${d.total}</span></div>
-      ${parseFloat(d.paid) > 0 ? `<div style="display:flex;justify-content:space-between;padding:8px 0"><span style="color:#6b7280">Paid</span><span style="color:#16a34a">-$${d.paid}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:700;font-size:18px;color:${primaryColor}"><span>Balance Due</span><span>$${d.balance}</span></div>` : ''}
+    <div style="width:300px">
+      <div style="display:flex;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #e5e7eb"><span style="color:#6b7280">Subtotal</span><span>$${d.subtotal}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #e5e7eb"><span style="color:#6b7280">Tax</span><span>$${d.tax}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:8px 12px;border-bottom:2px solid ${primaryColor};font-size:16px;font-weight:700"><span>Total</span><span>$${d.total}</span></div>
+      ${parseFloat(d.paid) > 0 ? `<div style="display:flex;justify-content:space-between;padding:8px 12px"><span style="color:#6b7280">Paid</span><span style="color:#16a34a">-$${d.paid}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:8px 12px;font-weight:700;font-size:18px;color:${primaryColor}"><span>Balance Due</span><span>$${d.balance}</span></div>` : ''}
     </div>
   </div>
 
@@ -388,8 +397,8 @@ export function generateInvoiceViewPage(data: {
     </a>` : '';
 
   const paidBadge = d.isPaid ? `
-    <span style="display:inline-block;background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;padding:8px 20px;border-radius:6px;font-weight:600;font-size:15px">
-      Paid in Full
+    <span aria-disabled="true" style="display:inline-block;background:#16a34a;color:#ffffff;padding:12px 32px;border-radius:6px;font-weight:600;font-size:15px;cursor:default;user-select:none">
+      &#10003; Paid
     </span>` : '';
 
   return `<!DOCTYPE html>
@@ -403,7 +412,8 @@ export function generateInvoiceViewPage(data: {
   .print-btn { display:inline-block; background:#ffffff; color:#374151; border:1px solid #d1d5db; padding:12px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:15px; cursor:pointer; }
   .print-btn:hover { background:#f9fafb; }
   .invoice-container { max-width:880px; margin:24px auto; background:#ffffff; box-shadow:0 1px 3px rgba(0,0,0,0.1); border-radius:8px; overflow:hidden; }
-  .invoice-container .page { padding:40px; }
+  .invoice-container .page { padding:40px; position:relative; }
+  .invoice-container table { width:100%; border-collapse:collapse; }
   .footer-note { text-align:center; padding:24px; color:#9ca3af; font-size:13px; }
   @media print {
     .action-bar, .footer-note { display:none !important; }

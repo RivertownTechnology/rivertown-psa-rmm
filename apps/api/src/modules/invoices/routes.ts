@@ -652,6 +652,8 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       style: s.invoiceStyle || 'modern',
       footer: s.invoiceFooter || '',
       paymentTerms: s.invoicePaymentTerms || '',
+      isPaid: invoice.status === 'paid'
+        || (invoice.totalCents - invoice.amountPaidCents - (invoice.creditsAppliedCents ?? 0)) <= 0,
     });
 
     reply.type('text/html').send(html);
@@ -679,6 +681,29 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     }
 
     const tenantId = payload.tid;
+
+    // Returning from Stripe Checkout: settle the payment right here rather than
+    // waiting on the webhook. The webhook may be unconfigured, or simply slower
+    // than the redirect — either way a customer who just paid must not be shown
+    // "Pay Now" and must get their receipt. settleCheckoutSession() is
+    // idempotent on the payment intent, so whichever path lands first wins and
+    // the other is a no-op.
+    const q = request.query as Record<string, string>;
+    if (q.payment === 'success' && q.session_id) {
+      try {
+        const { getStripeFromDb, settleCheckoutSession } = await import('../integrations/stripe.js');
+        const stripeData = await getStripeFromDb(fastify.db, tenantId);
+        if (stripeData) {
+          const session = await stripeData.stripe.checkout.sessions.retrieve(q.session_id);
+          await settleCheckoutSession(fastify.db, fastify.jwt.sign.bind(fastify.jwt), session, tenantId);
+        }
+      } catch (err) {
+        // Never block rendering the invoice on a reconcile failure — the webhook
+        // is still a second chance, and the page must load regardless.
+        request.log.error({ err, sessionId: q.session_id, invoiceId: id }, '[INVOICE VIEW] Stripe reconcile failed');
+      }
+    }
+
     const [invoice] = await fastify.db.select().from(invoices)
       .where(and(eq(invoices.id, id), eq(invoices.tenantId, tenantId))).limit(1);
     if (!invoice) throw new NotFoundError('Invoice', id);
@@ -720,6 +745,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       paid: ((invoice.amountPaidCents + (invoice.creditsAppliedCents ?? 0)) / 100).toFixed(2),
       balance: (balanceCents / 100).toFixed(2),
       style: s.invoiceStyle || 'modern', footer: s.invoiceFooter || '', paymentTerms: s.invoicePaymentTerms || '',
+      isPaid,
     });
 
     // Strip the wrapping <html>/<body> from the inner invoice — we'll wrap it in the view page
@@ -732,7 +758,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     const jwtPayload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
     const expiresAt = new Date(jwtPayload.exp * 1000).toLocaleDateString('en-US', { timeZone: tenant?.timezone || DEFAULT_TIMEZONE, year: 'numeric', month: 'long', day: 'numeric' });
 
-    const paymentResult = (request.query as Record<string, string>).payment as 'success' | 'cancelled' | undefined;
+    const paymentResult = q.payment as 'success' | 'cancelled' | undefined;
 
     const page = generateInvoiceViewPage({
       invoiceHtml: innerHtml,
@@ -828,7 +854,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       customer_email: !stripeCustomerId ? (customer?.billingEmail || undefined) : undefined,
       line_items: stripeLineItems,
       metadata: { tenantId, invoiceId: invoice.id, invoiceNumber: String(invoice.invoiceNumber) },
-      success_url: `${viewUrl}&payment=success`,
+      success_url: `${viewUrl}&payment=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${viewUrl}&payment=cancelled`,
     });
 
@@ -913,7 +939,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       customer_email: !stripeCustomerId ? (customer?.billingEmail || undefined) : undefined,
       line_items: stripeLineItems,
       metadata: { tenantId, invoiceId: invoice.id, invoiceNumber: String(invoice.invoiceNumber) },
-      success_url: `${viewUrl}&payment=success`,
+      success_url: `${viewUrl}&payment=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${viewUrl}&payment=cancelled`,
     });
 
