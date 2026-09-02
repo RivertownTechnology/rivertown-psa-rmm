@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   ArrowLeft, Plus, DollarSign, Calendar, FileText, Send,
-  CheckCircle, XCircle, RefreshCw, Package, Trash2, AlertTriangle,
+  CheckCircle, XCircle, RefreshCw, Package, Trash2, AlertTriangle, Search,
 } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { Combobox } from '@/components/ui/combobox';
@@ -164,6 +164,7 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
   const [showCatalog, setShowCatalog] = useState(false);
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [catalogQty, setCatalogQty] = useState('1');
+  const [catalogSearch, setCatalogSearch] = useState('');
 
   // Convert dialog
   const [showConvert, setShowConvert] = useState(false);
@@ -350,9 +351,20 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
     return { label: `Cost ${formatCents(cost)} · ${margin}% margin`, under: price < cost };
   }
 
+  // Catalog picker filter. Matches the three things visible on each row —
+  // name, category label, and item type — so what you type maps to what you see.
+  const catalogQuery = catalogSearch.trim().toLowerCase();
+  const filteredCatalogItems = catalogQuery
+    ? catalogItems.filter(item =>
+        item.name.toLowerCase().includes(catalogQuery)
+        || (categoryLabels[item.category] ?? item.category).toLowerCase().includes(catalogQuery)
+        || item.itemType.replace(/_/g, ' ').toLowerCase().includes(catalogQuery))
+    : catalogItems;
+
   async function openCatalog() {
     const items = await api<CatalogItem[]>('/service-catalog');
     setCatalogItems(items);
+    setCatalogSearch('');
     setShowCatalog(true);
   }
 
@@ -1003,18 +1015,38 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
       <Dialog open={showCatalog} onOpenChange={setShowCatalog}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Add from Service Catalog</DialogTitle></DialogHeader>
-          <div className="space-y-2 mb-4">
-            <Label>Quantity</Label>
-            <Input type="number" min="1" value={catalogQty} onChange={e => setCatalogQty(e.target.value)} className="w-24" />
+          <div className="flex items-end gap-3 mb-4">
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="catalog-search">Search</Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  id="catalog-search"
+                  autoFocus
+                  value={catalogSearch}
+                  onChange={e => setCatalogSearch(e.target.value)}
+                  placeholder="Search by name, category, or type..."
+                  className="pl-8"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="catalog-qty">Quantity</Label>
+              <Input id="catalog-qty" type="number" min="1" value={catalogQty} onChange={e => setCatalogQty(e.target.value)} className="w-24" />
+            </div>
           </div>
           {catalogItems.length === 0 ? (
             <div className="text-center text-muted-foreground py-8">
               No catalog items yet. Add items in Settings to use them here.
             </div>
+          ) : filteredCatalogItems.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">
+              No catalog items match "{catalogSearch}".
+            </div>
           ) : (
             <div className="space-y-2">
               {Object.entries(
-                catalogItems.reduce<Record<string, CatalogItem[]>>((acc, item) => {
+                filteredCatalogItems.reduce<Record<string, CatalogItem[]>>((acc, item) => {
                   (acc[item.category] ??= []).push(item);
                   return acc;
                 }, {}),
