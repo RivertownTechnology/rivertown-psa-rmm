@@ -12,9 +12,7 @@ import {
   tenantSequences,
   accountCredits,
 } from '@rivertown/db';
-import Stripe from 'stripe';
 import { createInvoiceSchema, paginationSchema } from '@rivertown/shared';
-import { integrationConfigs } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError, ValidationError } from '../../common/errors.js';
 import { paginationToOffset, paginate } from '../../common/pagination.js';
@@ -781,18 +779,19 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       return;
     }
 
-    // Get Stripe config
-    const [stripeConfig] = await fastify.db.select().from(integrationConfigs)
-      .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'stripe'), eq(integrationConfigs.isEnabled, true)))
-      .limit(1);
-    const stripeCreds = (stripeConfig?.credentials ?? {}) as Record<string, string>;
+    // Same Stripe credentials the e-signature (Identity) flow uses. Must go
+    // through getStripeFromDb() — credentials are encrypted at rest whenever
+    // ENCRYPTION_KEY is set, so reading the raw column yields no secretKey.
+    const { getStripeFromDb } = await import('../integrations/stripe.js');
+    const stripeData = await getStripeFromDb(fastify.db, tenantId);
 
-    if (!stripeCreds.secretKey) {
+    if (!stripeData) {
+      request.log.error({ tenantId, invoiceId: id }, '[INVOICE PAY] Stripe not configured for tenant');
       reply.type('text/html').send('<html><body style="font-family:system-ui;text-align:center;padding:80px"><h1>Online Payment Unavailable</h1><p>Please contact us for payment options.</p></body></html>');
       return;
     }
 
-    const stripe = new Stripe(stripeCreds.secretKey);
+    const { stripe } = stripeData;
 
     // Get or create Stripe customer
     const [customer] = await fastify.db.select().from(customers)
@@ -869,17 +868,17 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       return;
     }
 
-    const [stripeConfig] = await fastify.db.select().from(integrationConfigs)
-      .where(and(eq(integrationConfigs.tenantId, tenantId), eq(integrationConfigs.provider, 'stripe'), eq(integrationConfigs.isEnabled, true)))
-      .limit(1);
-    const stripeCreds = (stripeConfig?.credentials ?? {}) as Record<string, string>;
+    // Shared Stripe config (decrypted) — same path as the e-signature flow.
+    const { getStripeFromDb } = await import('../integrations/stripe.js');
+    const stripeData = await getStripeFromDb(fastify.db, tenantId);
 
-    if (!stripeCreds.secretKey) {
+    if (!stripeData) {
+      request.log.error({ tenantId, invoiceId: id }, '[INVOICE PAY] Stripe not configured for tenant');
       reply.type('text/html').send('<html><body style="font-family:system-ui;text-align:center;padding:80px"><h1>Online Payment Unavailable</h1><p>Please contact us for payment options.</p></body></html>');
       return;
     }
 
-    const stripe = new Stripe(stripeCreds.secretKey);
+    const { stripe } = stripeData;
     const [customer] = await fastify.db.select().from(customers)
       .where(and(eq(customers.id, invoice.customerId), eq(customers.tenantId, tenantId))).limit(1);
 

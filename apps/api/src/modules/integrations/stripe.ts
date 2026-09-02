@@ -4,7 +4,7 @@ import Stripe from 'stripe';
 import { eq, and } from 'drizzle-orm';
 import { invoices, payments, customers, integrationConfigs } from '@rivertown/db';
 import { requirePermission } from '../../auth/rbac.js';
-import { NotFoundError } from '../../common/errors.js';
+import { NotFoundError, ValidationError } from '../../common/errors.js';
 import { readCredentials, writeCredentials } from '../../common/credentials.js';
 
 export async function getStripeFromDb(db: any, tenantId: string): Promise<{ stripe: Stripe; webhookSecret: string } | null> {
@@ -65,9 +65,21 @@ export async function stripeRoutes(fastify: FastifyInstance) {
       .limit(1);
 
     const prevCreds = readCredentials(existing?.credentials) as Record<string, string>;
+
+    // The GET returns keys masked as '••••••••1234'; an unchanged masked value
+    // means "keep what's stored". Anything else is a real edit and must look
+    // like a key — restricted keys (rk_) are valid here too, not just sk_.
+    const isMasked = (v?: string) => !v || v.startsWith('••');
+    if (!isMasked(body.secretKey) && !/^(sk|rk)_/.test(body.secretKey!)) {
+      throw new ValidationError('Stripe secret key must start with sk_ or rk_ (restricted key)');
+    }
+    if (!isMasked(body.webhookSecret) && !body.webhookSecret!.startsWith('whsec_')) {
+      throw new ValidationError('Stripe webhook signing secret must start with whsec_');
+    }
+
     const credentials = writeCredentials({
-      secretKey: body.secretKey?.startsWith('sk_') ? body.secretKey : prevCreds.secretKey || '',
-      webhookSecret: body.webhookSecret?.startsWith('whsec_') ? body.webhookSecret : prevCreds.webhookSecret || '',
+      secretKey: isMasked(body.secretKey) ? prevCreds.secretKey || '' : body.secretKey!.trim(),
+      webhookSecret: isMasked(body.webhookSecret) ? prevCreds.webhookSecret || '' : body.webhookSecret!.trim(),
       publishableKey: body.publishableKey || prevCreds.publishableKey || '',
     });
 
