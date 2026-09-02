@@ -10,6 +10,7 @@ import {
 import type { Database } from '@rivertown/db';
 import { sendEmail, sendDocumentEmail, getMailjetChannelSender } from './email.js';
 import { renderTemplate, generateInvoiceHtml, generateQuoteHtml, getDefaultTemplates } from './template-renderer.js';
+import { quoteLineDiscount } from '../modules/quotes/discount.js';
 import type { QuoteSignatureBlock } from './template-renderer.js';
 import { htmlToPdf } from './pdf-generator.js';
 
@@ -207,6 +208,7 @@ export async function buildQuoteDocumentHtml(
       description: li.description, itemType: li.itemType, quantity: li.quantity ?? '1',
       unitPrice: (li.unitPriceCents / 100).toFixed(2),
       total: ((li.unitPriceCents * parseFloat(li.quantity ?? '1')) / 100).toFixed(2),
+      ...quoteLineDiscount(li),
     })),
     subtotal: (quote.subtotalCents / 100).toFixed(2), tax: (quote.taxCents / 100).toFixed(2),
     total: (quote.totalCents / 100).toFixed(2),

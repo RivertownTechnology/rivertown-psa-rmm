@@ -501,7 +501,7 @@ export function generateQuoteHtml(data: {
   customerName: string; customerAddress?: string; customerCity?: string; customerState?: string;
   customerZip?: string; customerEmail?: string; customerPhone?: string;
   quoteNumber: number; title: string; validUntil: string; summary: string; issuedDate?: string;
-  lineItems: Array<{ description: string; itemType?: string; quantity: string; unitPrice: string; total: string }>;
+  lineItems: Array<{ description: string; itemType?: string; quantity: string; unitPrice: string; total: string; listPrice?: string; lineSavings?: string }>;
   subtotal: string; tax: string; total: string;
   style: string; footer: string;
   salesEmail?: string;
@@ -522,17 +522,30 @@ export function generateQuoteHtml(data: {
   const stackedLogo = brandingAsset('Large_transparent_background_1.png');
   const shieldLogo = brandingAsset('Small_icon_transparent_background.png');
 
-  const rows = d.lineItems.map(li => `
+  // Savings are only shown when at least one line is discounted, so an
+  // undiscounted quote keeps its original four-column layout untouched.
+  const totalSavings = d.lineItems.reduce((sum, li) => sum + (parseFloat(li.lineSavings || '0') || 0), 0);
+  const showSavings = totalSavings > 0;
+
+  const rows = d.lineItems.map(li => {
+    const discounted = Boolean(li.listPrice) && parseFloat(li.lineSavings || '0') > 0;
+    return `
     <tr>
       <td style="padding:10px 10px 10px 0;border-bottom:1px solid ${BS.neutral500}40;vertical-align:top">
         <strong style="font-weight:600">${escapeHtml(li.description)}</strong>
         ${li.itemType ? `<br><span style="font-size:11.5px;color:${BS.neutral500};text-transform:capitalize">${escapeHtml(li.itemType.replace(/_/g, ' '))}</span>` : ''}
       </td>
       <td style="padding:10px;border-bottom:1px solid ${BS.neutral500}40;text-align:center;white-space:nowrap;vertical-align:top">${escapeHtml(li.quantity)}</td>
-      <td style="padding:10px;border-bottom:1px solid ${BS.neutral500}40;text-align:right;white-space:nowrap;vertical-align:top">$${escapeHtml(li.unitPrice)}</td>
+      <td style="padding:10px;border-bottom:1px solid ${BS.neutral500}40;text-align:right;white-space:nowrap;vertical-align:top">
+        ${discounted ? `<span style="color:${BS.neutral500};text-decoration:line-through">$${escapeHtml(li.listPrice!)}</span><br>` : ''}$${escapeHtml(li.unitPrice)}
+      </td>
+      ${showSavings ? `<td style="padding:10px;border-bottom:1px solid ${BS.neutral500}40;text-align:right;white-space:nowrap;vertical-align:top;color:${BS.accent2_700}">${discounted ? `&minus;$${escapeHtml(li.lineSavings!)}` : '&mdash;'}</td>` : ''}
       <td style="padding:10px 0 10px 10px;border-bottom:1px solid ${BS.neutral500}40;text-align:right;white-space:nowrap;vertical-align:top">$${escapeHtml(li.total)}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
+  // Plain fixed-2, matching how subtotal/tax/total are formatted upstream.
+  const savingsFormatted = totalSavings.toFixed(2);
   const showTax = parseFloat(d.tax) > 0;
 
   return `<!DOCTYPE html>
@@ -589,6 +602,7 @@ ${BS_FONT_LINK}
           <th style="text-align:left;padding:0 10px 8px 0;border-bottom:1px solid ${BS.text};font-size:11.5px;letter-spacing:0.08em;text-transform:uppercase;font-weight:600">Service</th>
           <th style="text-align:center;padding:0 10px 8px;border-bottom:1px solid ${BS.text};font-size:11.5px;letter-spacing:0.08em;text-transform:uppercase;font-weight:600">Qty</th>
           <th style="text-align:right;padding:0 10px 8px;border-bottom:1px solid ${BS.text};font-size:11.5px;letter-spacing:0.08em;text-transform:uppercase;font-weight:600">Unit</th>
+          ${showSavings ? `<th style="text-align:right;padding:0 10px 8px;border-bottom:1px solid ${BS.text};font-size:11.5px;letter-spacing:0.08em;text-transform:uppercase;font-weight:600">You Save</th>` : ''}
           <th style="text-align:right;padding:0 0 8px 10px;border-bottom:1px solid ${BS.text};font-size:11.5px;letter-spacing:0.08em;text-transform:uppercase;font-weight:600">Amount</th>
         </tr>
       </thead>
@@ -599,6 +613,10 @@ ${BS_FONT_LINK}
         ${showTax ? `<div style="font-size:13px;color:${BS.neutral700};margin-bottom:6px">Subtotal $${escapeHtml(d.subtotal)} · Tax $${escapeHtml(d.tax)}</div>` : ''}
         <div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:${BS.neutral500}">Total investment</div>
         <div style="font-size:38px;font-weight:600;color:${BS.accent700}">$${escapeHtml(d.total)}</div>
+        ${showSavings ? `<div style="margin-top:10px;border-top:1px solid ${BS.accent2_700}40;padding-top:8px">
+          <span style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:${BS.neutral500}">Your savings</span>
+          <div style="font-size:22px;font-weight:600;color:${BS.accent2_700}">You save $${escapeHtml(savingsFormatted)}</div>
+        </div>` : ''}
       </div>
     </div>
   </section>

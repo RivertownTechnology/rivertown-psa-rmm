@@ -45,6 +45,7 @@ interface QuoteLineItem {
   description: string;
   itemType: string;
   unitPriceCents: number;
+  listUnitPriceCents: number | null;
   unitCostCents: number | null;
   catalogItemId: string | null;
   quantity: string | null;
@@ -152,6 +153,7 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
     description: '',
     itemType: 'recurring',
     unitPriceCents: '',
+    listUnitPriceCents: '',
     unitCostCents: '',
     quantity: '1',
     taxable: false,
@@ -299,13 +301,14 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
           description: itemForm.description,
           itemType: itemForm.itemType,
           unitPriceCents: Math.round(parseFloat(itemForm.unitPriceCents) * 100),
+          listUnitPriceCents: itemForm.listUnitPriceCents ? Math.round(parseFloat(itemForm.listUnitPriceCents) * 100) : null,
           unitCostCents: itemForm.unitCostCents ? Math.round(parseFloat(itemForm.unitCostCents) * 100) : null,
           quantity: itemForm.quantity,
           taxable: itemForm.taxable,
         }),
       });
       setShowAddItem(false);
-      setItemForm({ description: '', itemType: 'recurring', unitPriceCents: '', unitCostCents: '', quantity: '1', taxable: false });
+      setItemForm({ description: '', itemType: 'recurring', unitPriceCents: '', listUnitPriceCents: '', unitCostCents: '', quantity: '1', taxable: false });
       await reload();
     } finally { setSaving(false); }
   }
@@ -377,6 +380,7 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
           description: item.name,
           itemType: item.itemType,
           unitPriceCents: item.defaultUnitPriceCents,
+          listUnitPriceCents: item.defaultUnitPriceCents,
           unitCostCents: item.defaultUnitCostCents ?? null,
           catalogItemId: item.id,
           quantity: catalogQty,
@@ -674,6 +678,12 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
                       ) : (
                         formatCents(item.unitPriceCents)
                       )}
+                      {item.listUnitPriceCents != null && item.listUnitPriceCents > item.unitPriceCents && (
+                        <div className="text-xs mt-1 text-muted-foreground">
+                          <span className="line-through">{formatCents(item.listUnitPriceCents)}</span>
+                          {' '}list · saves {formatCents(item.listUnitPriceCents - item.unitPriceCents)}/unit
+                        </div>
+                      )}
                       {(() => {
                         const m = marginInfo(item, isDraft ? lineEdits[item.id]?.unitPrice : undefined);
                         return m ? (
@@ -957,7 +967,7 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-2">
                 <Label>Unit Price ($)</Label>
                 <Input
@@ -968,6 +978,17 @@ export function QuoteDetailPage({ quoteId, onBack, onNavigateToCustomer, onNavig
                   placeholder="15.00"
                   value={itemForm.unitPriceCents}
                   onChange={e => setItemForm({ ...itemForm, unitPriceCents: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>List Price ($) <span className="text-muted-foreground font-normal">— optional, shows savings</span></Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="20.00"
+                  value={itemForm.listUnitPriceCents}
+                  onChange={e => setItemForm({ ...itemForm, listUnitPriceCents: e.target.value })}
                 />
               </div>
               <div className="space-y-2">

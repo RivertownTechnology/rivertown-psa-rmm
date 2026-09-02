@@ -17,6 +17,7 @@ import {
 import { createQuoteSchema, updateQuoteSchema, paginationSchema, sendQuoteSchema, publicSignSchema, publicDeclineSchema } from '@rivertown/shared';
 import { requirePermission } from '../../auth/rbac.js';
 import { recalcInvoiceTotals } from '../invoices/routes.js';
+import { quoteLineDiscount } from './discount.js';
 import { NotFoundError } from '../../common/errors.js';
 import { paginationToOffset, paginate } from '../../common/pagination.js';
 import { logAudit } from '../../common/audit.js';
@@ -171,7 +172,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
   // Add line item
   fastify.post('/api/v1/quotes/:id/line-items', { preHandler: [fastify.authenticate, requirePermission('quotes:write')] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = request.body as { description: string; itemType: string; unitPriceCents: number; unitCostCents?: number | null; catalogItemId?: string | null; quantity?: string; taxable?: boolean };
+    const body = request.body as { description: string; itemType: string; unitPriceCents: number; listUnitPriceCents?: number | null; unitCostCents?: number | null; catalogItemId?: string | null; quantity?: string; taxable?: boolean };
     const qty = parseFloat(body.quantity ?? '1');
 
     // Verify the parent quote belongs to this tenant before attaching a line item
@@ -185,6 +186,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
       description: body.description,
       itemType: body.itemType,
       unitPriceCents: body.unitPriceCents,
+      listUnitPriceCents: normalizeListPrice(body.listUnitPriceCents, body.unitPriceCents),
       unitCostCents: body.unitCostCents ?? null,
       catalogItemId: body.catalogItemId ?? null,
       quantity: body.quantity ?? '1',
@@ -201,7 +203,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
   // Update line item (inline qty/price edits from the quote screen)
   fastify.patch('/api/v1/quotes/:id/line-items/:lineId', { preHandler: [fastify.authenticate, requirePermission('quotes:write')] }, async (request) => {
     const { id, lineId } = request.params as { id: string; lineId: string };
-    const body = request.body as { description?: string; quantity?: string; unitPriceCents?: number; unitCostCents?: number | null; taxable?: boolean };
+    const body = request.body as { description?: string; quantity?: string; unitPriceCents?: number; listUnitPriceCents?: number | null; unitCostCents?: number | null; taxable?: boolean };
 
     const [existing] = await fastify.db.select().from(quoteLineItems)
       .where(and(eq(quoteLineItems.id, lineId), eq(quoteLineItems.quoteId, id), eq(quoteLineItems.tenantId, request.tenantId))).limit(1);
@@ -217,6 +219,16 @@ export async function quoteRoutes(fastify: FastifyInstance) {
     if (body.unitPriceCents !== undefined) {
       if (!Number.isInteger(body.unitPriceCents) || body.unitPriceCents < 0) throw new Error('Unit price must be a non-negative amount');
       update.unitPriceCents = body.unitPriceCents;
+    }
+    if (body.listUnitPriceCents !== undefined) {
+      // Validate against the price this request is actually setting, not the
+      // stale stored one — price and list price are often edited together.
+      const effectivePrice = body.unitPriceCents ?? existing.unitPriceCents;
+      update.listUnitPriceCents = normalizeListPrice(body.listUnitPriceCents, effectivePrice);
+    } else if (body.unitPriceCents !== undefined && existing.listUnitPriceCents != null) {
+      // Price raised to or above the old list price leaves a discount that is
+      // zero or negative; drop it rather than render "you save -$5".
+      update.listUnitPriceCents = normalizeListPrice(existing.listUnitPriceCents, body.unitPriceCents);
     }
     if (body.unitCostCents !== undefined) update.unitCostCents = body.unitCostCents;
     if (body.taxable !== undefined) update.taxable = body.taxable;
@@ -790,6 +802,7 @@ export async function quoteRoutes(fastify: FastifyInstance) {
         quantity: li.quantity ?? '1',
         unitPrice: (li.unitPriceCents / 100).toFixed(2),
         total: (parseFloat(li.quantity ?? '1') * li.unitPriceCents / 100).toFixed(2),
+        ...quoteLineDiscount(li),
       })),
       subtotal: (quote.subtotalCents / 100).toFixed(2),
       tax: (quote.taxCents / 100).toFixed(2),
@@ -800,6 +813,17 @@ export async function quoteRoutes(fastify: FastifyInstance) {
 
     reply.type('text/html').send(html);
   });
+}
+
+/**
+ * A list price is only meaningful when it sits ABOVE the price being charged.
+ * Anything at or below it is not a discount, so store null and let the document
+ * render the line plainly rather than showing a zero or negative "saving".
+ */
+function normalizeListPrice(listCents: number | null | undefined, unitPriceCents: number): number | null {
+  if (listCents == null) return null;
+  if (!Number.isInteger(listCents) || listCents < 0) throw new Error('List price must be a non-negative amount');
+  return listCents > unitPriceCents ? listCents : null;
 }
 
 async function recalcQuoteTotals(db: any, quoteId: string, tenantId: string) {

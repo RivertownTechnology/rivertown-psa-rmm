@@ -52,6 +52,10 @@ export const quoteLineItems = pgTable(
     description: text('description').notNull(),
     itemType: text('item_type').notNull(),
     unitPriceCents: integer('unit_price_cents').notNull(),
+    // Customer-facing "list price" for showing a discount. When set above
+    // unitPriceCents, the quote shows list vs. charged price and totals the
+    // difference as savings. Null means the line simply isn't discounted.
+    listUnitPriceCents: integer('list_unit_price_cents'),
     // Internal-only: cost snapshot from the service catalog for margin
     // visibility in the staff UI. Never rendered on customer-facing documents.
     unitCostCents: integer('unit_cost_cents'),
