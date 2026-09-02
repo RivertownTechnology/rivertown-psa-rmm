@@ -428,6 +428,13 @@
       "when": 1788380040095,
       "tag": "0060_quote_line_list_price",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1788384312872,
+      "tag": "0061_invoice_tax_snapshot",
+      "breakpoints": true
     }
   ]
 }

@@ -977,9 +977,10 @@ export async function recalcInvoiceTotals(db: any, invoiceId: string, tenantId: 
   let subtotalCents = 0;
   let taxableProductsCents = 0;
   let taxableServicesCents = 0;
+  let exemptCents = 0;
   for (const item of items) {
     subtotalCents += item.totalCents;
-    if (item.taxable === false) continue;
+    if (item.taxable === false) { exemptCents += item.totalCents; continue; }
     const itemType = item.catalogItemId ? typeMap.get(item.catalogItemId) : undefined;
     const isService = itemType ? SERVICE_ITEM_TYPES.has(itemType) : false;
     if (isService) taxableServicesCents += item.totalCents;
@@ -1040,10 +1041,22 @@ export async function recalcInvoiceTotals(db: any, invoiceId: string, tenantId: 
   }
   const totalCents = subtotalCents + taxCents;
 
+  // Freeze the jurisdiction and rate that were actually applied. Without this
+  // the county is only inferable from the customer's current address, so a
+  // later address correction would silently rewrite history and a filing
+  // couldn't be reproduced.
   await db.update(invoices).set({
     subtotalCents,
     taxCents,
     totalCents,
+    taxState: rate?.state ?? null,
+    taxCounty: rate?.county ?? null,
+    taxCombinedRate: rate?.combinedRate ?? null,
+    taxStateRate: rate?.stateRate ?? null,
+    taxCountyRate: rate?.countyRate ?? null,
+    taxableProductsCents,
+    taxableServicesCents,
+    exemptCents,
     updatedAt: new Date(),
   }).where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId)));
 }

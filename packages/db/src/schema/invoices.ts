@@ -20,6 +20,16 @@ export const invoices = pgTable(
     dueDate: date('due_date').notNull(),
     subtotalCents: integer('subtotal_cents').default(0).notNull(),
     taxCents: integer('tax_cents').default(0).notNull(),
+    // Tax basis frozen at calculation time so a county filing stays
+    // reproducible even after the customer's address is later corrected.
+    taxState: text('tax_state'),
+    taxCounty: text('tax_county'),
+    taxCombinedRate: numeric('tax_combined_rate', { precision: 6, scale: 4 }),
+    taxStateRate: numeric('tax_state_rate', { precision: 6, scale: 4 }),
+    taxCountyRate: numeric('tax_county_rate', { precision: 6, scale: 4 }),
+    taxableProductsCents: integer('taxable_products_cents').default(0).notNull(),
+    taxableServicesCents: integer('taxable_services_cents').default(0).notNull(),
+    exemptCents: integer('exempt_cents').default(0).notNull(),
     totalCents: integer('total_cents').default(0).notNull(),
     amountPaidCents: integer('amount_paid_cents').default(0).notNull(),
     creditsAppliedCents: integer('credits_applied_cents').default(0).notNull(),
@@ -32,6 +42,7 @@ export const invoices = pgTable(
   (table) => [
     uniqueIndex('invoices_tenant_number_idx').on(table.tenantId, table.invoiceNumber),
     index('invoices_tenant_status_idx').on(table.tenantId, table.status),
+    index('invoices_tenant_tax_jurisdiction_idx').on(table.tenantId, table.taxState, table.taxCounty, table.issueDate),
   ],
 );
 

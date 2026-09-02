@@ -71,6 +71,39 @@ function startOfQuarter() {
 // CSV helper
 // ---------------------------------------------------------------------------
 
+interface SalesTaxJurisdiction {
+  state: string | null;
+  county: string | null;
+  combinedRate: string | null;
+  stateRate: string | null;
+  countyRate: string | null;
+  invoiceCount: number;
+  grossSalesCents: number;
+  taxableProductsCents: number;
+  taxableServicesCents: number;
+  exemptCents: number;
+  taxCollectedCents: number;
+  unassigned: boolean;
+  stateLocalSplit: { stateTaxCents: number; countyTaxCents: number } | null;
+}
+
+interface SalesTaxReport {
+  startDate: string | null;
+  endDate: string | null;
+  jurisdictions: SalesTaxJurisdiction[];
+  totals: {
+    invoiceCount: number;
+    grossSalesCents: number;
+    taxableProductsCents: number;
+    taxableServicesCents: number;
+    exemptCents: number;
+    taxCollectedCents: number;
+  };
+}
+
+const money = (cents: number) =>
+  '$' + (cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 function downloadCsv(filename: string, headers: string[], rows: string[][]) {
   const csv = [headers.join(','), ...rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -127,6 +160,10 @@ export function ReportsPage() {
   // Invoices report
   const [agingData, setAgingData] = useState<AgingBucket[]>([]);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
+
+  // Sales tax report
+  const [salesTax, setSalesTax] = useState<SalesTaxReport | null>(null);
+  const [salesTaxLoading, setSalesTaxLoading] = useState(false);
 
   // ---------------------------------------------------------------------------
   // Fetch helpers
@@ -212,6 +249,20 @@ export function ReportsPage() {
     }
   }, [dateFrom, dateTo]);
 
+  const fetchSalesTaxReport = useCallback(async () => {
+    setSalesTaxLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      if (dateFrom) qs.set('startDate', dateFrom);
+      if (dateTo) qs.set('endDate', dateTo);
+      setSalesTax(await api<SalesTaxReport>(`/reports/sales-tax-by-county?${qs}`));
+    } catch {
+      setSalesTax(null);
+    } finally {
+      setSalesTaxLoading(false);
+    }
+  }, [dateFrom, dateTo]);
+
   const fetchInvoiceReport = useCallback(async () => {
     setInvoiceLoading(true);
     try {
@@ -242,7 +293,8 @@ export function ReportsPage() {
     else if (activeTab === 'revenue') fetchRevenueReport();
     else if (activeTab === 'time') fetchTimeReport();
     else if (activeTab === 'invoices') fetchInvoiceReport();
-  }, [activeTab, dateFrom, dateTo, fetchTicketReport, fetchSlaReport, fetchUtilizationReport, fetchRevenueReport, fetchTimeReport, fetchInvoiceReport]);
+    else if (activeTab === 'salestax') fetchSalesTaxReport();
+  }, [activeTab, dateFrom, dateTo, fetchTicketReport, fetchSlaReport, fetchUtilizationReport, fetchRevenueReport, fetchTimeReport, fetchInvoiceReport, fetchSalesTaxReport]);
 
   // ---------------------------------------------------------------------------
   // Date presets
@@ -329,6 +381,7 @@ export function ReportsPage() {
           <TabsTrigger value="revenue">Revenue</TabsTrigger>
           <TabsTrigger value="time">Time</TabsTrigger>
           <TabsTrigger value="invoices">Invoices</TabsTrigger>
+          <TabsTrigger value="salestax">Sales Tax</TabsTrigger>
         </TabsList>
 
         {/* ================================================================ */}
@@ -585,6 +638,133 @@ export function ReportsPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ================================================================ */}
+        {/* Sales Tax Tab - county filing report                              */}
+        {/* ================================================================ */}
+        <TabsContent value="salestax">
+          {salesTaxLoading ? (
+            <Card><CardContent className="py-12 text-center text-muted-foreground">Loading...</CardContent></Card>
+          ) : !salesTax || salesTax.jurisdictions.length === 0 ? (
+            <Card><CardContent className="py-12 text-center text-muted-foreground">
+              No issued invoices in this date range.
+            </CardContent></Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Tax Collected</CardTitle></CardHeader>
+                  <CardContent><div className="text-2xl font-bold">{money(salesTax.totals.taxCollectedCents)}</div></CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Gross Sales</CardTitle></CardHeader>
+                  <CardContent><div className="text-2xl font-bold">{money(salesTax.totals.grossSalesCents)}</div></CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Taxable</CardTitle></CardHeader>
+                  <CardContent><div className="text-2xl font-bold">{money(salesTax.totals.taxableProductsCents + salesTax.totals.taxableServicesCents)}</div></CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Exempt</CardTitle></CardHeader>
+                  <CardContent><div className="text-2xl font-bold">{money(salesTax.totals.exemptCents)}</div></CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle>Sales Tax by County</CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Issued invoices by issue date, using the rate recorded on each invoice when it was calculated.
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => downloadCsv(
+                    'sales-tax-' + (salesTax.startDate ?? 'all') + '-to-' + (salesTax.endDate ?? 'all') + '.csv',
+                    ['State', 'County', 'Rate %', 'Invoices', 'Gross Sales', 'Taxable Products', 'Taxable Services', 'Exempt', 'State Tax', 'County Tax', 'Total Tax'],
+                    salesTax.jurisdictions.map(j => [
+                      j.state ?? 'UNASSIGNED',
+                      j.county ?? '(state default)',
+                      j.combinedRate ?? '',
+                      String(j.invoiceCount),
+                      (j.grossSalesCents / 100).toFixed(2),
+                      (j.taxableProductsCents / 100).toFixed(2),
+                      (j.taxableServicesCents / 100).toFixed(2),
+                      (j.exemptCents / 100).toFixed(2),
+                      ((j.stateLocalSplit?.stateTaxCents ?? 0) / 100).toFixed(2),
+                      ((j.stateLocalSplit?.countyTaxCents ?? 0) / 100).toFixed(2),
+                      (j.taxCollectedCents / 100).toFixed(2),
+                    ]),
+                  )}>
+                    <Download className="h-4 w-4 mr-1" />CSV
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-muted-foreground text-xs uppercase tracking-wider">
+                          <th className="text-left p-2">Jurisdiction</th>
+                          <th className="text-right p-2">Rate</th>
+                          <th className="text-right p-2">Invoices</th>
+                          <th className="text-right p-2">Gross Sales</th>
+                          <th className="text-right p-2">Taxable</th>
+                          <th className="text-right p-2">Exempt</th>
+                          <th className="text-right p-2">State Tax</th>
+                          <th className="text-right p-2">County Tax</th>
+                          <th className="text-right p-2">Total Tax</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {salesTax.jurisdictions.map((j, i) => (
+                          <tr key={i} className="border-b last:border-0">
+                            <td className="p-2">
+                              {j.unassigned ? (
+                                <span className="text-amber-600 font-medium">Unassigned - no rate applied</span>
+                              ) : (
+                                <>
+                                  {j.county ?? j.state + ' (state default)'}
+                                  {j.county ? <span className="text-muted-foreground">, {j.state}</span> : null}
+                                </>
+                              )}
+                            </td>
+                            <td className="p-2 text-right">{j.combinedRate ? parseFloat(j.combinedRate).toFixed(2) + '%' : '-'}</td>
+                            <td className="p-2 text-right">{j.invoiceCount}</td>
+                            <td className="p-2 text-right">{money(j.grossSalesCents)}</td>
+                            <td className="p-2 text-right">{money(j.taxableProductsCents + j.taxableServicesCents)}</td>
+                            <td className="p-2 text-right">{money(j.exemptCents)}</td>
+                            <td className="p-2 text-right">{j.stateLocalSplit ? money(j.stateLocalSplit.stateTaxCents) : '-'}</td>
+                            <td className="p-2 text-right">{j.stateLocalSplit ? money(j.stateLocalSplit.countyTaxCents) : '-'}</td>
+                            <td className="p-2 text-right font-medium">{money(j.taxCollectedCents)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 font-semibold">
+                          <td className="p-2">Total</td>
+                          <td className="p-2"></td>
+                          <td className="p-2 text-right">{salesTax.totals.invoiceCount}</td>
+                          <td className="p-2 text-right">{money(salesTax.totals.grossSalesCents)}</td>
+                          <td className="p-2 text-right">{money(salesTax.totals.taxableProductsCents + salesTax.totals.taxableServicesCents)}</td>
+                          <td className="p-2 text-right">{money(salesTax.totals.exemptCents)}</td>
+                          <td className="p-2"></td>
+                          <td className="p-2"></td>
+                          <td className="p-2 text-right">{money(salesTax.totals.taxCollectedCents)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  {salesTax.jurisdictions.some(j => j.unassigned) && (
+                    <p className="text-xs text-amber-600 mt-3">
+                      Invoices in the Unassigned row had no tax rate resolved - usually a customer with no county on
+                      file, or an invoice issued before tax tracking was enabled. Fix the customer address and re-save
+                      the invoice to reclassify it.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
         </TabsContent>
       </Tabs>
     </div>

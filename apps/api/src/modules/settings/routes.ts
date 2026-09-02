@@ -2262,13 +2262,34 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     const { getSCNCTaxRates } = await import('../../services/tax-seed.js');
     const rates = getSCNCTaxRates();
     let created = 0;
+    let updated = 0;
+
+    // Re-seeding must REFRESH existing rows, not skip them — counties change
+    // their local rate and the whole point of re-running this is to pick that
+    // up. Only the rate figures are overwritten; the appliesToProducts /
+    // appliesToServices flags are left alone so per-tenant overrides survive.
     for (const r of rates) {
-      try {
+      const [existing] = await fastify.db.select({ id: taxRates.id }).from(taxRates)
+        .where(and(
+          eq(taxRates.tenantId, request.tenantId),
+          eq(taxRates.state, r.state),
+          r.county === null ? sql`${taxRates.county} IS NULL` : eq(taxRates.county, r.county),
+        )).limit(1);
+
+      if (existing) {
+        await fastify.db.update(taxRates).set({
+          combinedRate: r.combinedRate,
+          stateRate: r.stateRate,
+          countyRate: r.countyRate,
+          updatedAt: new Date(),
+        }).where(eq(taxRates.id, existing.id));
+        updated++;
+      } else {
         await fastify.db.insert(taxRates).values({ tenantId: request.tenantId, ...r });
         created++;
-      } catch { /* skip duplicates */ }
+      }
     }
-    return { created, total: rates.length };
+    return { created, updated, total: rates.length };
   });
 
   // Lookup tax rate for a customer (by their billing address)

@@ -170,6 +170,78 @@ export async function reportRoutes(fastify: FastifyInstance) {
     return rows;
   });
 
+  // Sales tax by county — the filing report.
+  //
+  // Reads the tax basis SNAPSHOTTED on each invoice, not the customer's current
+  // address, so re-running it for a past period always produces the same
+  // numbers even if addresses have since been corrected.
+  //
+  // Draft invoices are excluded: nothing is owed on a document that was never
+  // issued. Voided/cancelled are excluded for the same reason.
+  fastify.get('/api/v1/reports/sales-tax-by-county', {
+    preHandler: [fastify.authenticate, requirePermission('invoices:read')]
+  }, async (request) => {
+    const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+
+    const conditions: any[] = [
+      eq(invoices.tenantId, request.tenantId),
+      sql`${invoices.status} NOT IN ('draft', 'void', 'cancelled')`,
+    ];
+    // issue_date is a DATE column — compare as dates, no timezone conversion.
+    if (startDate) conditions.push(sql`${invoices.issueDate} >= ${startDate}`);
+    if (endDate) conditions.push(sql`${invoices.issueDate} <= ${endDate}`);
+
+    const rows = await fastify.db
+      .select({
+        state: invoices.taxState,
+        county: invoices.taxCounty,
+        combinedRate: invoices.taxCombinedRate,
+        stateRate: invoices.taxStateRate,
+        countyRate: invoices.taxCountyRate,
+        invoiceCount: count(),
+        grossSalesCents: sql<number>`COALESCE(SUM(${invoices.subtotalCents}), 0)::int`,
+        taxableProductsCents: sql<number>`COALESCE(SUM(${invoices.taxableProductsCents}), 0)::int`,
+        taxableServicesCents: sql<number>`COALESCE(SUM(${invoices.taxableServicesCents}), 0)::int`,
+        exemptCents: sql<number>`COALESCE(SUM(${invoices.exemptCents}), 0)::int`,
+        taxCollectedCents: sql<number>`COALESCE(SUM(${invoices.taxCents}), 0)::int`,
+      })
+      .from(invoices)
+      .where(and(...conditions))
+      // Group by rate as well as jurisdiction: if a county changed its rate
+      // mid-period, each rate is its own filing line rather than being averaged
+      // into a figure that matches neither.
+      .groupBy(invoices.taxState, invoices.taxCounty, invoices.taxCombinedRate,
+               invoices.taxStateRate, invoices.taxCountyRate)
+      .orderBy(invoices.taxState, invoices.taxCounty);
+
+    const jurisdictions = rows.map(r => ({
+      ...r,
+      // Invoices predating the snapshot columns, or issued with no rate
+      // resolved, surface explicitly rather than silently vanishing.
+      unassigned: r.state === null,
+      stateLocalSplit: r.combinedRate && r.countyRate && parseFloat(r.combinedRate) > 0
+        ? {
+            stateTaxCents: Math.round(r.taxCollectedCents * (parseFloat(r.stateRate ?? '0') / parseFloat(r.combinedRate))),
+            countyTaxCents: Math.round(r.taxCollectedCents * (parseFloat(r.countyRate) / parseFloat(r.combinedRate))),
+          }
+        : null,
+    }));
+
+    return {
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
+      jurisdictions,
+      totals: {
+        invoiceCount: jurisdictions.reduce((a, r) => a + Number(r.invoiceCount), 0),
+        grossSalesCents: jurisdictions.reduce((a, r) => a + r.grossSalesCents, 0),
+        taxableProductsCents: jurisdictions.reduce((a, r) => a + r.taxableProductsCents, 0),
+        taxableServicesCents: jurisdictions.reduce((a, r) => a + r.taxableServicesCents, 0),
+        exemptCents: jurisdictions.reduce((a, r) => a + r.exemptCents, 0),
+        taxCollectedCents: jurisdictions.reduce((a, r) => a + r.taxCollectedCents, 0),
+      },
+    };
+  });
+
   // Invoice aging
   fastify.get('/api/v1/reports/invoice-aging', {
     preHandler: [fastify.authenticate, requirePermission('invoices:read')]
