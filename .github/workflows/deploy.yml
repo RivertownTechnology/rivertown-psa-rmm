@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── Build multi-arch (arm64) images and push to GHCR ────────────────────
+  # ── Build amd64 (x86) images and push to GHCR ───────────────────────────
   build:
     runs-on: ubuntu-latest
     permissions:
@@ -34,7 +34,6 @@ jobs:
       - id: vars
         run: echo "registry=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-qemu-action@v3      # emulation for arm64 on x86 runner
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
@@ -49,7 +48,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          platforms: linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ steps.vars.outputs.registry }}/rivertown-${{ matrix.name }}:${{ github.sha }}

@@ -2117,7 +2117,24 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         open: sql<number>`(count(*) filter (where ${tickets.status} not in ('resolved','closed')))::int`,
         critical: sql<number>`(count(*) filter (where ${tickets.priority} = 'critical' and ${tickets.status} not in ('resolved','closed')))::int`,
         new: sql<number>`(count(*) filter (where ${tickets.status} = 'new'))::int`,
-        slaBreached: sql<number>`(count(*) filter (where ${tickets.slaBreached} = true))::int`,
+        // Live breaches: OPEN tickets already past their resolution deadline.
+        //
+        // Deliberately NOT the stored tickets.sla_breached flag — that is only
+        // written when a ticket is resolved, so it can only ever describe closed
+        // work. Counting it here put permanently un-actionable items in the
+        // "Needs attention" banner while hiding tickets actively blowing their SLA.
+        // The stored flag stays as-is for the historical SLA compliance report.
+        //
+        // Paused time extends the deadline, matching the math used at resolution.
+        slaBreached: sql<number>`(count(*) filter (
+          where ${tickets.status} not in ('resolved','closed')
+            and ${tickets.slaResolutionDueAt} is not null
+            and now() > ${tickets.slaResolutionDueAt}
+                        + (coalesce(${tickets.slaTotalPausedMs}, 0) / 1000.0) * interval '1 second'
+                        + case when ${tickets.slaPausedAt} is not null
+                               then now() - ${tickets.slaPausedAt}
+                               else interval '0' end
+        ))::int`,
       }).from(tickets).where(eq(tickets.tenantId, tid)),
       // Invoice stats
       fastify.db.select({

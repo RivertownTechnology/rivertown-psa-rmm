@@ -1,5 +1,5 @@
 # Admin dashboard (apps/web) — static SPA served by nginx.
-# Built for the target platform by buildx (linux/arm64 for Raspberry Pi).
+# Built for the target platform by buildx (linux/amd64 for the x86 Docker host).
 FROM node:22-alpine AS build
 RUN npm i -g corepack@latest && corepack enable
 WORKDIR /app
