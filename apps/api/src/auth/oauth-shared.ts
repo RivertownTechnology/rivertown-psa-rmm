@@ -10,6 +10,7 @@
 
 import { FastifyInstance } from 'fastify';
 import { randomUUID } from 'crypto';
+import { verifyDesktopProof } from './desktop-proof.js';
 
 // ---------------------------------------------------------------------------
 // Shared in-memory stores (with TTLs)
@@ -20,9 +21,11 @@ export interface OAuthStateEntry {
   // Present when this state originated from the mobile-app flow — tells the
   // callback where to deliver tokens instead of the web exchange-code flow.
   mobile?: { redirectUri: string; clientState: string };
+  desktop?: { redirectUri: string; clientState: string; challenge: string };
 }
 
 export interface ExchangeCodeEntry {
+  desktop?: { redirectUri: string; challenge: string };
   userId: string;
   tenantId: string;
   role: string;
@@ -62,7 +65,7 @@ export function cleanExpired<T extends { expiresAt: number }>(map: Map<string, T
  */
 export function registerAuthExchangeRoutes(fastify: FastifyInstance) {
   const handler = async (request: { body: unknown }) => {
-    const { code } = (request.body ?? {}) as { code?: string };
+    const { code, codeVerifier, redirectUri } = (request.body ?? {}) as { code?: string; codeVerifier?: string; redirectUri?: string };
     if (!code) throw new Error('Exchange code required');
 
     const entry = exchangeCodes.get(code);
@@ -70,6 +73,9 @@ export function registerAuthExchangeRoutes(fastify: FastifyInstance) {
 
     if (!entry || entry.expiresAt < Date.now()) {
       throw new Error('Invalid or expired exchange code');
+    }
+    if (entry.desktop && !verifyDesktopProof(entry.desktop, codeVerifier, redirectUri)) {
+      throw new Error('Invalid desktop proof');
     }
 
     const accessToken = fastify.jwt.sign(

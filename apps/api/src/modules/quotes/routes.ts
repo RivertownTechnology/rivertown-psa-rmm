@@ -229,6 +229,11 @@ export async function quoteRoutes(fastify: FastifyInstance) {
       // Price raised to or above the old list price leaves a discount that is
       // zero or negative; drop it rather than render "you save -$5".
       update.listUnitPriceCents = normalizeListPrice(existing.listUnitPriceCents, body.unitPriceCents);
+    } else if (body.unitPriceCents !== undefined && existing.listUnitPriceCents == null && body.unitPriceCents < existing.unitPriceCents) {
+      // Lowering a line that had no list price yet: remember the price it WAS
+      // as the list price, so dropping the price automatically shows the
+      // original struck through plus the savings — no separate field to fill.
+      update.listUnitPriceCents = existing.unitPriceCents;
     }
     if (body.unitCostCents !== undefined) update.unitCostCents = body.unitCostCents;
     if (body.taxable !== undefined) update.taxable = body.taxable;

@@ -16,6 +16,7 @@ import { eq } from 'drizzle-orm';
 import { users } from '@rivertown/db';
 import { logAudit } from '../common/audit.js';
 import { oauthStates, exchangeCodes, cleanExpired, registerAuthExchangeRoutes } from './oauth-shared.js';
+import { validateDesktopRequest } from './desktop-proof.js';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -47,9 +48,17 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
         return reply.code(503).send({ error: 'Google SSO not configured' });
       }
 
+      const desktopQuery = request.query as { desktop?: string; redirect_uri?: string; state?: string; code_challenge?: string };
+      const desktop = desktopQuery.desktop === '1';
+      if (desktop && !validateDesktopRequest(desktopQuery.redirect_uri, desktopQuery.state, desktopQuery.code_challenge)) {
+        return reply.code(400).send({ error: 'Invalid desktop authorization request' });
+      }
       // Generate cryptographic state for CSRF protection
       const state = randomBytes(32).toString('hex');
-      oauthStates.set(state, { expiresAt: Date.now() + 10 * 60 * 1000 });
+      oauthStates.set(state, {
+        expiresAt: Date.now() + 10 * 60 * 1000,
+        ...(desktop ? { desktop: { redirectUri: desktopQuery.redirect_uri!, clientState: desktopQuery.state!, challenge: desktopQuery.code_challenge! } } : {}),
+      });
       cleanExpired(oauthStates);
 
       const params = new URLSearchParams({
@@ -128,6 +137,10 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
       if (state) oauthStates.delete(state);
 
       const errorRedirect = (errorCode: string) => {
+        if (stateEntry?.desktop) {
+          const params = new URLSearchParams({ error: errorCode, state: stateEntry.desktop.clientState });
+          return reply.redirect(`${stateEntry.desktop.redirectUri}?${params}`);
+        }
         if (stateEntry?.mobile) {
           return reply.redirect(`${stateEntry.mobile.redirectUri}?error=${errorCode}`);
         }
@@ -190,7 +203,7 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
           .where(eq(users.email, profile.email.toLowerCase()))
           .limit(1);
 
-        if (!user) {
+        if (!user || !user.isActive) {
           fastify.log.warn(`Google SSO: no user found for email`);
           return errorRedirect('no_account');
         }
@@ -217,6 +230,7 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
         // Generate a short-lived exchange code (NOT tokens in URL)
         const exchangeCode = randomBytes(32).toString('hex');
         exchangeCodes.set(exchangeCode, {
+          ...(stateEntry.desktop ? { desktop: { redirectUri: stateEntry.desktop.redirectUri, challenge: stateEntry.desktop.challenge } } : {}),
           userId: user.id,
           tenantId: user.tenantId,
           role: user.role,
@@ -228,6 +242,10 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
         cleanExpired(exchangeCodes);
 
         // Redirect with only the exchange code — no tokens in URL
+        if (stateEntry.desktop) {
+          const params = new URLSearchParams({ code: exchangeCode, state: stateEntry.desktop.clientState });
+          return reply.redirect(`${stateEntry.desktop.redirectUri}?${params}`);
+        }
         return reply.redirect(`${google.frontendUrl}/auth/callback?code=${exchangeCode}`);
       } catch (err) {
         fastify.log.error(err, 'Google SSO error');
