@@ -1,0 +1,17 @@
+{
+  "Name": "ContactFlowEvent",
+  "Details": {
+    "ContactData": {
+      "InstanceARN": "arn:aws:connect:us-east-1:373468206662:instance/40adc64d-02a3-447b-a88a-14a741b5acd4",
+      "Channel": "CHAT",
+      "ContactId": "eaf9e137-e4b5-4b35-959c-37e902cad8a4",
+      "Attributes": {
+        "MessagingPlatform": "AppleBusinessChat",
+        "AppleBusinessChatCustomerId": "rivertown-lambda-smoke-test-not-a-real-customer"
+      }
+    },
+    "Parameters": {
+      "operation": "context"
+    }
+  }
+}
