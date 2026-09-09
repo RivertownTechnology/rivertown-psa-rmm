@@ -1,6 +1,6 @@
 import { eq, and } from 'drizzle-orm';
 import { slaPolicies, customers } from '@rivertown/db';
-import type { Database } from '@rivertown/db';
+import type { DbExecutor } from '@rivertown/db';
 import { addCalendarDays, getTenantTimezone, getZonedParts, zonedTimeToUtc, type ZonedParts } from '../common/timezone.js';
 
 interface SlaResult {
@@ -95,7 +95,7 @@ function addBusinessMinutes(
 }
 
 export async function calculateSla(
-  db: Database,
+  db: DbExecutor,
   tenantId: string,
   customerId: string,
   priority: string,

@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { tenants } from '@rivertown/db';
-import type { Database } from '@rivertown/db';
+import type { DbExecutor } from '@rivertown/db';
 
 // The API container has no TZ env var set, so it defaults to UTC — every
 // "current hour" / "current weekday" computed with plain Date methods
@@ -12,7 +12,7 @@ import type { Database } from '@rivertown/db';
 
 export const DEFAULT_TIMEZONE = 'America/New_York';
 
-export async function getTenantTimezone(db: Database, tenantId: string): Promise<string> {
+export async function getTenantTimezone(db: DbExecutor, tenantId: string): Promise<string> {
   const [tenant] = await db.select({ timezone: tenants.timezone }).from(tenants)
     .where(eq(tenants.id, tenantId)).limit(1);
   return tenant?.timezone || DEFAULT_TIMEZONE;

@@ -1,10 +1,10 @@
 import { eq, and, sql } from 'drizzle-orm';
 import { tenantSequences } from '@rivertown/db';
-import type { Database } from '@rivertown/db';
+import type { DbExecutor } from '@rivertown/db';
 
 // Atomic increment-and-return so concurrent callers (manual create, inbound
 // email, recurring tickets) can never be handed the same ticket number.
-export async function getNextTicketNumber(db: Database, tenantId: string): Promise<number> {
+export async function getNextTicketNumber(db: DbExecutor, tenantId: string): Promise<number> {
   const [result] = await db
     .update(tenantSequences)
     .set({ currentValue: sql`(${tenantSequences.currentValue}::int + 1)::text` })

@@ -8,3 +8,6 @@ export function createDb(connectionString: string) {
 }
 
 export type Database = ReturnType<typeof createDb>;
+
+// Query surface shared by the database and a transaction.
+export type DbExecutor = Pick<Database, 'select' | 'insert' | 'update' | 'delete' | 'execute'>;

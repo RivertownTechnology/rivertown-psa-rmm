@@ -1,3 +1,4 @@
+import { amazonConnectRoutes } from './modules/integrations/amazon-connect/routes.js';
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
@@ -281,6 +282,7 @@ export async function buildServer(config: Config): Promise<FastifyInstance> {
   await fastify.register(pax8Routes);
   await fastify.register(quickbooksRoutes);
   await fastify.register(aiRoutes);
+  await fastify.register(amazonConnectRoutes);
   await fastify.register(wsRoutes);
 
   // Load feature modules

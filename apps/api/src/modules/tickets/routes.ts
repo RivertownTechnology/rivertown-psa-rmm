@@ -1,3 +1,4 @@
+import { createTicketRecord, dispatchTicketCreated } from '../../services/ticket-create.js';
 import { sanitizeBody } from '../../common/sanitize.js';
 import crypto from 'crypto';
 import { FastifyInstance } from 'fastify';
@@ -118,87 +119,10 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const body = createTicketSchema.parse(request.body);
 
-      // Validate referenced records belong to the caller's tenant before insert
-      const [customer] = await fastify.db.select({ id: customers.id }).from(customers)
-        .where(and(eq(customers.id, body.customerId), eq(customers.tenantId, request.tenantId))).limit(1);
-      if (!customer) throw new NotFoundError('Customer', body.customerId);
-      if (body.contractId) {
-        const [contract] = await fastify.db.select({ id: contracts.id }).from(contracts)
-          .where(and(eq(contracts.id, body.contractId), eq(contracts.tenantId, request.tenantId))).limit(1);
-        if (!contract) throw new NotFoundError('Contract', body.contractId);
-      }
-
-      const ticketNumber = await getNextTicketNumber(fastify.db, request.tenantId);
-
-      const [ticket] = await fastify.db
-        .insert(tickets)
-        .values({
-          tenantId: request.tenantId,
-          ticketNumber,
-          customerId: body.customerId,
-          contactId: body.contactId,
-          assetId: body.assetId,
-          contractId: body.contractId,
-          assignedTo: body.assignedTo,
-          categoryId: body.categoryId,
-          subcategoryId: body.subcategoryId,
-          subject: body.subject,
-          description: body.description,
-          priority: body.priority,
-          ticketType: body.ticketType,
-          source: body.source,
-        })
-        .returning();
-
-      // Calculate and apply SLA
-      const { calculateSla } = await import('../../services/sla-calculator.js');
-      const sla = await calculateSla(fastify.db, request.tenantId, body.customerId, body.priority ?? 'medium', new Date());
-      if (sla.slaPolicyId) {
-        await fastify.db.update(tickets).set({
-          slaDueAt: sla.slaDueAt,
-          slaResponseDueAt: sla.slaResponseDueAt,
-          slaResolutionDueAt: sla.slaResolutionDueAt,
-          slaPolicyId: sla.slaPolicyId,
-        }).where(eq(tickets.id, ticket.id));
-        // Update the returned ticket object
-        Object.assign(ticket, { slaDueAt: sla.slaDueAt, slaResponseDueAt: sla.slaResponseDueAt, slaResolutionDueAt: sla.slaResolutionDueAt, slaPolicyId: sla.slaPolicyId });
-      }
-
-      await logAudit(fastify.db, {
-        tenantId: request.tenantId,
-        actorType: 'user',
-        actorId: request.user.sub,
-        action: 'ticket.created',
-        entityType: 'ticket',
-        entityId: ticket.id,
-        ipAddress: request.ip,
-      });
-
-      moduleEvents.emit('ticket.created', ticket);
-      broadcastToTenant(request.tenantId, { type: 'ticket.created', ticketId: ticket.id });
-
-      // Evaluate workflow rules for new ticket
-      import('../../services/workflow-engine.js').then(({ evaluateWorkflowRules }) => {
-        evaluateWorkflowRules(fastify.db, request.tenantId, 'ticket_created', ticket).catch(e => console.error('Workflow error:', e));
-      });
-
-      // Send ticket created email notification (fire and forget)
-      import('../../services/email-notifications.js').then(({ sendTicketCreatedEmail }) => {
-        sendTicketCreatedEmail(fastify.db, request.tenantId, ticket.id).catch(e => console.error('Ticket created email failed:', e));
-      });
-
-      // Notify all techs/admins/owners about the new ticket, excluding whoever created it
-      import('../../services/notifications.js').then(({ notifyTenantStaff }) => {
-        notifyTenantStaff(fastify.db, {
-          tenantId: request.tenantId,
-          type: 'ticket_created',
-          title: `New ticket #${ticket.ticketNumber}`,
-          body: ticket.subject,
-          entityType: 'ticket',
-          entityId: ticket.id,
-          excludeUserId: request.user.sub,
-        }).catch(() => {});
-      });
+      const ticket = await fastify.db.transaction(tx => createTicketRecord(tx, body, {
+        tenantId: request.tenantId, type: 'user', id: request.user.sub, ip: request.ip,
+      }));
+      await dispatchTicketCreated(fastify.db, ticket, request.user.sub);
 
       reply.code(201);
       return ticket;

@@ -1,4 +1,4 @@
-import { Database, auditLog } from '@rivertown/db';
+import { DbExecutor, auditLog } from '@rivertown/db';
 
 export interface AuditEntry {
   tenantId: string;
@@ -11,7 +11,7 @@ export interface AuditEntry {
   ipAddress?: string;
 }
 
-export async function logAudit(db: Database, entry: AuditEntry) {
+export async function logAudit(db: DbExecutor, entry: AuditEntry) {
   await db.insert(auditLog).values({
     tenantId: entry.tenantId,
     actorType: entry.actorType,

@@ -15,7 +15,7 @@ export type TicketPriority = (typeof TICKET_PRIORITIES)[number];
 export const TICKET_TYPES = ['incident', 'service_request', 'problem', 'change'] as const;
 export type TicketType = (typeof TICKET_TYPES)[number];
 
-export const TICKET_SOURCES = ['manual', 'portal', 'email', 'agent_alert'] as const;
+export const TICKET_SOURCES = ['manual', 'portal', 'email', 'agent_alert', 'apple_messages'] as const;
 export type TicketSource = (typeof TICKET_SOURCES)[number];
 
 export const CONTRACT_TYPES = [
