@@ -48,6 +48,7 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
   const [itemForm, setItemForm] = useState({ description: '', unitPriceCents: '', quantity: '1', catalogItemId: '' });
   const [catalogItems, setCatalogItems] = useState<Array<{ id: string; name: string; description: string | null; defaultUnitPriceCents: number; category: string }>>([]);
   const [showCatalog, setShowCatalog] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
   // Record payment
   const [showPayment, setShowPayment] = useState(false);
@@ -72,6 +73,19 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
   }, [invoiceId]);
 
   useEffect(() => { loadInvoice(); }, [loadInvoice]);
+
+  // Load the product catalog whenever the Add Line Item dialog opens.
+  // This deliberately does NOT live in the Dialog's onOpenChange: the dialog is
+  // controlled (open={showAddItem}) and is opened by setShowAddItem(true) from the
+  // toolbar button, so Radix never fires onOpenChange and the fetch never ran.
+  useEffect(() => {
+    if (!showAddItem) return;
+    setShowCatalog(false);
+    setCatalogError(null);
+    api<typeof catalogItems>('/service-catalog')
+      .then(setCatalogItems)
+      .catch((err) => setCatalogError(err instanceof Error ? err.message : 'Could not load the product catalog.'));
+  }, [showAddItem]);
 
   async function saveNotes() {
     setSaving(true);
@@ -384,7 +398,7 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
       </Tabs>
 
       {/* Add Line Item Dialog */}
-      <Dialog open={showAddItem} onOpenChange={(open) => { setShowAddItem(open); if (open) { setShowCatalog(false); api<typeof catalogItems>('/service-catalog').then(setCatalogItems).catch(() => {}); } }}>
+      <Dialog open={showAddItem} onOpenChange={setShowAddItem}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Add Line Item</DialogTitle></DialogHeader>
 
@@ -395,7 +409,9 @@ export function InvoiceDetailPage({ invoiceId, onBack, onNavigateToCustomer }: {
                 <Button size="sm" variant="ghost" onClick={() => setShowCatalog(false)}>Back to manual</Button>
               </div>
               <div className="max-h-64 overflow-y-auto border rounded-md divide-y">
-                {catalogItems.length === 0 ? (
+                {catalogError ? (
+                  <div className="p-4 text-center text-sm text-destructive">{catalogError}</div>
+                ) : catalogItems.length === 0 ? (
                   <div className="p-4 text-center text-sm text-muted-foreground">No catalog items found</div>
                 ) : catalogItems.map(item => (
                   <button
