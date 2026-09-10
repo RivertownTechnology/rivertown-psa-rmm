@@ -16,7 +16,7 @@ interface TicketRow {
   status: string;
   priority: string;
   customerId: string;
-  assignedTo: string | null;
+  assigneeIds: string[];
 }
 
 interface Customer { id: string; name: string }
@@ -103,7 +103,7 @@ export function TicketKanbanPage() {
   // ---------------------------------------------------------------------------
 
   const filtered = tickets.filter(t => {
-    if (assigneeFilter && t.assignedTo !== assigneeFilter) return false;
+    if (assigneeFilter && !(t.assigneeIds ?? []).includes(assigneeFilter)) return false;
     if (customerFilter && t.customerId !== customerFilter) return false;
     if (priorityFilter && t.priority !== priorityFilter) return false;
     return true;
@@ -262,12 +262,25 @@ export function TicketKanbanPage() {
                               <span className="text-[10px] text-muted-foreground truncate max-w-[60%]">
                                 {customerMap.get(ticket.customerId) ?? 'Unknown'}
                               </span>
-                              {ticket.assignedTo && techMap.get(ticket.assignedTo) ? (
-                                <div
-                                  className="h-5 w-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[9px] font-medium shrink-0"
-                                  title={techMap.get(ticket.assignedTo)}
-                                >
-                                  {getInitials(techMap.get(ticket.assignedTo)!)}
+                              {(ticket.assigneeIds ?? []).length > 0 ? (
+                                <div className="flex -space-x-1.5 shrink-0">
+                                  {(ticket.assigneeIds ?? []).slice(0, 3).map(uid => (
+                                    <div
+                                      key={uid}
+                                      className="h-5 w-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[9px] font-medium shrink-0 ring-1 ring-background"
+                                      title={techMap.get(uid) ?? 'Unknown'}
+                                    >
+                                      {getInitials(techMap.get(uid) ?? '?')}
+                                    </div>
+                                  ))}
+                                  {(ticket.assigneeIds ?? []).length > 3 && (
+                                    <div
+                                      className="h-5 w-5 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-[9px] font-medium shrink-0 ring-1 ring-background"
+                                      title={`${(ticket.assigneeIds ?? []).length} techs assigned`}
+                                    >
+                                      +{(ticket.assigneeIds ?? []).length - 3}
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
                                 <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[9px] text-muted-foreground shrink-0" title="Unassigned">

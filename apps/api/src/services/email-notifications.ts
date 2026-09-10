@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import { eq, and, desc } from 'drizzle-orm';
-import { tickets, ticketComments, contacts, customers, emailTemplates, tenants, users, csatRatings, emailMessages } from '@rivertown/db';
+import { eq, and, desc, inArray } from 'drizzle-orm';
+import { tickets, ticketComments, contacts, customers, emailTemplates, tenants, users, csatRatings, emailMessages, ticketAssignees } from '@rivertown/db';
 import type { Database } from '@rivertown/db';
 import { sendEmail } from './email.js';
 import { renderTemplate } from './template-renderer.js';
@@ -256,15 +256,21 @@ export async function sendTicketClosedEmail(db: Database, tenantId: string, tick
  * Send a "Ticket Assigned" notification to the assigned tech AND the customer.
  * Includes full ticket context: customer info, contact, discussion thread.
  */
-export async function sendTicketAssignedEmail(db: Database, tenantId: string, ticketId: string, assignedById: string) {
+export async function sendTicketAssignedEmail(
+  db: Database,
+  tenantId: string,
+  ticketId: string,
+  assignedById: string,
+  assigneeId: string,
+) {
   const [ticket] = await db.select().from(tickets)
     .where(and(eq(tickets.id, ticketId), eq(tickets.tenantId, tenantId)))
     .limit(1);
-  if (!ticket || !ticket.assignedTo) return;
+  if (!ticket || !assigneeId) return;
 
   // Get all the context
   const [customer] = await db.select().from(customers).where(eq(customers.id, ticket.customerId)).limit(1);
-  const [assignedTech] = await db.select().from(users).where(eq(users.id, ticket.assignedTo)).limit(1);
+  const [assignedTech] = await db.select().from(users).where(eq(users.id, assigneeId)).limit(1);
   const [assignedBy] = await db.select().from(users).where(eq(users.id, assignedById)).limit(1);
 
   let contact = null;
@@ -377,4 +383,76 @@ export function stripQuotedReply(text: string): string {
 
   const result = text.substring(0, earliestIdx).trim();
   return result || text;
+}
+
+/**
+ * Email every assigned tech that the customer has replied.
+ *
+ * This is the internal counterpart to sendTicketReplyEmail (which goes OUT to
+ * the customer when a tech replies). Before multi-assign there was no email to
+ * techs on customer activity at all — only an in-app notification — so a reply
+ * on a ticket nobody had open went unseen.
+ *
+ * Deliberately NOT threaded into the customer-facing conversation: these are
+ * internal alerts and must never land in the customer's thread.
+ */
+export async function sendCustomerReplyEmailToAssignees(
+  db: Database,
+  tenantId: string,
+  ticketId: string,
+  commentBody: string,
+) {
+  const [ticket] = await db.select().from(tickets)
+    .where(and(eq(tickets.id, ticketId), eq(tickets.tenantId, tenantId)))
+    .limit(1);
+  if (!ticket) return;
+
+  const assigneeRows = await db
+    .select({ userId: ticketAssignees.userId })
+    .from(ticketAssignees)
+    .where(and(eq(ticketAssignees.tenantId, tenantId), eq(ticketAssignees.ticketId, ticketId)));
+  if (assigneeRows.length === 0) return;
+
+  const techs = await db.select({ email: users.email, displayName: users.displayName })
+    .from(users)
+    .where(inArray(users.id, assigneeRows.map(r => r.userId)));
+
+  const businessVars = await getBusinessVars(db, tenantId);
+  const [customer] = await db.select({ name: customers.name })
+    .from(customers).where(eq(customers.id, ticket.customerId)).limit(1);
+
+  // The body is customer-supplied and goes straight into an HTML email, so
+  // escape before interpolating rather than trusting the sender.
+  const safeBody = commentBody
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const vars: Record<string, string> = {
+    ...businessVars,
+    ticketNumber: String(ticket.ticketNumber),
+    ticketSubject: ticket.subject,
+    customerName: customer?.name || '',
+    commentBody: safeBody.replace(/\n/g, '<br>'),
+  };
+
+  const template = await getTemplate(db, tenantId, 'customer_replied_internal');
+  const subject = template
+    ? renderTemplate(template.subject, vars)
+    : `[Ticket #${ticket.ticketNumber}] Customer replied: ${ticket.subject}`;
+  const html = template
+    ? renderTemplate(template.bodyHtml, vars)
+    : `<p><strong>${customer?.name || 'The customer'}</strong> replied on ticket
+       #${ticket.ticketNumber} — ${ticket.subject}</p>
+       <div style="margin:12px 0;padding:12px;background:#f9fafb;border-radius:6px;white-space:pre-wrap">${safeBody}</div>`;
+
+  // One message per tech: a shared To: line would leak the assignee list and
+  // makes per-recipient delivery failures impossible to attribute.
+  await Promise.all(
+    techs
+      .filter((t: { email: string | null }) => !!t.email)
+      .map((t: { email: string | null }) =>
+        sendEmail(db, tenantId, { to: t.email as string, subject, html })
+          .catch((e: unknown) => console.error('[EMAIL] customer-reply alert failed:', e))),
+  );
 }

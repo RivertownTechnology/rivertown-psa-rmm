@@ -1,6 +1,6 @@
 import { broadcastToTenant } from '../ws/broadcast.js';
 import { and, eq } from 'drizzle-orm';
-import { tickets, customers, contracts, contacts, type Database, type DbExecutor } from '@rivertown/db';
+import { tickets, customers, contracts, contacts, ticketAssignees, type Database, type DbExecutor } from '@rivertown/db';
 import { createTicketSchema } from '@rivertown/shared';
 import type { z } from 'zod';
 import { NotFoundError } from '../common/errors.js';
@@ -37,7 +37,6 @@ export async function createTicketRecord(db: DbExecutor, body: z.infer<typeof cr
       contactId: body.contactId,
       assetId: body.assetId,
       contractId: body.contractId,
-      assignedTo: body.assignedTo,
       categoryId: body.categoryId,
       subcategoryId: body.subcategoryId,
       subject: body.subject,
@@ -47,6 +46,24 @@ export async function createTicketRecord(db: DbExecutor, body: z.infer<typeof cr
       source: body.source,
     })
     .returning();
+
+  // Assignment is a set. `assignedTo` is still accepted as a deprecated
+  // single-value alias so a cached pre-multi-assign client keeps working.
+  const assigneeIds = Array.from(new Set([
+    ...(body.assigneeIds ?? []),
+    ...(body.assignedTo ? [body.assignedTo] : []),
+  ]));
+  if (assigneeIds.length > 0) {
+    await db.insert(ticketAssignees).values(
+      assigneeIds.map(userId => ({
+        tenantId: actor.tenantId,
+        ticketId: ticket.id,
+        userId,
+        assignedBy: actor.type === 'user' ? actor.id : null,
+      })),
+    ).onConflictDoNothing();
+  }
+  Object.assign(ticket, { assigneeIds });
 
   // Calculate and apply SLA
   const { calculateSla } = await import('./sla-calculator.js');

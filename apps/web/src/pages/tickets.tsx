@@ -32,7 +32,7 @@ interface TicketRow {
   status: string;
   priority: string;
   customerId: string;
-  assignedTo: string | null;
+  assigneeIds: string[];
   createdAt: string;
   slaResponseDueAt: string | null;
   slaResolutionDueAt: string | null;
@@ -410,7 +410,7 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
     try {
       await api('/tickets/bulk-update', {
         method: 'POST',
-        body: JSON.stringify({ ids: [...selectedIds], update: { assignedTo: bulkAssignTo } }),
+        body: JSON.stringify({ ids: [...selectedIds], update: { assigneeIds: bulkAssignTo ? [bulkAssignTo] : [] } }),
       });
       setSelectedIds(new Set());
       setShowBulkAssign(false);
@@ -681,13 +681,23 @@ export function TicketsPage({ onSelectTicket, onNavigate }: { onSelectTicket?: (
                     {customerMap.get(t.customerId) ?? 'Unknown'}
                   </span>
                   <span className="text-xs text-muted-foreground/50">·</span>
-                  {t.assignedTo ? (
+                  {(t.assigneeIds ?? []).length > 0 ? (
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="h-4 w-4 rounded-full bg-primary/10 text-primary text-[9px] font-semibold flex items-center justify-center shrink-0">
-                        {initials(techMap.get(t.assignedTo) ?? '?')}
+                      <span className="flex -space-x-1.5">
+                        {(t.assigneeIds ?? []).slice(0, 3).map(uid => (
+                          <span
+                            key={uid}
+                            className="h-4 w-4 rounded-full bg-primary/10 text-primary text-[9px] font-semibold flex items-center justify-center shrink-0 ring-1 ring-background"
+                            title={techMap.get(uid) ?? 'Unknown'}
+                          >
+                            {initials(techMap.get(uid) ?? '?')}
+                          </span>
+                        ))}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {techMap.get(t.assignedTo) ?? 'Unknown'}
+                        {(t.assigneeIds ?? []).length === 1
+                          ? (techMap.get(t.assigneeIds[0]) ?? 'Unknown')
+                          : `${(t.assigneeIds ?? []).length} techs`}
                       </span>
                     </span>
                   ) : (

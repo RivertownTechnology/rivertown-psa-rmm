@@ -20,7 +20,6 @@ export const tickets = pgTable(
     contactId: uuid('contact_id').references(() => contacts.id),
     assetId: uuid('asset_id').references(() => assets.id),
     contractId: uuid('contract_id'),
-    assignedTo: uuid('assigned_to').references(() => users.id),
     queueId: uuid('queue_id'),
     categoryId: uuid('category_id').references(() => ticketCategories.id),
     subcategoryId: uuid('subcategory_id').references(() => ticketSubcategories.id),
@@ -50,7 +49,32 @@ export const tickets = pgTable(
     uniqueIndex('tickets_tenant_number_idx').on(table.tenantId, table.ticketNumber),
     index('tickets_tenant_status_idx').on(table.tenantId, table.status),
     index('tickets_tenant_customer_idx').on(table.tenantId, table.customerId),
-    index('tickets_tenant_assigned_idx').on(table.tenantId, table.assignedTo),
+  ],
+);
+
+// A ticket can be worked by any number of techs. There is deliberately no
+// 'primary' flag: assignees are a flat set, and every one of them is notified
+// and emailed on customer activity.
+export const ticketAssignees = pgTable(
+  'ticket_assignees',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    ticketId: uuid('ticket_id')
+      .notNull()
+      .references(() => tickets.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    assignedBy: uuid('assigned_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('ticket_assignees_unique_idx').on(table.ticketId, table.userId),
+    index('ticket_assignees_tenant_user_idx').on(table.tenantId, table.userId),
+    index('ticket_assignees_ticket_idx').on(table.ticketId),
   ],
 );
 

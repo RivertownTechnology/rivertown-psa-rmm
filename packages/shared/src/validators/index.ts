@@ -118,6 +118,8 @@ export const createTicketSchema = z.object({
   contactId: z.string().uuid().optional(),
   assetId: z.string().uuid().optional(),
   contractId: z.string().uuid().optional(),
+  assigneeIds: z.array(z.string().uuid()).optional(),
+  /** @deprecated single-assignee alias, folded into assigneeIds. */
   assignedTo: z.string().uuid().optional(),
   categoryId: z.string().uuid().optional(),
   subcategoryId: z.string().uuid().optional(),
@@ -130,6 +132,8 @@ export const createTicketSchema = z.object({
 
 export const updateTicketSchema = z.object({
   customerId: z.string().uuid().optional(),
+  assigneeIds: z.array(z.string().uuid()).optional(),
+  /** @deprecated single-assignee alias, folded into assigneeIds. */
   assignedTo: z.string().uuid().nullable().optional(),
   contactId: z.string().uuid().nullable().optional(),
   assetId: z.string().uuid().nullable().optional(),

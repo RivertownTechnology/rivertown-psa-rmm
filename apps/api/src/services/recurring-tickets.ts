@@ -57,10 +57,14 @@ export function startRecurringTicketScheduler(db: any) {
             description: rule.description,
             priority: rule.priority ?? 'medium',
             categoryId: rule.categoryId,
-            assignedTo: rule.assignedTo,
             queueId: rule.queueId,
             source: 'recurring',
           }).returning();
+
+          if (rule.assignedTo) {
+            const { addAssignee } = await import('../modules/tickets/assignees.js');
+            await addAssignee(db, rule.tenantId, ticket.id, rule.assignedTo, null);
+          }
 
           const { notifyTenantStaff } = await import('./notifications.js');
           await notifyTenantStaff(db, {

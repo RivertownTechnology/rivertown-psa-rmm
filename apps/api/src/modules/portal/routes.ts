@@ -2,7 +2,8 @@ import { FastifyInstance } from 'fastify';
 import { randomUUID, randomBytes } from 'crypto';
 import { eq, and, ne, desc, sql, count } from 'drizzle-orm';
 import { compare, hash } from 'bcryptjs';
-import { contacts, tickets, ticketComments, quotes, invoices, assets, agreements, payments, ticketCategories, ticketSubcategories } from '@rivertown/db';
+import { contacts, tickets, ticketComments, quotes, invoices, assets, agreements, payments, ticketCategories, ticketSubcategories, tenants } from '@rivertown/db';
+import { broadcastToTenant } from '../../ws/broadcast.js';
 import { ValidationError, NotFoundError, ForbiddenError } from '../../common/errors.js';
 import { getNextTicketNumber } from '../../common/ticket-number.js';
 import { oauthStates, cleanExpired } from '../../auth/oauth-shared.js';
@@ -745,9 +746,42 @@ export async function portalRoutes(fastify: FastifyInstance) {
       body: body.trim(), isInternal: false,
     }).returning();
 
-    // Fire customer_replied workflow trigger
     const [fullTicket] = await fastify.db.select().from(tickets).where(eq(tickets.id, id)).limit(1);
+
     if (fullTicket) {
+      // Reopen a resolved ticket, matching the inbound-email path exactly.
+      // A closed ticket is deliberately NOT reopened here: the email path spawns
+      // a follow-up ticket for that case, and silently reviving a closed ticket
+      // from the portal would skip the new-ticket numbering and SLA clock.
+      if (fullTicket.status === 'resolved') {
+        const [tenantRow] = await fastify.db.select({ settings: tenants.settings })
+          .from(tenants).where(eq(tenants.id, user.tid)).limit(1);
+        const ts = (tenantRow?.settings ?? {}) as Record<string, unknown>;
+        if (ts.ticketAutoReopenOnReply !== false) {
+          await fastify.db.update(tickets).set({
+            status: 'open',
+            resolvedAt: null,
+            closedAt: null,
+            updatedAt: new Date(),
+          }).where(eq(tickets.id, id));
+          fullTicket.status = 'open';
+        }
+      }
+
+      // Notify + email every assigned tech. The portal path previously did
+      // neither, so portal replies were completely silent on the tech side.
+      import('../../services/email-to-ticket.js').then(({ notifyAssigneesOfCustomerReply }) => {
+        notifyAssigneesOfCustomerReply(fastify.db, user.tid, id, {
+          ticketNumber: fullTicket.ticketNumber,
+          body: body.trim(),
+        }).catch((e: unknown) => console.error('Portal reply notify failed:', e));
+      });
+
+      // Live-update any tech with the ticket open — the portal path never
+      // broadcast, so a reply would not appear until a manual refresh.
+      broadcastToTenant(user.tid, { type: 'ticket.comment.created', ticketId: id });
+      broadcastToTenant(user.tid, { type: 'ticket.updated', ticketId: id });
+
       import('../../services/workflow-engine.js').then(({ evaluateWorkflowRules }) => {
         evaluateWorkflowRules(fastify.db, user.tid, 'customer_replied', fullTicket).catch(() => {});
       });

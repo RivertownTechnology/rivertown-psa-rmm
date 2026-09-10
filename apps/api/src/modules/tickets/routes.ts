@@ -1,8 +1,9 @@
 import { createTicketRecord, dispatchTicketCreated } from '../../services/ticket-create.js';
+import { getAssigneeIds, getAssigneeMap, setAssignees } from './assignees.js';
 import { sanitizeBody } from '../../common/sanitize.js';
 import crypto from 'crypto';
 import { FastifyInstance } from 'fastify';
-import { eq, and, or, ilike, count, desc, inArray } from 'drizzle-orm';
+import { eq, and, or, ilike, count, desc, inArray, notInArray } from 'drizzle-orm';
 import {
   tickets,
   ticketComments,
@@ -18,6 +19,7 @@ import {
   emailMessages,
   csatRatings,
   contracts,
+  ticketAssignees,
 } from '@rivertown/db';
 import {
   createTicketSchema,
@@ -65,7 +67,29 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       }
       if (params.priority) conditions.push(eq(tickets.priority, params.priority));
       if (params.customerId) conditions.push(eq(tickets.customerId, params.customerId));
-      if (params.assignedTo) conditions.push(eq(tickets.assignedTo, params.assignedTo));
+      // Assignment lives in ticket_assignees now; filter with an EXISTS-style
+      // subquery so a tech's queue still comes back in one round trip.
+      if (params.assignedTo) {
+        conditions.push(inArray(
+          tickets.id,
+          fastify.db
+            .select({ id: ticketAssignees.ticketId })
+            .from(ticketAssignees)
+            .where(and(
+              eq(ticketAssignees.tenantId, request.tenantId),
+              eq(ticketAssignees.userId, params.assignedTo),
+            )),
+        ));
+      }
+      if (params.unassigned === 'true') {
+        conditions.push(notInArray(
+          tickets.id,
+          fastify.db
+            .select({ id: ticketAssignees.ticketId })
+            .from(ticketAssignees)
+            .where(eq(ticketAssignees.tenantId, request.tenantId)),
+        ));
+      }
       if (params.search?.trim()) {
         const term = params.search.trim();
         const asNumber = parseInt(term.replace(/^#/, ''), 10);
@@ -90,7 +114,17 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         fastify.db.select({ total: count() }).from(tickets).where(where),
       ]);
 
-      return paginate(data, total, query);
+      const assigneeMap = await getAssigneeMap(
+        fastify.db,
+        request.tenantId,
+        data.map((t: { id: string }) => t.id),
+      );
+      const withAssignees = data.map((t: { id: string }) => ({
+        ...t,
+        assigneeIds: assigneeMap[t.id] ?? [],
+      }));
+
+      return paginate(withAssignees, total, query);
     },
   );
 
@@ -108,7 +142,7 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         .limit(1);
 
       if (!ticket) throw new NotFoundError('Ticket', id);
-      return ticket;
+      return { ...ticket, assigneeIds: await getAssigneeIds(fastify.db, request.tenantId, id) };
     },
   );
 
@@ -147,6 +181,15 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       if (!existing) throw new NotFoundError('Ticket', id);
 
       const updateData: Record<string, unknown> = { ...body, updatedAt: new Date() };
+
+      // Assignment is no longer a column on tickets — pull it out of the
+      // column update and apply it to ticket_assignees after the row update.
+      delete updateData.assigneeIds;
+      delete updateData.assignedTo;
+      const assignmentTouched = body.assigneeIds !== undefined || 'assignedTo' in rawBody;
+      const desiredAssignees = body.assigneeIds !== undefined
+        ? body.assigneeIds
+        : (body.assignedTo ? [body.assignedTo] : []);
 
       // Explicitly handle contactId from raw body in case validator strips it
       if ('contactId' in rawBody) {
@@ -238,22 +281,30 @@ export async function ticketRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Send assigned email when tech changes
-      if ((body as any).assignedTo && (body as any).assignedTo !== existing.assignedTo) {
-        import('../../services/email-notifications.js').then(({ sendTicketAssignedEmail }) => {
-          sendTicketAssignedEmail(fastify.db, request.tenantId, id, request.user.sub).catch(e => console.error('Ticket assigned email failed:', e));
-        });
-        import('../../services/notifications.js').then(({ createNotification }) => {
-          createNotification(fastify.db, {
-            tenantId: request.tenantId,
-            userId: (body as any).assignedTo,
-            type: 'ticket_assigned',
-            title: `Ticket #${existing.ticketNumber} assigned to you`,
-            body: existing.subject,
-            entityType: 'ticket',
-            entityId: id,
-          }).catch(() => {});
-        });
+      // Apply the assignee set and notify only the techs whose assignment
+      // actually changed — re-saving an unchanged list must not re-notify.
+      let assigneeChange: { added: string[]; removed: string[]; current: string[] } | null = null;
+      if (assignmentTouched) {
+        assigneeChange = await setAssignees(
+          fastify.db, request.tenantId, id, desiredAssignees, request.user.sub,
+        );
+        for (const userId of assigneeChange.added) {
+          import('../../services/email-notifications.js').then(({ sendTicketAssignedEmail }) => {
+            sendTicketAssignedEmail(fastify.db, request.tenantId, id, request.user.sub, userId)
+              .catch(e => console.error('Ticket assigned email failed:', e));
+          });
+          import('../../services/notifications.js').then(({ createNotification }) => {
+            createNotification(fastify.db, {
+              tenantId: request.tenantId,
+              userId,
+              type: 'ticket_assigned',
+              title: `Ticket #${existing.ticketNumber} assigned to you`,
+              body: existing.subject,
+              entityType: 'ticket',
+              entityId: id,
+            }).catch(() => {});
+          });
+        }
       }
 
       moduleEvents.emit('ticket.updated', updated, body);
@@ -282,13 +333,18 @@ export async function ticketRoutes(fastify: FastifyInstance) {
       }
 
       // Assignment changed trigger
-      if (body.assignedTo !== undefined && body.assignedTo !== existing.assignedTo) {
+      if (assigneeChange && (assigneeChange.added.length > 0 || assigneeChange.removed.length > 0)) {
         import('../../services/workflow-engine.js').then(({ evaluateWorkflowRules }) => {
           evaluateWorkflowRules(fastify.db, request.tenantId, 'assigned_changed', updated, body as Record<string, unknown>).catch(() => {});
         });
       }
 
-      return updated;
+      return {
+        ...updated,
+        assigneeIds: assigneeChange
+          ? assigneeChange.current
+          : await getAssigneeIds(fastify.db, request.tenantId, id),
+      };
     },
   );
 
@@ -638,11 +694,29 @@ export async function ticketRoutes(fastify: FastifyInstance) {
     // Whitelist writable columns — never trust the raw body (mass-assignment guard)
     const parsed = updateTicketSchema.parse(update ?? {});
     const updateData: Record<string, unknown> = { ...sanitizeBody(parsed), updatedAt: new Date() };
-    for (const id of ids) {
+
+    // Assignment is not a column — pull it out before the column update.
+    delete updateData.assigneeIds;
+    delete updateData.assignedTo;
+    const assignmentTouched = parsed.assigneeIds !== undefined || 'assignedTo' in (update ?? {});
+    const desiredAssignees = parsed.assigneeIds !== undefined
+      ? parsed.assigneeIds
+      : (parsed.assignedTo ? [parsed.assignedTo] : []);
+
+    // Resolve which ids are actually ours before writing assignee rows, so a
+    // foreign ticket id can't have rows created against this tenant.
+    const owned = await fastify.db.select({ id: tickets.id }).from(tickets)
+      .where(and(inArray(tickets.id, ids), eq(tickets.tenantId, request.tenantId)));
+    const ownedIds = owned.map((t: { id: string }) => t.id);
+
+    for (const id of ownedIds) {
       await fastify.db.update(tickets).set(updateData)
         .where(and(eq(tickets.id, id), eq(tickets.tenantId, request.tenantId)));
+      if (assignmentTouched) {
+        await setAssignees(fastify.db, request.tenantId, id, desiredAssignees, request.user.sub);
+      }
     }
-    return { updated: ids.length };
+    return { updated: ownedIds.length };
   });
 
   // Bulk delete tickets

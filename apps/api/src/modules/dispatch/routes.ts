@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and, gte, lte, isNull, desc, count } from 'drizzle-orm';
-import { calendarEvents, tickets, users } from '@rivertown/db';
+import { eq, and, gte, lte, isNull, desc, count, notInArray } from 'drizzle-orm';
+import { calendarEvents, tickets, users, ticketAssignees } from '@rivertown/db';
+import { addAssignee } from '../tickets/assignees.js';
 import { requirePermission } from '../../auth/rbac.js';
 import { NotFoundError } from '../../common/errors.js';
 
@@ -50,10 +51,15 @@ export async function dispatchRoutes(fastify: FastifyInstance) {
   fastify.get('/api/v1/dispatch/unassigned', {
     preHandler: [fastify.authenticate, requirePermission('tickets:read')]
   }, async (request) => {
+    // Unassigned == no rows in ticket_assignees for this ticket.
     return fastify.db.select().from(tickets)
       .where(and(
         eq(tickets.tenantId, request.tenantId),
-        isNull(tickets.assignedTo),
+        notInArray(
+          tickets.id,
+          fastify.db.select({ id: ticketAssignees.ticketId }).from(ticketAssignees)
+            .where(eq(ticketAssignees.tenantId, request.tenantId)),
+        ),
       ))
       .orderBy(desc(tickets.createdAt))
       .limit(50);
@@ -95,8 +101,8 @@ export async function dispatchRoutes(fastify: FastifyInstance) {
     }).returning();
 
     // Update ticket: assign + schedule + status
+    await addAssignee(fastify.db, request.tenantId, ticketId, userId, request.user.sub);
     await fastify.db.update(tickets).set({
-      assignedTo: userId,
       scheduledStartAt: new Date(startAt),
       scheduledEndAt: new Date(endAt),
       status: 'scheduled',
@@ -147,7 +153,9 @@ export async function dispatchRoutes(fastify: FastifyInstance) {
       const ticketUpdate: Record<string, unknown> = { updatedAt: new Date() };
       if (startAt) ticketUpdate.scheduledStartAt = new Date(startAt);
       if (endAt) ticketUpdate.scheduledEndAt = new Date(endAt);
-      if (userId) ticketUpdate.assignedTo = userId;
+      if (userId) {
+        await addAssignee(fastify.db, request.tenantId, event.ticketId, userId, request.user.sub);
+      }
       await fastify.db.update(tickets).set(ticketUpdate)
         .where(and(eq(tickets.id, event.ticketId), eq(tickets.tenantId, request.tenantId)));
     }

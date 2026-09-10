@@ -115,6 +115,15 @@ function resolveFieldValue(field: string, ticket: Record<string, unknown>): stri
       return String(ticket.last_customer_response_minutes ?? ticket.lastCustomerResponseMinutes ?? 0);
     case 'last_tech_response_minutes':
       return String(ticket.last_tech_response_minutes ?? ticket.lastTechResponseMinutes ?? 0);
+    // Assignment moved off the ticket row into ticket_assignees. Existing
+    // rules and templates written against `assignedTo` keep working: the
+    // set is hydrated onto the ticket before evaluation and joined here, so
+    // is_empty / is_not_empty / contains all behave as an author expects.
+    case 'assignedTo':
+    case 'assigneeIds': {
+      const ids = ticket.assigneeIds;
+      return Array.isArray(ids) ? ids.join(',') : '';
+    }
     default:
       return String(ticket[field] ?? '');
   }
@@ -232,10 +241,12 @@ export async function executeAction(
       // ── Ticket Field Updates ──────────────────────────────────────
 
       case 'assign_to': {
-        await db
-          .update(tickets)
-          .set({ assignedTo: params.userId, updatedAt: new Date() })
-          .where(eq(tickets.id, ticketId));
+        // Adds to the assignee set rather than replacing it — a rule that
+        // routes a ticket to a specialist must not silently unassign the
+        // tech already working it.
+        const { addAssignee } = await import('../modules/tickets/assignees.js');
+        await addAssignee(db, tenantId, ticketId, params.userId as string, null);
+        await db.update(tickets).set({ updatedAt: new Date() }).where(eq(tickets.id, ticketId));
         return { type: action.type, success: true };
       }
 
@@ -379,34 +390,51 @@ export async function executeAction(
       // ── Notifications ─────────────────────────────────────────────
 
       case 'send_notification': {
-        const targetUserId = params.userId || (ticket.assignedTo as string);
-        if (!targetUserId) {
+        // With no explicit target, notify every assignee rather than one.
+        let targets: string[];
+        if (params.userId) {
+          targets = [params.userId as string];
+        } else {
+          const { getAssigneeIds } = await import('../modules/tickets/assignees.js');
+          targets = await getAssigneeIds(db, tenantId, ticketId);
+        }
+        if (targets.length === 0) {
           return { type: action.type, success: false, error: 'No target user for notification' };
         }
 
-        await createNotification(db, {
+        await Promise.all(targets.map(userId => createNotification(db, {
           tenantId,
-          userId: targetUserId,
+          userId,
           type: 'workflow',
           title: params.title || (rule.name as string) || 'Workflow Notification',
           body: params.message || '',
           entityType: 'ticket',
           entityId: ticketId,
-        });
+        })));
 
         return { type: action.type, success: true };
       }
 
       case 'send_email_template': {
-        // Email sending will be wired later
-        console.log('[workflow] Would send email template:', params.templateId);
-        return { type: action.type, success: true };
+        // NOT IMPLEMENTED. This must report failure, not success: reporting
+        // success made the execution log claim mail was sent when nothing
+        // was, which is worse than the missing feature itself.
+        console.warn('[workflow] send_email_template is not implemented; rule:', rule.name);
+        return {
+          type: action.type,
+          success: false,
+          error: 'send_email_template is not implemented — no email was sent',
+        };
       }
 
       case 'send_customer_notification': {
-        // Customer notification will be wired later
-        console.log('[workflow] Would send customer notification for ticket:', ticketId);
-        return { type: action.type, success: true };
+        // NOT IMPLEMENTED — see the note on send_email_template above.
+        console.warn('[workflow] send_customer_notification is not implemented; rule:', rule.name);
+        return {
+          type: action.type,
+          success: false,
+          error: 'send_customer_notification is not implemented — nothing was sent',
+        };
       }
 
       case 'notify_manager': {
@@ -590,6 +618,16 @@ export async function evaluateWorkflowRules(
   changes?: Record<string, unknown>,
 ): Promise<RuleExecutionResult[]> {
   const results: RuleExecutionResult[] = [];
+
+  // Callers pass a raw ticket row, which no longer carries assignment.
+  // Hydrate the set once so conditions can be evaluated against it.
+  if (ticket.assigneeIds === undefined && ticket.id) {
+    const { getAssigneeIds } = await import('../modules/tickets/assignees.js');
+    ticket = {
+      ...ticket,
+      assigneeIds: await getAssigneeIds(db, tenantId, ticket.id as string).catch(() => []),
+    };
+  }
 
   // Fetch active instant rules (not templates) matching the trigger
   const rules = await db

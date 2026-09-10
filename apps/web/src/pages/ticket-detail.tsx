@@ -36,7 +36,7 @@ interface Ticket {
   id: string; ticketNumber: number; subject: string; description: string | null;
   status: string; priority: string; ticketType: string; source: string;
   customerId: string; contactId: string | null; assetId: string | null;
-  contractId: string | null; assignedTo: string | null;
+  contractId: string | null; assigneeIds: string[];
   categoryId: string | null; subcategoryId: string | null;
   queueId: string | null;
   slaDueAt: string | null; resolvedAt: string | null; closedAt: string | null;
@@ -348,6 +348,16 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
     setTicket(data);
     return data;
   }, [ticketId]);
+
+  // Assignment is sent as the whole set: the API diffs it and notifies only
+  // the techs actually added, so re-saving an unchanged list is a no-op.
+  const saveAssignees = useCallback(async (next: string[]) => {
+    await api(`/tickets/${ticketId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ assigneeIds: Array.from(new Set(next)) }),
+    });
+    loadTicket();
+  }, [ticketId, loadTicket]);
 
   const loadComments = useCallback(async () => {
     const data = await api<Comment[]>(`/tickets/${ticketId}/comments`);
@@ -1200,20 +1210,39 @@ export function TicketDetailPage({ ticketId, onBack, onNavigateToCustomer, onNav
                 />
               </div>
 
-              {/* Assigned To */}
+              {/* Assigned To — a flat set of techs, no primary */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Assigned To</Label>
+                {(ticket.assigneeIds ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {(ticket.assigneeIds ?? []).map(uid => {
+                      const name = techs.find(t => t.id === uid)?.displayName ?? 'Unknown';
+                      return (
+                        <span
+                          key={uid}
+                          className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary pl-2 pr-1 py-0.5 text-xs"
+                        >
+                          {name}
+                          <button
+                            type="button"
+                            className="rounded-full p-0.5 hover:bg-primary/20"
+                            title={`Unassign ${name}`}
+                            onClick={() => saveAssignees((ticket.assigneeIds ?? []).filter(x => x !== uid))}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
                 <Combobox
-                  options={[
-                    { value: '', label: 'Unassigned' },
-                    ...techs.map(t => ({ value: t.id, label: t.displayName })),
-                  ]}
-                  value={ticket.assignedTo ?? ''}
-                  onValueChange={async (v) => {
-                    await api(`/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify({ assignedTo: v || null }) });
-                    loadTicket();
-                  }}
-                  placeholder="Select technician..."
+                  options={techs
+                    .filter(t => !(ticket.assigneeIds ?? []).includes(t.id))
+                    .map(t => ({ value: t.id, label: t.displayName }))}
+                  value=""
+                  onValueChange={(v) => { if (v) saveAssignees([...(ticket.assigneeIds ?? []), v]); }}
+                  placeholder={(ticket.assigneeIds ?? []).length ? "Add another tech..." : "Assign a technician..."}
                 />
               </div>
 

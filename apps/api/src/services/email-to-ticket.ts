@@ -555,20 +555,13 @@ async function processEmail(db: Database, tenantId: string, email: {
 
       broadcastToTenant(tenantId, { type: 'ticket.comment.created', ticketId: existingTicket.id });
 
-      // Notify the assigned tech about the customer reply
-      if (existingTicket.assignedTo) {
-        import('./notifications.js').then(({ createNotification }) => {
-          createNotification(db, {
-            tenantId,
-            userId: existingTicket.assignedTo!,
-            type: 'customer_replied',
-            title: `Customer replied on Ticket #${existingTicket.ticketNumber}`,
-            body: cleanBody.substring(0, 100),
-            entityType: 'ticket',
-            entityId: existingTicket.id,
-          }).catch(() => {});
-        });
-      }
+      // Notify AND email every assigned tech about the customer reply.
+      // Previously this was an in-app notification to a single assignee with no
+      // email at all, so a reply on a ticket nobody had open went unseen.
+      await notifyAssigneesOfCustomerReply(db, tenantId, existingTicket.id, {
+        ticketNumber: existingTicket.ticketNumber,
+        body: cleanBody,
+      });
 
       // Fire customer_replied workflow trigger
       import('./workflow-engine.js').then(({ evaluateWorkflowRules }) => {
@@ -680,4 +673,35 @@ async function processEmail(db: Database, tenantId: string, email: {
   });
 
   return { ticket: isTicket, comment: isComment, blocked: false };
+}
+
+/**
+ * Fan a customer reply out to every assigned tech: in-app notification + email.
+ * Shared by the inbound-email path and the customer portal so both behave the
+ * same way — they used to diverge badly.
+ */
+export async function notifyAssigneesOfCustomerReply(
+  db: any,
+  tenantId: string,
+  ticketId: string,
+  ticket: { ticketNumber: number; body: string },
+) {
+  const { getAssigneeIds } = await import('../modules/tickets/assignees.js');
+  const assigneeIds = await getAssigneeIds(db, tenantId, ticketId);
+  if (assigneeIds.length === 0) return;
+
+  const { createNotification } = await import('./notifications.js');
+  await Promise.all(assigneeIds.map(userId => createNotification(db, {
+    tenantId,
+    userId,
+    type: 'customer_replied',
+    title: `Customer replied on Ticket #${ticket.ticketNumber}`,
+    body: ticket.body.substring(0, 100),
+    entityType: 'ticket',
+    entityId: ticketId,
+  }).catch(() => {})));
+
+  const { sendCustomerReplyEmailToAssignees } = await import('./email-notifications.js');
+  await sendCustomerReplyEmailToAssignees(db, tenantId, ticketId, ticket.body)
+    .catch((e: unknown) => console.error('[EMAIL] customer-reply alert failed:', e));
 }
